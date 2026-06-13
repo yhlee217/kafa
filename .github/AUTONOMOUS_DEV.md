@@ -2,6 +2,7 @@
 
 이 문서는 GitHub Actions의 Claude(`claude-autonomous.yml`)가 **스스로 다음 작업을 골라
 개발**할 때 따르는 규칙이다. 대화형(`@claude`) 작업에도 동일하게 적용한다.
+방법론 전체 설명은 [`docs/methodology.md`](../docs/methodology.md) 참고.
 
 ## 절대 규칙 (보안 제0원칙 — 위반 금지)
 - 원천 세무데이터(**사업자번호·카드번호·거래처 실명 = PII**)는 어떤 LLM 컨텍스트에도

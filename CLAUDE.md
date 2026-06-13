@@ -57,6 +57,11 @@ tests/                Phase 1 표 기반 단위테스트
 ## 규칙/코드표는 코드에 하드코딩하지 않는다
 모두 `config/*.yaml` 로 외부화. 변경은 YAML에서. 결정 이력은 `docs/decisions.md`.
 
+## 자율 개발 (개발→검수→재개발 루프)
+무인 자동(`.github/workflows/claude-autonomous.yml`, cron)·대화형(`@claude`, `claude.yml`)으로
+작은 개선을 반복. 플레이북 `.github/AUTONOMOUS_DEV.md`, 방법론 `docs/methodology.md`.
+가드레일: PII 금지·합성데이터만·보류 추측 금지·PR-only·근거는 decisions.md.
+
 ## 실행
 ```bash
 pip install -e .            # 또는 pip install pandas openpyxl xlwt xlrd PyYAML pytest
