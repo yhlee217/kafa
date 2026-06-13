@@ -73,6 +73,16 @@ def test_render_has_sections_and_checkpoint():
     assert "체크포인트" in text
 
 
+def test_automation_rate_kpi():
+    rep = build_review(_rows())
+    # 작성 5건 중 검토 1건만 사람확인 → 자동 4건
+    assert rep.written == 5
+    assert rep.needs_human == 1
+    assert rep.auto_done == 4
+    assert abs(rep.automation_rate - 0.8) < 1e-9
+    assert "자동처리율" in render_report(rep)
+
+
 def test_masking_in_report():
     rep = build_review(_rows(), mask=True)
     joined = "\n".join(rep.review_lines + rep.suspect_vendor_lines)

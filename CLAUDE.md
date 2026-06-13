@@ -22,6 +22,7 @@ kafa/
   config_loader.py    YAML 로더(규칙/계정코드 외부화)
   security.py         PII 마스킹/해시
   validate.py         사업자번호 체크섬 / 부가율 이상 (순수 검증, Phase 4용)
+  eval.py             정확도 검증 하니스(수작업 정답 대조, 자동처리율·불일치 사유별)
   dup_guard.py        1.8 중복 2차 안전장치(해시 키 로컬 보존)
   rules/              Phase 1 결정론적 룰 엔진(순수 함수 + 단위테스트)
     models.py         InputRow / ClassifiedRow / Verdict / Deduct
@@ -54,8 +55,13 @@ tests/                Phase 1 표 기반 단위테스트
 ```bash
 pip install -e .            # 또는 pip install pandas openpyxl xlwt xlrd PyYAML pytest
 python -m pytest -q         # 단위테스트
-python -m kafa.cli <입력폴더|파일.xlsx> <출력폴더> [--client-type corporate|individual]
+python -m kafa.cli <입력폴더|파일.xlsx> <출력폴더> \
+    [--client-type corporate|individual] [--dup-store dup.json] [--truth 정답.csv]
 ```
+서비스 운영(배치): 파일별 에러 격리(형식 오류는 건너뛰고 계속), 출력 폴더에
+`<파일>_upload.xls`(2MB 초과 시 `_partNN`), `_review.txt`/`_review.csv`(담당자),
+`--truth` 지정 시 `_accuracy.txt`(자동처리율·필드별 정확도·불일치 사유별), `_manifest.json`(배치 요약).
+부분 실패 시 종료코드 1.
 
 ## 진행 상태 (spec v4)
 - ✅ Phase 0 (필드 매핑) — `docs/decisions.md`

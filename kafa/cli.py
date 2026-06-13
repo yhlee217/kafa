@@ -74,6 +74,7 @@ def process_rows(rows: list[InputRow], out_path: Path, *,
 
     return {"report_obj": rep, "report": report_text,
             "report_path": report_path, "csv_path": csv_path,
+            "classified": classified,
             "skipped": skipped, "written": len(out_rows), "files": files}
 
 
@@ -94,8 +95,13 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--client-type", choices=["corporate", "individual"],
                    default=None, help="기장 클라이언트 유형(기본=config)")
     p.add_argument("--dup-store", default=None, help="중복 가드 JSON 경로")
+    p.add_argument("--truth", default=None,
+                   help="담당자 정답 CSV(수작업 대조) — 정확도 검증")
     p.add_argument("--config-dir", default=None)
     args = p.parse_args(argv)
+
+    import json
+    from datetime import datetime, timezone
 
     from kafa.io_wehago.reader import read_download_xlsx
 
@@ -108,8 +114,16 @@ def main(argv: list[str] | None = None) -> int:
         print(f"입력 .xlsx 없음: {in_path}", file=sys.stderr)
         return 1
 
-    # 1차: 배치 전체 읽기 → 이미 분류된 행으로 자가 시드 구축
-    per_file = {f: read_download_xlsx(f) for f in files}
+    # 1차: 파일별로 읽기(에러 격리) → 정상 파일에서 자가 시드 구축
+    per_file: dict[Path, list] = {}
+    failures: dict[Path, str] = {}
+    for f in files:
+        try:
+            per_file[f] = read_download_xlsx(f)
+        except Exception as e:  # noqa: BLE001 — 배치 회복력(형식오류 포함)
+            failures[f] = f"{type(e).__name__}: {e}"
+            print(f"[{f.name}] 읽기 실패 → {failures[f]}", file=sys.stderr)
+
     seed = SeedIndex()
     for rows in per_file.values():
         s = build_seed_from_inputrows(rows, config_dir=args.config_dir)
@@ -118,16 +132,51 @@ def main(argv: list[str] | None = None) -> int:
         for k, c in s.by_bizno.items():
             seed.by_bizno.setdefault(k, type(c)()).update(c)
 
+    truth = None
+    if args.truth:
+        from kafa.eval import load_truth_csv
+        truth = load_truth_csv(args.truth)
+
     dup = DupGuard(args.dup_store) if args.dup_store else None
+    manifest = {"started_at": datetime.now(timezone.utc).isoformat(),
+                "files": [], "failures": {}}
     for f, rows in per_file.items():
         out = out_dir / (f.stem + "_upload.xls")
-        res = process_rows(rows, out, client_type=args.client_type,
-                           seed=seed, dup=dup, config_dir=args.config_dir)
+        try:
+            res = process_rows(rows, out, client_type=args.client_type,
+                               seed=seed, dup=dup, config_dir=args.config_dir)
+        except Exception as e:  # noqa: BLE001 — 한 파일 실패가 배치를 막지 않음
+            failures[f] = f"{type(e).__name__}: {e}"
+            print(f"[{f.name}] 처리 실패 → {failures[f]}", file=sys.stderr)
+            continue
+        rep = res["report_obj"]
         parts = ", ".join(p.name for p in res["files"])
-        print(f"[{f.name}] 작성 {res['written']} / 스킵 {res['skipped']} → {parts}")
+        print(f"[{f.name}] 작성 {res['written']} / 스킵 {res['skipped']} "
+              f"/ 자동처리율 {rep.automation_rate:.1%} → {parts}")
         print(f"  검토: {res['report_path'].name} / 중간산출물: {res['csv_path'].name}")
         print(res["report"])
-    return 0
+
+        entry = {"input": f.name, "written": res["written"],
+                 "skipped": res["skipped"], "automation_rate": rep.automation_rate,
+                 "outputs": [p.name for p in res["files"]],
+                 "review": res["report_path"].name, "csv": res["csv_path"].name}
+
+        if truth is not None:
+            from kafa.eval import evaluate, render_eval
+            ev = evaluate(res["classified"], truth)
+            acc_text = render_eval(ev)
+            print(acc_text)
+            acc_path = out.with_name(out.stem + "_accuracy.txt")
+            acc_path.write_text(acc_text, encoding="utf-8")
+            entry["accuracy"] = ev.overall_accuracy
+            entry["accuracy_report"] = acc_path.name
+        manifest["files"].append(entry)
+
+    manifest["failures"] = {f.name: msg for f, msg in failures.items()}
+    (out_dir / "_manifest.json").write_text(
+        json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    return 1 if failures else 0
 
 
 if __name__ == "__main__":

@@ -39,10 +39,17 @@ class ReviewReport:
     recommended: int = 0
     reversals: int = 0
     deemed_candidates: int = 0
+    auto_done: int = 0          # 사람 개입 없이 기계 확정(확정/추천, 검토·미해소 아님)
+    needs_human: int = 0        # 미해소 또는 검토 — 담당자 손이 필요한 행
     review_lines: list[str] = field(default_factory=list)
     recommendation_lines: list[str] = field(default_factory=list)
     vat_anomaly_lines: list[str] = field(default_factory=list)
     suspect_vendor_lines: list[str] = field(default_factory=list)
+
+    @property
+    def automation_rate(self) -> float:
+        """자동처리율 = 자동확정 / 작성. 수용 기준(≥95%) 추적 지표."""
+        return (self.auto_done / self.written) if self.written else 0.0
 
 
 def _tag(row: ClassifiedRow, *, mask: bool) -> str:
@@ -85,6 +92,10 @@ def build_review(
             rep.reversals += 1
         if r.의제대상여부:
             rep.deemed_candidates += 1
+        if r.판정유형 == Verdict.UNRESOLVED or r.needs_review:
+            rep.needs_human += 1
+        else:
+            rep.auto_done += 1
 
         tag = _tag(r, mask=mask)
         src = r.source
@@ -139,7 +150,9 @@ def render_report(rep: ReviewReport) -> str:
         "── 검토 리포트 (담당자 전용) ──\n"
         f"총 {rep.total} | 작성 {rep.written} | 스킵 {rep.skipped} | "
         f"미해소 {rep.unresolved} | 추천 {rep.recommended} | 검토 {rep.needs_review} | "
-        f"반전 {rep.reversals} | 의제후보 {rep.deemed_candidates}"
+        f"반전 {rep.reversals} | 의제후보 {rep.deemed_candidates}\n"
+        f"자동처리율 {rep.automation_rate:.1%} "
+        f"(자동 {rep.auto_done} / 사람확인 {rep.needs_human} / 작성 {rep.written})"
     )
     parts = [
         head,

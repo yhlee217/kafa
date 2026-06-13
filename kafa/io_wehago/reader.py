@@ -8,8 +8,12 @@ from __future__ import annotations
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
-from kafa.io_wehago.schema import SUMMARY_TOKENS
+from kafa.io_wehago.schema import REQUIRED_INPUT, SUMMARY_TOKENS
 from kafa.rules.models import InputRow
+
+
+class InputFormatError(ValueError):
+    """위하고 다운로드본 형식이 아님(필수 컬럼 누락 등)."""
 
 
 def _to_decimal(value) -> Decimal:
@@ -42,6 +46,13 @@ def read_download_xlsx(path: str | Path) -> list[InputRow]:
 
     df = pd.read_excel(path, dtype=object)
     df.columns = [str(c).strip() for c in df.columns]
+
+    missing = [c for c in REQUIRED_INPUT if c not in df.columns]
+    if missing:
+        raise InputFormatError(
+            f"위하고 다운로드본 형식이 아님: 필수 컬럼 누락 {missing}. "
+            f"(읽은 컬럼 일부: {list(df.columns)[:8]})"
+        )
 
     def col(row, name):
         return row[name] if name in row else None
