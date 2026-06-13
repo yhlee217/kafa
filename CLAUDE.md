@@ -39,7 +39,7 @@ kafa/
   io_wehago/          엑셀 입출력(원천 데이터 로컬 전용)
     reader.py         .xlsx 읽기(pandas), 요약행 제외
     writer.py         .xls 쓰기(xlwt, CP949) — Phase 3 골격
-    account_sheet.py  '계정과목(참고용)' 시트 파서 — [보류] 골격
+    account_sheet.py  '계정과목(참고용)' 시트 파서 — 구조(헤더) 기반 자동 매핑
     schema.py         입출력 컬럼 상수
   recommend/          Phase 2 미추천 해소 (핵심: AI 대차변 추정 + 근거 생성)
     features.py       비-PII 특징(업태/종목/품명/유형) 추출 + 서명(PII 차단)
