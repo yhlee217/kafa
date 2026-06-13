@@ -18,7 +18,9 @@
 ## 아키텍처
 ```
 kafa/
-  cli.py              입력폴더→출력폴더 파이프라인
+  service.py          서비스 파사드: run_batch(로컬) / convert·preview(마스킹 요약)
+  mcp_server.py       MCP 서버(Claude Desktop) — convert/preview 도구, 마스킹만 반환
+  cli.py              입력폴더→출력폴더 파이프라인(service.run_batch 위의 출력기)
   config_loader.py    YAML 로더(규칙/계정코드 외부화)
   security.py         PII 마스킹/해시
   validate.py         사업자번호 체크섬 / 부가율 이상 (순수 검증, Phase 4용)
@@ -54,10 +56,14 @@ tests/                Phase 1 표 기반 단위테스트
 ## 실행
 ```bash
 pip install -e .            # 또는 pip install pandas openpyxl xlwt xlrd PyYAML pytest
+pip install -e ".[mcp]"     # Claude Desktop(MCP) 연동까지
 python -m pytest -q         # 단위테스트
 python -m kafa.cli <입력폴더|파일.xlsx> <출력폴더> \
     [--client-type corporate|individual] [--dup-store dup.json] [--truth 정답.csv]
+python -m kafa.mcp_server   # MCP 서버(콘솔 스크립트 kafa-mcp). 담당자 사용법: docs/usage.md
 ```
+Claude Desktop: `claude_desktop_config.json` 에 `{"mcpServers":{"kafa":{"command":"kafa-mcp"}}}`.
+도구 `convert`/`preview` 는 raw PII 없이 **마스킹 요약만** 반환(데이터 변환은 결정론적 코드).
 서비스 운영(배치): 파일별 에러 격리(형식 오류는 건너뛰고 계속), 출력 폴더에
 `<파일>_upload.xls`(2MB 초과 시 `_partNN`), `_review.txt`/`_review.csv`(담당자),
 `--truth` 지정 시 `_accuracy.txt`(자동처리율·필드별 정확도·불일치 사유별), `_manifest.json`(배치 요약).

@@ -122,3 +122,13 @@ PII 로컬 원칙상 외부 웹서비스화는 의도적으로 배제하고, 세
   이로써 spec v4 Phase 0~4 최소 버전 전부 동작(보류 항목은 데이터 확보 시 확정).
 - 2026-06-13: 서비스 운영 기능 — 정확도 검증 하니스(eval.py, --truth), 자동처리율 KPI,
   입력 형식 가드(InputFormatError)·배치 에러 격리, _manifest.json·종료코드. 단위테스트 89케이스.
+- 2026-06-13: 사용성 — service.py 파사드(run_batch/convert/preview)로 배치 오케스트레이션
+  통합(CLI는 출력기로 경량화), MCP 서버(kafa/mcp_server.py, FastMCP) 추가로 Claude Desktop
+  에서 자연어 사용. MCP/LLM 에는 마스킹 요약만 반환(보안 제0원칙). 결정론(동일 입력→동일
+  .xls)·preview 안전성 테스트 포함, 단위테스트 94케이스. docs/usage.md(담당자용) 추가.
+
+## 사용 형태 (사용자 관점)
+- **Claude Desktop(MCP)**: `convert`/`preview` 도구. 변환은 결정론적 코드가 수행, 출력은
+  고정 .xls 스키마, 결과는 마스킹 요약만 → "정해진 템플릿으로 항상 오차없이". 설정/사용 docs/usage.md.
+- **CLI**: 동일 파이프라인. service.run_batch 공용.
+- **보안**: raw PII 는 도구 결과(=LLM 컨텍스트)에 절대 미포함. .xls/CSV 는 로컬 디스크에만.

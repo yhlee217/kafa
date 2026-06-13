@@ -17,9 +17,11 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=7.4"]
+mcp = ["mcp>=1.0"]
 
 [project.scripts]
 kafa = "kafa.cli:main"
+kafa-mcp = "kafa.mcp_server:main"
 
 [tool.setuptools.packages.find]
 include = ["kafa*"]
