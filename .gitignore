@@ -15,6 +15,7 @@ data/
 *.xls
 !docs/**/*.xls
 dupguard*.json
+*llm_cache*.json
 
 # OS
 .DS_Store

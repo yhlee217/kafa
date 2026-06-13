@@ -70,10 +70,16 @@ output:
 negative:
   reverse_direction: true
 
-# Phase 2 미추천 추천 신뢰도 상한 (문자열 유사도 폴백은 보수적으로)
+# Phase 2 미추천 추천
 recommend:
-  similarity_floor: 0.80           # 이 미만 유사도는 unresolved 처리
+  similarity_floor: 0.80           # 시드 유사도 폴백 임계
   similarity_confidence_cap: 0.60  # 유사도 기반 추천 신뢰도 상한
+  # LLM 기반 차변계정 추정(비-PII 특징만 전달). 핵심 기능.
+  llm:
+    enabled: true                  # API 키 있으면 LLM 추정, 없으면 시드 폴백
+    model: claude-opus-4-8         # 변경 가능(비용 우선 시 claude-sonnet-4-6 등). 다운그레이드는 담당자 판단.
+    # effort: low                  # 선택: 분류 비용/속도 조절(미설정 시 SDK 기본)
+    cache_path: null               # 결정 캐시 경로 지정 시 런 간 재현(같은 특징→같은 결과)
 
 # Phase 4 검토 리포트
 report:

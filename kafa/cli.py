@@ -11,7 +11,7 @@ import sys
 from pathlib import Path
 
 from kafa.dup_guard import DupGuard, make_key
-from kafa.recommend.recommender import recommend_account
+from kafa.recommend.recommender import Recommender, SeedRecommender
 from kafa.recommend.seed import SeedIndex, build_seed_from_inputrows
 from kafa.rules.engine import classify_row, finalize_reversal
 from kafa.rules.models import InputRow, Verdict
@@ -20,10 +20,14 @@ from kafa.rules.models import InputRow, Verdict
 def process_rows(rows: list[InputRow], out_path: Path, *,
                  client_type: str | None = None,
                  seed: SeedIndex | None = None,
+                 recommender: Recommender | None = None,
                  dup: DupGuard | None = None,
                  config_dir: str | None = None) -> dict:
     from kafa.io_wehago.writer import to_output_row, write_upload_xls
     from kafa.report.review import build_review, render_report, write_review_csv
+
+    if recommender is None:                 # 기본: 시드 기반(로컬). 서비스는 LLM 주입.
+        recommender = SeedRecommender(seed, config_dir=config_dir)
 
     classified = []
     skipped = 0
@@ -44,9 +48,9 @@ def process_rows(rows: list[InputRow], out_path: Path, *,
                 classified.append(c)
                 continue
             dup.record(key)
-        # Phase 2: 미추천 해소
+        # Phase 2: 미추천 해소 (LLM 추정 또는 시드 — recommender 가 결정)
         if c.판정유형 == Verdict.UNRESOLVED and c.차변계정코드 is None:
-            rec = recommend_account(row, seed, config_dir=config_dir)
+            rec = recommender.recommend_for(row)
             if rec.resolved:
                 c.차변계정코드 = rec.account_code
                 c.판정유형 = Verdict.RECOMMENDED

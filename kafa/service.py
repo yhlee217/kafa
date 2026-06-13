@@ -100,13 +100,18 @@ def run_batch(
         from kafa.eval import load_truth_csv
         truth_idx = load_truth_csv(truth)
 
+    # 미추천 추천기: config 의 recommend.llm 설정 + API 키에 따라 LLM 추정/시드 폴백
+    from kafa.recommend.recommender import build_recommender
+    recommender = build_recommender(seed, config_dir=config_dir)
+
     dup = DupGuard(dup_store) if dup_store else None
 
     for f, rows in per_file.items():
         out = out_dir / (f.stem + "_upload.xls")
         try:
             res = process_rows(rows, out, client_type=client_type,
-                               seed=seed, dup=dup, config_dir=config_dir)
+                               seed=seed, recommender=recommender,
+                               dup=dup, config_dir=config_dir)
         except Exception as e:                    # noqa: BLE001
             result.failures[f.name] = f"{type(e).__name__}: {e}"
             continue

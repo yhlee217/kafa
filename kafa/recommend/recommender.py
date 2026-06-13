@@ -69,3 +69,72 @@ def recommend_account(
                                   f"유사 거래처({best_score:.0%}) 폴백", resolved=True)
 
     return Recommendation(None, 0.0, "근거 없음 → 담당자 확인", resolved=False)
+
+
+# ── 통합 추천기 인터페이스 ────────────────────────────────────────────
+# 미추천 행 → Recommendation. LLM(비-PII 특징) 또는 시드/유사도(로컬, PII 로컬 처리).
+
+class Recommender:
+    """공통 인터페이스: 입력 행 1건 → Recommendation."""
+
+    def recommend_for(self, row: InputRow) -> Recommendation:  # pragma: no cover
+        raise NotImplementedError
+
+
+class SeedRecommender(Recommender):
+    """결정론 폴백 — 시드 빈도/유사도(로컬). LLM 미사용 환경에서."""
+
+    def __init__(self, seed: Optional[SeedIndex] = None, *, config_dir=None):
+        self.seed = seed
+        self.config_dir = config_dir
+
+    def recommend_for(self, row: InputRow) -> Recommendation:
+        return recommend_account(row, self.seed, config_dir=self.config_dir)
+
+
+class LLMRecommenderAdapter(Recommender):
+    """LLM 추정 — 비-PII 특징만 전달. 실패 시 시드로 폴백."""
+
+    def __init__(self, llm, allowed: dict[str, int],
+                 fallback: Optional[Recommender] = None, *, config_dir=None):
+        self.llm = llm
+        self.allowed = allowed
+        self.fallback = fallback
+        self.config_dir = config_dir
+
+    def recommend_for(self, row: InputRow) -> Recommendation:
+        from kafa.recommend.features import account_features
+        try:
+            rec = self.llm.recommend(account_features(row), self.allowed)
+        except Exception as e:  # noqa: BLE001 — LLM 실패가 배치를 막지 않음
+            if self.fallback is not None:
+                fb = self.fallback.recommend_for(row)
+                fb.basis = f"LLM 실패({type(e).__name__}) → " + fb.basis
+                return fb
+            return Recommendation(None, 0.0, f"LLM 실패: {type(e).__name__}",
+                                  resolved=False)
+        if not rec.resolved and self.fallback is not None:
+            return self.fallback.recommend_for(row)
+        return rec
+
+
+def build_recommender(seed: Optional[SeedIndex] = None, *,
+                      config_dir: str | None = None) -> Recommender:
+    """config 와 환경(API 키)에 따라 추천기 구성.
+
+    recommend.llm.enabled 이고 API 키가 있으면 LLM 추정(폴백=시드), 아니면 시드.
+    """
+    seed_reco = SeedRecommender(seed, config_dir=config_dir)
+    cfg = (load_rules(config_dir).get("recommend", {}) or {}).get("llm", {}) or {}
+    if not cfg.get("enabled"):
+        return seed_reco
+
+    from kafa.recommend.llm import AnthropicRecommender, allowed_accounts, llm_available
+    if not llm_available():
+        return seed_reco           # API 키 없음 → 로컬 폴백(오프라인/CI 안전)
+    try:
+        llm = AnthropicRecommender(config_dir=config_dir)
+    except Exception:              # noqa: BLE001 — SDK 미설치 등
+        return seed_reco
+    return LLMRecommenderAdapter(llm, allowed_accounts(config_dir),
+                                 fallback=seed_reco, config_dir=config_dir)

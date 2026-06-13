@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Iterable, Optional
 
 from kafa.config_loader import load_rules
+from kafa.recommend.explain import explain
 from kafa.rules.models import ClassifiedRow, Deduct, Verdict
 from kafa.security import mask_bizno, mask_name
 from kafa.validate import valid_bizno, vat_rate_anomaly
@@ -181,8 +182,8 @@ def render_report(rep: ReviewReport) -> str:
 _CSV_COLUMNS = [
     "거래일자", "거래처", "사업자번호", "품명", "공급가액", "세액", "합계",
     "유형코드", "차변계정코드", "대변계정코드", "공제여부",
-    "의제대상여부", "면세매입액", "판정유형", "신뢰도", "추천근거",
-    "검토사유", "판정근거", "스킵사유",
+    "의제대상여부", "면세매입액", "판정유형", "신뢰도", "근거",
+    "추천근거", "검토사유", "판정근거", "스킵사유",
 ]
 
 
@@ -218,6 +219,7 @@ def write_review_csv(rows: list[ClassifiedRow], path: str | Path,
                 r.면세매입액 or "",
                 r.판정유형.value,
                 f"{r.신뢰도:.2f}" if r.신뢰도 is not None else "",
+                explain(r),
                 r.추천근거,
                 "; ".join(r.review_reasons),
                 ",".join(r.판정근거),

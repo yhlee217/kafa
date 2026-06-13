@@ -41,9 +41,13 @@ kafa/
     writer.py         .xls 쓰기(xlwt, CP949) — Phase 3 골격
     account_sheet.py  '계정과목(참고용)' 시트 파서 — [보류] 골격
     schema.py         입출력 컬럼 상수
-  recommend/          Phase 2 미추천 해소(외부 LLM 없음) — 자가 시딩
+  recommend/          Phase 2 미추천 해소 (핵심: AI 대차변 추정 + 근거 생성)
+    features.py       비-PII 특징(업태/종목/품명/유형) 추출 + 서명(PII 차단)
+    llm.py            Claude API 차변계정 추정(구조화 출력·계정명 enum·결정 캐시)
+    recommender.py    Recommender(LLM 우선/시드 폴백), build_recommender, 자가 시딩
+    explain.py        규칙ID+맥락 → 한국어 근거 문장
   report/             Phase 4 검토 리포트(담당자 전용)
-    review.py         요약·부가율 이상·미등록 의심·추천내역 + 중간산출물 CSV
+    review.py         요약·부가율 이상·미등록 의심·추천내역 + 중간산출물 CSV(근거 포함)
 config/
   rules.yaml          모든 규칙·코드·키워드 외부화
   account_codes.yaml  검증된 계정명→코드(시트 파싱분과 머지 예정)
@@ -72,8 +76,10 @@ Claude Desktop: `claude_desktop_config.json` 에 `{"mcpServers":{"kafa":{"comman
 ## 진행 상태 (spec v4)
 - ✅ Phase 0 (필드 매핑) — `docs/decisions.md`
 - ✅ Phase 1 (결정론적 룰 엔진 + 단위테스트) — 완료
-- ✅ Phase 2 (미추천 해소) — 동작. **자가 시딩**(배치 내 분류된 행)으로
-  사업자번호→거래처→유사도 폴백 추천. 과거 처리분 시드 확보 시 `build_seed_index`로 보강
+- ✅ Phase 2 (미추천 해소) — 동작. **AI(Claude) 차변계정 추정 + 근거 생성**이 1차.
+  비-PII 특징(업태/종목/품명/유형)만 LLM 에 전달, 거래처/사업자번호는 미전송.
+  구조화 출력으로 허용 계정만 선택, 결정 캐시로 재현성 확보. API 키 없으면 **자가 시딩**
+  (사업자번호→거래처→유사도)로 로컬 폴백. 모델 기본 claude-opus-4-8(config 변경 가능)
 - ✅ Phase 3 (업로드 .xls 생성) — 동작. 2MB 자동 분할·CP949 안전화·필수값 검증.
   거래구분 허용값만 [보류](config 기본 공란)
 - ✅ Phase 4 (검토 리포트) — 동작. 한 화면 요약 + 체크포인트, 미해소/검토,
