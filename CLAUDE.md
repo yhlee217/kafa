@@ -21,6 +21,7 @@ kafa/
   cli.py              입력폴더→출력폴더 파이프라인
   config_loader.py    YAML 로더(규칙/계정코드 외부화)
   security.py         PII 마스킹/해시
+  validate.py         사업자번호 체크섬 / 부가율 이상 (순수 검증, Phase 4용)
   dup_guard.py        1.8 중복 2차 안전장치(해시 키 로컬 보존)
   rules/              Phase 1 결정론적 룰 엔진(순수 함수 + 단위테스트)
     models.py         InputRow / ClassifiedRow / Verdict / Deduct
@@ -37,8 +38,9 @@ kafa/
     writer.py         .xls 쓰기(xlwt, CP949) — Phase 3 골격
     account_sheet.py  '계정과목(참고용)' 시트 파서 — [보류] 골격
     schema.py         입출력 컬럼 상수
-  recommend/          Phase 2 미추천 해소(외부 LLM 없음) — 골격
-  report/             Phase 4 검토 리포트(담당자 전용) — 골격
+  recommend/          Phase 2 미추천 해소(외부 LLM 없음) — 자가 시딩
+  report/             Phase 4 검토 리포트(담당자 전용)
+    review.py         요약·부가율 이상·미등록 의심·추천내역 + 중간산출물 CSV
 config/
   rules.yaml          모든 규칙·코드·키워드 외부화
   account_codes.yaml  검증된 계정명→코드(시트 파싱분과 머지 예정)
@@ -62,7 +64,9 @@ python -m kafa.cli <입력폴더|파일.xlsx> <출력폴더> [--client-type corp
   사업자번호→거래처→유사도 폴백 추천. 과거 처리분 시드 확보 시 `build_seed_index`로 보강
 - ✅ Phase 3 (업로드 .xls 생성) — 동작. 2MB 자동 분할·CP949 안전화·필수값 검증.
   거래구분 허용값만 [보류](config 기본 공란)
-- 🚧 Phase 4 (검토 리포트) — 요약 골격
+- ✅ Phase 4 (검토 리포트) — 동작. 한 화면 요약 + 체크포인트, 미해소/검토,
+  추천내역(근거·신뢰도), 부가율 이상, 홈택스 미등록 의심(사업자번호 체크섬),
+  중간 산출물 CSV(담당자 전용, 수작업 대조용). 외부 노출 요약은 마스킹
 
 ## 보류 항목 (데이터 확보 시 확정)
 1. 개인사업자 상대계정(인출금 등) — 현재 법인(262) 폴백 + 검토 플래그

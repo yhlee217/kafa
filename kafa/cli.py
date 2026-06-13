@@ -24,21 +24,25 @@ def process_rows(rows: list[InputRow], out_path: Path, *,
                  dup: DupGuard | None = None,
                  config_dir: str | None = None) -> dict:
     from kafa.io_wehago.writer import to_output_row, write_upload_xls
-    from kafa.report.review import build_summary, render_text
+    from kafa.report.review import build_review, render_report, write_review_csv
 
     classified = []
     skipped = 0
     for row in rows:
         c = classify_row(row, client_type=client_type, config_dir=config_dir)
-        if c.skipped:
+        if c.skipped:                       # 1.8 중복전표 등 — 집계용으로 보존
             skipped += 1
+            classified.append(c)
             continue
         # 2차 중복 가드
         if dup is not None:
             key = make_key(f"{row.연도}-{row.일자}", row.거래처,
                            row.사업자등록번호, row.합계)
             if dup.is_duplicate(key):
+                c.skipped = True
+                c.skip_reason = "dup_guard(2차)"
                 skipped += 1
+                classified.append(c)
                 continue
             dup.record(key)
         # Phase 2: 미추천 해소
@@ -48,19 +52,28 @@ def process_rows(rows: list[InputRow], out_path: Path, *,
                 c.차변계정코드 = rec.account_code
                 c.판정유형 = Verdict.RECOMMENDED
                 c.신뢰도 = rec.confidence
+                c.추천근거 = rec.basis
                 c.add_rule("RECO-001")
         finalize_reversal(c)
         classified.append(c)
 
-    summary = build_summary(classified)
     if dup is not None:
         dup.flush()
 
+    rep = build_review(classified, config_dir=config_dir)
     out_rows = [to_output_row(c, config_dir=config_dir)
                 for c in classified if not c.skipped]
     files = write_upload_xls(out_rows, out_path, strict=False, config_dir=config_dir)
 
-    return {"summary": summary, "report": render_text(summary),
+    # 검토 리포트(.txt) + 중간 산출물 CSV(담당자 전용) 산출
+    report_text = render_report(rep)
+    report_path = out_path.with_name(out_path.stem + "_review.txt")
+    report_path.write_text(report_text, encoding="utf-8")
+    csv_path = out_path.with_name(out_path.stem + "_review.csv")
+    write_review_csv(classified, csv_path)
+
+    return {"report_obj": rep, "report": report_text,
+            "report_path": report_path, "csv_path": csv_path,
             "skipped": skipped, "written": len(out_rows), "files": files}
 
 
@@ -112,6 +125,7 @@ def main(argv: list[str] | None = None) -> int:
                            seed=seed, dup=dup, config_dir=args.config_dir)
         parts = ", ".join(p.name for p in res["files"])
         print(f"[{f.name}] 작성 {res['written']} / 스킵 {res['skipped']} → {parts}")
+        print(f"  검토: {res['report_path'].name} / 중간산출물: {res['csv_path'].name}")
         print(res["report"])
     return 0
 

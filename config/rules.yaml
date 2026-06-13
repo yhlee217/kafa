@@ -74,3 +74,7 @@ negative:
 recommend:
   similarity_floor: 0.80           # 이 미만 유사도는 unresolved 처리
   similarity_confidence_cap: 0.60  # 유사도 기반 추천 신뢰도 상한
+
+# Phase 4 검토 리포트
+report:
+  vat_rate_tol: 0.01               # 표준 부가율 10% 대비 허용 편차(절대). 초과 시 이상

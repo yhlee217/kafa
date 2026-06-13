@@ -81,6 +81,7 @@ class ClassifiedRow:
     판정근거: list[str] = field(default_factory=list)   # 규칙ID 목록
     판정유형: Verdict = Verdict.RULE_CONFIRMED
     신뢰도: Optional[float] = None
+    추천근거: str = ""                # Phase 2 추천 시 근거 설명(리포트용)
 
     skipped: bool = False             # 중복전표 등 스킵
     skip_reason: str = ""
