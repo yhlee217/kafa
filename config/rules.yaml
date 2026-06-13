@@ -60,6 +60,10 @@ recommend_target_status: ["미추천"]
 # 2 [확정] 업로드 양식 필수값
 required_output_fields: ["거래일자", "합계"]
 
+# 1.7 (선택) '계정과목(참고용)' 시트 경로. 지정 시 계정명→코드 매핑에 자동 머지(config 우선).
+#      null 이면 검증된 account_codes.yaml 만 사용. 시트 확보 시 여기에 경로를 적으면 됨.
+account_sheet_path: null
+
 # 2 출력 포맷 (.xls, xlwt). [보류] 위하고 .xlsx 업로드 허용 여부 미확인.
 output_format: xls
 output:

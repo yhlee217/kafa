@@ -2,6 +2,7 @@
 import openpyxl
 import pytest
 
+from kafa.config_loader import load_account_codes
 from kafa.io_wehago.account_sheet import build_mapping, parse_account_sheet
 
 
@@ -72,3 +73,32 @@ def test_build_mapping_bad_sheet_is_safe(tmp_path):
     p = _sheet(tmp_path / "bad2.xlsx", ["이름", "값"], [["x", 1]])
     m = build_mapping(p)                    # 컬럼 못 찾아도 예외 없이 config만
     assert m["미지급비용"] == 262
+
+
+def _config_dir(tmp_path, sheet_path):
+    """account_sheet_path 가 연결된 임시 config 디렉터리 생성."""
+    d = tmp_path / "config"
+    d.mkdir()
+    (d / "account_codes.yaml").write_text(
+        "account_name_to_code:\n  미지급비용: 262\n", encoding="utf-8")
+    (d / "rules.yaml").write_text(
+        f'account_sheet_path: "{sheet_path}"\n', encoding="utf-8")
+    return str(d)
+
+
+def test_load_account_codes_merges_sheet_via_config(tmp_path):
+    sheet = _sheet(tmp_path / "form_cfg.xlsx", ["계정과목", "계정코드"],
+                   [["미지급비용", 999], ["임차료", 819]])
+    m = load_account_codes(_config_dir(tmp_path, sheet))
+    assert m["미지급비용"] == 262          # config 검증분 우선(999 무시)
+    assert m["임차료"] == 819              # 시트에서 자동 보강
+
+
+def test_load_account_codes_no_sheet(tmp_path):
+    d = tmp_path / "config2"
+    d.mkdir()
+    (d / "account_codes.yaml").write_text(
+        "account_name_to_code:\n  현금: 101\n", encoding="utf-8")
+    (d / "rules.yaml").write_text("account_sheet_path: null\n", encoding="utf-8")
+    m = load_account_codes(str(d))
+    assert m == {"현금": 101}              # 시트 미지정 → config 그대로
