@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.pytest_cache/
+.venv/
+venv/
+
+# 원천 세무데이터(PII) — 절대 커밋 금지
+data/
+*.xlsx
+*.xls
+!docs/**/*.xls
+dupguard*.json
+*llm_cache*.json
+
+# OS
+.DS_Store

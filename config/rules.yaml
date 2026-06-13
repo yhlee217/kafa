@@ -1,0 +1,88 @@
+# config/rules.yaml
+# 위하고 T 신용카드 매입 전표 분류 규칙 (spec v4 §3 기준)
+#
+# 표시 규칙
+#   [확정]  : 위하고 화면/양식으로 검증된 사실. 그대로 신뢰.
+#   [AI]    : Claude 잠정 판단. 세무 전문가 최종 검수 전 (특히 키워드 목록).
+#   [보류]  : 데이터 미확보. TODO 자리표시자. 진행을 막지 않음.
+
+# 1.1 [확정] 과세유형 코드 (숫자 입력 → 라벨 표시). 불공제 전용 코드 없음.
+vat_type_codes:
+  일반: 3
+  카과: 57
+  카면: 58
+  카영: 59
+  화물: 63
+
+# 1.1 유형 도출 규칙
+vat_type_logic:
+  과세_공제: 카과
+  면세_공제: 카면        # [보류] 카면 실제 샘플로 검증
+  불공제: 일반            # 불공제는 유형 일반(3) + 국세청 컬럼으로 구분
+
+# 1.2 [확정] 대변(상대계정). 법인 두 샘플 모두 미지급비용(262), 거래처=카드사.
+counterparty:
+  corporate_client:
+    account: 미지급비용
+    code: 262
+    vendor: 카드사        # 업로드 배치(어느 카드로 받았는지)로 귀속되는 것으로 추정
+  individual_client: TODO  # [보류] 개인사업자 샘플 없음. 법인 경로를 기본 동작으로.
+  default_client_type: corporate
+
+# 1.3 [확정] 불공제 3단 분기. 국세청 컬럼은 자동추정값(참고). 담당자 오버라이드 가능.
+non_deductible:
+  source: 국세청_컬럼              # 기본값: 국세청 컬럼을 따른다
+  auto: ["면세사업관련"]           # 룰 확정 자동 불공제
+  flag_for_review:                # 의심 → 담당자 확인 (자동 확정 금지)
+    - 비영업용승용차
+    - 접대성업종
+    - 사업무관의심
+  simplified_taxpayer: TODO        # [보류] 다운로드 데이터에 간이/일반 식별자 유무 미확인
+  # [AI] flag_for_review 판정용 키워드. 업태/종목/품명에 매칭되면 review 플래그.
+  #      세무 전문가 검수 대상 — 같은 가맹점도 목적에 따라 갈리므로 자동 확정하지 않음.
+  review_keywords:
+    비영업용승용차: [주유, 주유소, 휘발유, 경유, LPG, 충전, 세차, 주차, 정비, 타이어, 엔진오일]
+    접대성업종: [유흥, 단란, 노래, 골프, 룸살롱, 클럽, 접대]
+    사업무관의심: []
+
+# 1.6 의제매입세액 — 플래그만 (율/한도 계산 금지)
+restaurant_deemed_credit:
+  judge_by: 고객사_업종            # 가맹점 업태/종목 아님 (별도 회사정보 필요)
+  client_is_restaurant: TODO       # [보류] 고객사 음식점업 여부. 회사정보 확보 시 채움.
+  emit: flag_only                  # 율/세액 계산 안 함. 부가세 신고 단계로 이관.
+
+# 1.8 [확정] 중복전표 스킵
+skip_status: ["중복전표"]
+
+# Phase 2 대상
+recommend_target_status: ["미추천"]
+
+# 2 [확정] 업로드 양식 필수값
+required_output_fields: ["거래일자", "합계"]
+
+# 2 출력 포맷 (.xls, xlwt). [보류] 위하고 .xlsx 업로드 허용 여부 미확인.
+output_format: xls
+output:
+  transaction_type_default: ""     # 🤖 거래구분 허용값 미확정([보류]) → 공란 기본
+  max_bytes: 2097152               # 2MB 초과 시 행 단위 자동 분할
+
+# 1.9 환불/승인취소(음수): 원거래 분류 유지, 차·대변 방향 반전.
+negative:
+  reverse_direction: true
+
+# Phase 2 미추천 추천
+recommend:
+  similarity_floor: 0.80           # 시드 유사도 폴백 임계
+  similarity_confidence_cap: 0.60  # 유사도 기반 추천 신뢰도 상한
+  # AI 차변계정 추정: 기본은 **Claude Desktop/Code의 호스트 모델**이 수행한다(별도 API 키·
+  # 추가 토큰 청구 없음). MCP analyze→convert 흐름에서 호스트 Claude 가 비-PII 특징으로
+  # 추정하고 결과만 넘긴다. 거래처/사업자번호는 모델에 전달되지 않는다.
+  llm:
+    enabled: false                 # true 로 켜면 별도 ANTHROPIC_API_KEY 로 직접 호출(추가 비용). 기본 off.
+    model: claude-opus-4-8         # api 경로 사용 시 모델(변경 가능)
+    # effort: low
+    cache_path: null               # 결정 캐시 경로(같은 특징→같은 결과 재현)
+
+# Phase 4 검토 리포트
+report:
+  vat_rate_tol: 0.01               # 표준 부가율 10% 대비 허용 편차(절대). 초과 시 이상
