@@ -62,6 +62,9 @@ required_output_fields: ["거래일자", "합계"]
 
 # 2 출력 포맷 (.xls, xlwt). [보류] 위하고 .xlsx 업로드 허용 여부 미확인.
 output_format: xls
+output:
+  transaction_type_default: ""     # 🤖 거래구분 허용값 미확정([보류]) → 공란 기본
+  max_bytes: 2097152               # 2MB 초과 시 행 단위 자동 분할
 
 # 1.9 환불/승인취소(음수): 원거래 분류 유지, 차·대변 방향 반전.
 negative:
