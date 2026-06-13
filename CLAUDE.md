@@ -1,0 +1,70 @@
+# CLAUDE.md — kafa 프로젝트 가이드
+
+위하고 T 신용카드 **매입** 전표 분류·생성 도구. 엑셀 라운드트립.
+입력 = 위하고 '신용카드' 다운로드본(.xlsx, 위하고 1차 분류 결과),
+출력 = '신용카드 매입 엑셀 업로드' 양식(.xls).
+
+## 핵심 가치
+1. **미추천 해소** — `전표상태=미추천`(차변계정 미정) 행에 계정 추천.
+2. **일괄 코드 변환** — 계정명(한글)→코드, 유형 라벨→코드.
+위하고가 이미 채운 행은 **매핑만** 한다.
+
+## 보안 제0원칙 (절대 위반 금지)
+원천 세무데이터(사업자번호·카드번호·거래처 실명 = PII)는 **어떤 LLM/서브에이전트
+컨텍스트에도 올리지 않는다.** 로컬에 머무는 건 파이썬 코드 실행뿐.
+- raw 엑셀은 코드가 로컬 처리. 에이전트로는 컬럼명·dtype·통계·**마스킹 샘플**만.
+- 노출 시 `kafa/security.py`의 `mask_name`/`mask_bizno`/`hash_id` 사용.
+
+## 아키텍처
+```
+kafa/
+  cli.py              입력폴더→출력폴더 파이프라인
+  config_loader.py    YAML 로더(규칙/계정코드 외부화)
+  security.py         PII 마스킹/해시
+  dup_guard.py        1.8 중복 2차 안전장치(해시 키 로컬 보존)
+  rules/              Phase 1 결정론적 룰 엔진(순수 함수 + 단위테스트)
+    models.py         InputRow / ClassifiedRow / Verdict / Deduct
+    vat_type.py       1.1 유형 라벨↔코드, 도출
+    deductibility.py  1.3 불공제 3단(국세청/자동/검토)
+    accounts.py       1.7 계정명→코드 ((제)/(판) 접두 정규화)
+    counterparty.py   1.2 대변(법인 262 / 개인 TODO)
+    deemed_credit.py  1.6 의제 플래그만(율/한도 계산 안 함)
+    negative.py       1.9 환불/취소 방향 반전
+    vendor_match.py   거래처 정확→후보→미매칭
+    engine.py         오케스트레이션 classify_row
+  io_wehago/          엑셀 입출력(원천 데이터 로컬 전용)
+    reader.py         .xlsx 읽기(pandas), 요약행 제외
+    writer.py         .xls 쓰기(xlwt, CP949) — Phase 3 골격
+    account_sheet.py  '계정과목(참고용)' 시트 파서 — [보류] 골격
+    schema.py         입출력 컬럼 상수
+  recommend/          Phase 2 미추천 해소(외부 LLM 없음) — 골격
+  report/             Phase 4 검토 리포트(담당자 전용) — 골격
+config/
+  rules.yaml          모든 규칙·코드·키워드 외부화
+  account_codes.yaml  검증된 계정명→코드(시트 파싱분과 머지 예정)
+tests/                Phase 1 표 기반 단위테스트
+```
+
+## 규칙/코드표는 코드에 하드코딩하지 않는다
+모두 `config/*.yaml` 로 외부화. 변경은 YAML에서. 결정 이력은 `docs/decisions.md`.
+
+## 실행
+```bash
+pip install -e .            # 또는 pip install pandas openpyxl xlwt xlrd PyYAML pytest
+python -m pytest -q         # 단위테스트
+python -m kafa.cli <입력폴더|파일.xlsx> <출력폴더> [--client-type corporate|individual]
+```
+
+## 진행 상태 (spec v4)
+- ✅ Phase 0 (필드 매핑) — `docs/decisions.md`
+- ✅ Phase 1 (결정론적 룰 엔진 + 단위테스트) — 완료
+- 🚧 Phase 2 (미추천 해소) — 골격(시드/유사도 인터페이스). 시드 데이터 확보 시 본격화
+- 🚧 Phase 3 (업로드 .xls 생성) — 동작하는 골격. 2MB 분할·거래구분 TODO
+- 🚧 Phase 4 (검토 리포트) — 요약 골격
+
+## 보류 항목 (데이터 확보 시 확정)
+1. 개인사업자 상대계정(인출금 등) — 현재 법인(262) 폴백 + 검토 플래그
+2. 카면(58) 실제 처리·식당 의제 검증
+3. 간이과세자 자동 불공제 식별자
+4. 봉사료=비과세 동일성 / 거래구분 허용값 / .xlsx 업로드 허용 / 대변거래처 양식 위치
+자세한 내용·근거는 `docs/decisions.md`.
