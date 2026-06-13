@@ -121,6 +121,16 @@ PII 로컬 원칙상 외부 웹서비스화는 의도적으로 배제하고, 세
 - **배치 매니페스트**(`_manifest.json`): 파일별 작성/스킵/자동처리율/정확도/산출물·실패 사유.
   부분 실패 시 CLI 종료코드 1(자동화/모니터링 신호).
 
+### AI 추정 방식 결정 (사용자 지시 2026-06-13, 2차)
+"별도 API 키로 추가 토큰을 소모하지 않기" + "60대 접근성" 요구에 따라:
+- **기본 추정 = 호스트 모델**(이미 켜진 Claude Desktop/Code)이 수행. 별도 ANTHROPIC_API_KEY·
+  추가 토큰 청구 없음. 흐름: MCP `analyze`(미추천 행의 비-PII 특징 반환) → 호스트 Claude 추정
+  → `convert(recommendations=[{id, account_code, confidence, rationale}])` → `PickRecommender`가
+  허용 계정만 적용(환각/오류 방어), 미매칭은 자가 시딩 폴백.
+- `recommend.llm.enabled` 기본 **false**(API 직접호출 off). 자동 배치에서만 opt-in(추가 비용 고지).
+- 접근성: "변환해줘" 한마디 → Claude 가 analyze+convert 자동 수행, 한국어로 결과·다음 행동 안내.
+  설명서 docs/usage.md 를 비전문가용으로 단순화. id=raw_index 로 무상태 매칭(PII 불필요).
+
 ### 변경 이력 추가
 - 2026-06-13: **AI 대차변 추정 + 근거 생성**(사용자 지시로 Phase 2 LLM 전환). recommend/
   {features,llm,explain}.py 추가, Recommender(LLM 우선/시드 폴백)·build_recommender. 비-PII

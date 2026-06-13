@@ -92,6 +92,38 @@ class SeedRecommender(Recommender):
         return recommend_account(row, self.seed, config_dir=self.config_dir)
 
 
+class PickRecommender(Recommender):
+    """호스트 Claude(Desktop/Code)가 정한 계정을 적용. 별도 API 키·토큰 청구 없음.
+
+    picks: {row.raw_index: {"account_code": int, "confidence"?: float, "rationale"?: str}}.
+    허용 계정코드만 채택(환각/오류 방어), 미매칭/미허용은 fallback(시드).
+    """
+
+    def __init__(self, picks: dict, allowed_codes: set[int],
+                 fallback: Optional[Recommender] = None):
+        self.picks = {int(k): v for k, v in (picks or {}).items()}
+        self.allowed = set(allowed_codes)
+        self.fallback = fallback
+
+    def recommend_for(self, row: InputRow) -> Recommendation:
+        p = self.picks.get(row.raw_index)
+        if p is not None:
+            code = p.get("account_code")
+            try:
+                code = int(code) if code is not None else None
+            except (TypeError, ValueError):
+                code = None
+            if code in self.allowed:
+                conf = p.get("confidence")
+                conf = float(conf) if conf is not None else 0.9
+                basis = "AI(Claude) 추정: " + str(p.get("rationale") or "").strip()
+                return Recommendation(code, round(max(0.0, min(1.0, conf)), 3),
+                                      basis, resolved=True)
+        if self.fallback is not None:
+            return self.fallback.recommend_for(row)
+        return Recommendation(None, 0.0, "추천 없음 → 담당자 확인", resolved=False)
+
+
 class LLMRecommenderAdapter(Recommender):
     """LLM 추정 — 비-PII 특징만 전달. 실패 시 시드로 폴백."""
 

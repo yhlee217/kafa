@@ -18,8 +18,8 @@
 ## 아키텍처
 ```
 kafa/
-  service.py          서비스 파사드: run_batch(로컬) / convert·preview(마스킹 요약)
-  mcp_server.py       MCP 서버(Claude Desktop) — convert/preview 도구, 마스킹만 반환
+  service.py          서비스 파사드: run_batch / analyze(미추천 비-PII 특징) / convert(picks 적용) / preview
+  mcp_server.py       MCP 서버(Claude Desktop/Code) — preview/analyze/convert, 마스킹·비-PII만
   cli.py              입력폴더→출력폴더 파이프라인(service.run_batch 위의 출력기)
   config_loader.py    YAML 로더(규칙/계정코드 외부화)
   security.py         PII 마스킹/해시
@@ -77,9 +77,11 @@ Claude Desktop: `claude_desktop_config.json` 에 `{"mcpServers":{"kafa":{"comman
 - ✅ Phase 0 (필드 매핑) — `docs/decisions.md`
 - ✅ Phase 1 (결정론적 룰 엔진 + 단위테스트) — 완료
 - ✅ Phase 2 (미추천 해소) — 동작. **AI(Claude) 차변계정 추정 + 근거 생성**이 1차.
-  비-PII 특징(업태/종목/품명/유형)만 LLM 에 전달, 거래처/사업자번호는 미전송.
-  구조화 출력으로 허용 계정만 선택, 결정 캐시로 재현성 확보. API 키 없으면 **자가 시딩**
-  (사업자번호→거래처→유사도)로 로컬 폴백. 모델 기본 claude-opus-4-8(config 변경 가능)
+  기본 방식 = **호스트 모델(Claude Desktop/Code)**이 추정(별도 API 키·추가 토큰 청구 없음):
+  MCP `analyze`가 미추천 행의 비-PII 특징(업태/종목/품명/유형)만 모델에 주고, 모델이 정한
+  계정을 `convert(recommendations=...)`로 받아 `PickRecommender`가 적용(허용 계정만 채택).
+  거래처/사업자번호는 모델에 미전달. 추천이 없으면 **자가 시딩**(사업자번호→거래처→유사도)
+  로컬 폴백. 별도 API 직접호출은 `recommend.llm.enabled`로 opt-in(기본 off, 추가 비용 시에만).
 - ✅ Phase 3 (업로드 .xls 생성) — 동작. 2MB 자동 분할·CP949 안전화·필수값 검증.
   거래구분 허용값만 [보류](config 기본 공란)
 - ✅ Phase 4 (검토 리포트) — 동작. 한 화면 요약 + 체크포인트, 미해소/검토,

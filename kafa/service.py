@@ -87,20 +87,14 @@ def run_batch(
         except Exception as e:                    # noqa: BLE001 — 배치 회복력
             result.failures[f.name] = f"{type(e).__name__}: {e}"
 
-    seed = SeedIndex()
-    for rows in per_file.values():
-        s = build_seed_from_inputrows(rows, config_dir=config_dir)
-        for k, c in s.by_vendor.items():
-            seed.by_vendor.setdefault(k, Counter()).update(c)
-        for k, c in s.by_bizno.items():
-            seed.by_bizno.setdefault(k, Counter()).update(c)
+    seed = _merge_seed(per_file.values(), config_dir=config_dir)
 
     truth_idx = None
     if truth:
         from kafa.eval import load_truth_csv
         truth_idx = load_truth_csv(truth)
 
-    # 미추천 추천기: config 의 recommend.llm 설정 + API 키에 따라 LLM 추정/시드 폴백
+    # 미추천 추천기: 기본 시드(로컬). recommend.llm.enabled + API 키 시에만 직접 API.
     from kafa.recommend.recommender import build_recommender
     recommender = build_recommender(seed, config_dir=config_dir)
 
@@ -109,30 +103,13 @@ def run_batch(
     for f, rows in per_file.items():
         out = out_dir / (f.stem + "_upload.xls")
         try:
-            res = process_rows(rows, out, client_type=client_type,
-                               seed=seed, recommender=recommender,
-                               dup=dup, config_dir=config_dir)
+            fr = _run_one(rows, out, client_type=client_type, seed=seed,
+                          recommender=recommender, dup=dup, truth_idx=truth_idx,
+                          config_dir=config_dir)
         except Exception as e:                    # noqa: BLE001
             result.failures[f.name] = f"{type(e).__name__}: {e}"
             continue
-
-        rep = res["report_obj"]
-        fr = FileResult(
-            input_name=f.name, written=res["written"], skipped=res["skipped"],
-            automation_rate=rep.automation_rate,
-            output_files=[p.name for p in res["files"]],
-            review_path=res["report_path"].name, csv_path=res["csv_path"].name,
-            report_obj=rep,
-        )
-        if truth_idx is not None:
-            from kafa.eval import evaluate, render_eval
-            ev = evaluate(res["classified"], truth_idx)
-            acc_text = render_eval(ev)
-            acc_path = out.with_name(out.stem + "_accuracy.txt")
-            acc_path.write_text(acc_text, encoding="utf-8")
-            fr.accuracy = ev.overall_accuracy
-            fr.accuracy_path = acc_path.name
-            fr.accuracy_text = acc_text
+        fr.input_name = f.name
         result.files.append(fr)
 
     # 매니페스트
@@ -152,42 +129,174 @@ def run_batch(
     return result
 
 
-# ── LLM/MCP 안전 요약 (마스킹) ──────────────────────────────────────────
+# ── 공통 헬퍼 ────────────────────────────────────────────────────────
+
+def _merge_seed(rows_iter, *, config_dir):
+    """여러 파일의 행에서 자가 시드를 합친다."""
+    seed = SeedIndex()
+    for rows in rows_iter:
+        s = build_seed_from_inputrows(rows, config_dir=config_dir)
+        for k, c in s.by_vendor.items():
+            seed.by_vendor.setdefault(k, Counter()).update(c)
+        for k, c in s.by_bizno.items():
+            seed.by_bizno.setdefault(k, Counter()).update(c)
+    return seed
+
+
+def _run_one(rows, out, *, client_type, seed, recommender, dup, truth_idx,
+             config_dir) -> FileResult:
+    """한 파일 처리 → FileResult (정확도 평가 포함)."""
+    from kafa.cli import process_rows
+    res = process_rows(rows, out, client_type=client_type, seed=seed,
+                       recommender=recommender, dup=dup, config_dir=config_dir)
+    rep = res["report_obj"]
+    fr = FileResult(
+        input_name=out.name, written=res["written"], skipped=res["skipped"],
+        automation_rate=rep.automation_rate,
+        output_files=[p.name for p in res["files"]],
+        review_path=res["report_path"].name, csv_path=res["csv_path"].name,
+        report_obj=rep,
+    )
+    if truth_idx is not None:
+        from kafa.eval import evaluate, render_eval
+        ev = evaluate(res["classified"], truth_idx)
+        acc_path = out.with_name(out.stem + "_accuracy.txt")
+        acc_path.write_text(render_eval(ev), encoding="utf-8")
+        fr.accuracy = ev.overall_accuracy
+        fr.accuracy_path = acc_path.name
+        fr.accuracy_text = render_eval(ev)
+    return fr
+
+
+def _masked_file(fr: FileResult) -> dict:
+    rep = fr.report_obj
+    return {
+        "input": fr.input_name,
+        "output_files": fr.output_files,
+        "written": fr.written,
+        "skipped": fr.skipped,
+        "automation_rate": round(fr.automation_rate, 4),
+        "needs_human": getattr(rep, "needs_human", None),
+        "unresolved": getattr(rep, "unresolved", None),
+        "needs_review": getattr(rep, "needs_review", None),
+        "recommended": getattr(rep, "recommended", None),
+        "accuracy": fr.accuracy,
+        "review_report": fr.review_path,
+        "intermediate_csv": fr.csv_path,
+        # 아래 라인들은 build_review 가 이미 마스킹한 것(실명/번호 없음)
+        "review_items": list(getattr(rep, "review_lines", []) or []),
+        "recommendations": list(getattr(rep, "recommendation_lines", []) or []),
+        "vat_anomalies": list(getattr(rep, "vat_anomaly_lines", []) or []),
+        "suspect_vendors": list(getattr(rep, "suspect_vendor_lines", []) or []),
+    }
+
+
+# ── MCP/호스트 모델용 안전 API (마스킹) ──────────────────────────────────
+
+def analyze(input_path: str | Path, *, config_dir: Optional[str] = None) -> dict:
+    """변환 전 분석 — 결정론으로 풀리지 않는 '미추천' 행의 **비-PII 특징**만 반환.
+
+    호스트 Claude(Desktop/Code)가 이 특징(업태/종목/품명/유형)으로 차변계정을 추정해
+    convert(recommendations=...) 로 넘기면 된다. 거래처/사업자번호는 포함되지 않는다.
+    별도 API 키·추가 토큰 청구 없음(추정은 이미 켜진 호스트 모델이 수행).
+    """
+    from kafa.cli import classify_rows
+    from kafa.io_wehago.reader import InputFormatError, read_download_xlsx
+    from kafa.recommend.features import account_features
+    from kafa.recommend.llm import allowed_accounts
+    from kafa.recommend.recommender import SeedRecommender
+    from kafa.rules.models import Verdict
+
+    try:
+        rows = read_download_xlsx(input_path)
+    except InputFormatError as e:
+        return {"ok": False, "error": str(e)}
+    except Exception as e:                        # noqa: BLE001
+        return {"ok": False, "error": f"{type(e).__name__}: {e}"}
+
+    seed = _merge_seed([rows], config_dir=config_dir)
+    classified, _ = classify_rows(rows, seed=seed,
+                                  recommender=SeedRecommender(seed, config_dir=config_dir),
+                                  config_dir=config_dir)
+    pending = []
+    for c in classified:
+        if (not c.skipped and c.판정유형 == Verdict.UNRESOLVED
+                and c.차변계정코드 is None and c.source is not None):
+            feats = account_features(c.source)
+            pending.append({"id": c.source.raw_index, **feats})
+
+    allowed = allowed_accounts(config_dir)
+    return {
+        "ok": True,
+        "total": len([c for c in classified if not c.skipped]),
+        "needs_account": pending,                 # 비-PII 특징만
+        "allowed_accounts": [{"name": n, "code": allowed[n]} for n in allowed],
+        "instruction": (
+            "needs_account 의 각 항목에 대해 업태/종목/품명/유형으로 차변계정을 추정하고, "
+            "allowed_accounts 의 code 중 하나를 골라 convert(recommendations=[{id, account_code, "
+            "confidence, rationale}]) 로 넘기세요. 거래처/사업자번호 같은 식별정보는 제공되지 않습니다."
+        ),
+    }
+
 
 def convert(
     input_path: str | Path,
     output_dir: str | Path,
     *,
     client_type: Optional[str] = None,
+    recommendations: Optional[list] = None,
     dup_store: Optional[str] = None,
     truth: Optional[str] = None,
     config_dir: Optional[str] = None,
 ) -> dict:
-    """배치 실행 후 **마스킹된 요약 dict** 반환. raw PII 미포함 — MCP/LLM 노출 안전."""
+    """업로드용 .xls 생성 → **마스킹된 요약 dict** 반환. raw PII 미포함.
+
+    recommendations 가 주어지면(호스트 Claude 가 analyze 로 추정한 차변계정) 그 값을 적용한다.
+    형식: [{"id": <analyze의 id>, "account_code": int, "confidence"?: float, "rationale"?: str}].
+    미지정/미허용/미매칭 항목은 자동 시드 추천으로 폴백한다.
+    """
+    load_rules(config_dir)
+    out_dir = Path(output_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    if recommendations:
+        # 호스트 모델 추정 적용 — 단일 파일 전제(id=raw_index 는 파일별 고유)
+        from kafa.cli import process_rows
+        from kafa.io_wehago.reader import InputFormatError, read_download_xlsx
+        from kafa.recommend.llm import allowed_accounts
+        from kafa.recommend.recommender import PickRecommender, SeedRecommender
+
+        in_path = Path(input_path)
+        if not in_path.is_file():
+            return {"ok": False, "error": "recommendations 적용은 단일 .xlsx 파일에만 가능합니다."}
+        try:
+            rows = read_download_xlsx(in_path)
+        except (InputFormatError, Exception) as e:  # noqa: BLE001
+            return {"ok": False, "error": f"{type(e).__name__}: {e}"}
+
+        seed = _merge_seed([rows], config_dir=config_dir)
+        picks = {int(r["id"]): r for r in recommendations if r.get("id") is not None}
+        allowed_codes = set(allowed_accounts(config_dir).values())
+        recommender = PickRecommender(
+            picks, allowed_codes,
+            fallback=SeedRecommender(seed, config_dir=config_dir))
+
+        out = out_dir / (in_path.stem + "_upload.xls")
+        truth_idx = None
+        if truth:
+            from kafa.eval import load_truth_csv
+            truth_idx = load_truth_csv(truth)
+        fr = _run_one(rows, out, client_type=client_type, seed=seed,
+                      recommender=recommender, dup=None, truth_idx=truth_idx,
+                      config_dir=config_dir)
+        fr.input_name = in_path.name
+        return {"ok": True, "output_dir": str(out_dir), "manifest": None,
+                "files": [_masked_file(fr)], "failures": {},
+                "guidance": _guidance([_masked_file(fr)], {})}
+
     batch = run_batch(input_path, output_dir, client_type=client_type,
                       dup_store=dup_store, truth=truth, config_dir=config_dir)
-    files = []
-    for fr in batch.files:
-        rep = fr.report_obj
-        files.append({
-            "input": fr.input_name,
-            "output_files": fr.output_files,
-            "written": fr.written,
-            "skipped": fr.skipped,
-            "automation_rate": round(fr.automation_rate, 4),
-            "needs_human": getattr(rep, "needs_human", None),
-            "unresolved": getattr(rep, "unresolved", None),
-            "needs_review": getattr(rep, "needs_review", None),
-            "recommended": getattr(rep, "recommended", None),
-            "accuracy": fr.accuracy,
-            "review_report": fr.review_path,        # 파일명(로컬에 상세, 마스킹)
-            "intermediate_csv": fr.csv_path,
-            # 아래 라인들은 build_review 가 이미 마스킹한 것 (실명/번호 없음)
-            "review_items": list(getattr(rep, "review_lines", []) or []),
-            "recommendations": list(getattr(rep, "recommendation_lines", []) or []),
-            "vat_anomalies": list(getattr(rep, "vat_anomaly_lines", []) or []),
-            "suspect_vendors": list(getattr(rep, "suspect_vendor_lines", []) or []),
-        })
+    files = [_masked_file(fr) for fr in batch.files]
     return {
         "ok": batch.ok,
         "output_dir": str(Path(output_dir)),

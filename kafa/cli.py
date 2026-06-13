@@ -17,16 +17,17 @@ from kafa.rules.engine import classify_row, finalize_reversal
 from kafa.rules.models import InputRow, Verdict
 
 
-def process_rows(rows: list[InputRow], out_path: Path, *,
-                 client_type: str | None = None,
-                 seed: SeedIndex | None = None,
-                 recommender: Recommender | None = None,
-                 dup: DupGuard | None = None,
-                 config_dir: str | None = None) -> dict:
-    from kafa.io_wehago.writer import to_output_row, write_upload_xls
-    from kafa.report.review import build_review, render_report, write_review_csv
+def classify_rows(rows: list[InputRow], *,
+                  client_type: str | None = None,
+                  seed: SeedIndex | None = None,
+                  recommender: Recommender | None = None,
+                  dup: DupGuard | None = None,
+                  config_dir: str | None = None) -> tuple[list, int]:
+    """행 목록 → (ClassifiedRow 목록, 스킵 수). 파일은 쓰지 않는다.
 
-    if recommender is None:                 # 기본: 시드 기반(로컬). 서비스는 LLM 주입.
+    미추천 행은 recommender 로 해소(없으면 시드 기반). 스킵 행도 집계용으로 포함.
+    """
+    if recommender is None:
         recommender = SeedRecommender(seed, config_dir=config_dir)
 
     classified = []
@@ -37,8 +38,7 @@ def process_rows(rows: list[InputRow], out_path: Path, *,
             skipped += 1
             classified.append(c)
             continue
-        # 2차 중복 가드
-        if dup is not None:
+        if dup is not None:                 # 2차 중복 가드
             key = make_key(f"{row.연도}-{row.일자}", row.거래처,
                            row.사업자등록번호, row.합계)
             if dup.is_duplicate(key):
@@ -48,7 +48,7 @@ def process_rows(rows: list[InputRow], out_path: Path, *,
                 classified.append(c)
                 continue
             dup.record(key)
-        # Phase 2: 미추천 해소 (LLM 추정 또는 시드 — recommender 가 결정)
+        # Phase 2: 미추천 해소 (호스트 Claude 추정 / 시드 — recommender 가 결정)
         if c.판정유형 == Verdict.UNRESOLVED and c.차변계정코드 is None:
             rec = recommender.recommend_for(row)
             if rec.resolved:
@@ -62,6 +62,21 @@ def process_rows(rows: list[InputRow], out_path: Path, *,
 
     if dup is not None:
         dup.flush()
+    return classified, skipped
+
+
+def process_rows(rows: list[InputRow], out_path: Path, *,
+                 client_type: str | None = None,
+                 seed: SeedIndex | None = None,
+                 recommender: Recommender | None = None,
+                 dup: DupGuard | None = None,
+                 config_dir: str | None = None) -> dict:
+    from kafa.io_wehago.writer import to_output_row, write_upload_xls
+    from kafa.report.review import build_review, render_report, write_review_csv
+
+    classified, skipped = classify_rows(
+        rows, client_type=client_type, seed=seed, recommender=recommender,
+        dup=dup, config_dir=config_dir)
 
     rep = build_review(classified, config_dir=config_dir)
     out_rows = [to_output_row(c, config_dir=config_dir)
