@@ -46,8 +46,9 @@ kafa/
     llm.py            Claude API 차변계정 추정(구조화 출력·계정명 enum·결정 캐시)
     recommender.py    Recommender(LLM 우선/시드 폴백), build_recommender, 자가 시딩
     explain.py        규칙ID+맥락 → 한국어 근거 문장
-  report/             Phase 4 검토 리포트(담당자 전용)
+  report/             Phase 4 검토 리포트(담당자 전용) + 세무대리인 서비스 확장
     review.py         요약·부가율 이상·미등록 의심·추천내역 + 중간산출물 CSV(근거 포함)
+    vat_summary.py    부가세 신고 보조 집계(과세공제/불공제/면세/의제/검토 합산)
 config/
   rules.yaml          모든 규칙·코드·키워드 외부화
   account_codes.yaml  검증된 계정명→코드(시트 파싱분과 머지 예정)
