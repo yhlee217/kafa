@@ -38,6 +38,7 @@ class FileResult:
     report_obj: object = None       # ReviewReport (로컬 전용 — 마스킹된 라인 보유)
     vat_obj: object = None          # VatSummary (부가세 신고 보조 집계)
     vat_path: str = ""
+    client_path: str = ""           # 고객 제공용 요약 리포트(로컬)
 
 
 @dataclass
@@ -159,6 +160,7 @@ def _run_one(rows, out, *, client_type, seed, recommender, dup, truth_idx,
         review_path=res["report_path"].name, csv_path=res["csv_path"].name,
         report_obj=rep, vat_obj=res.get("vat"),
         vat_path=res["vat_path"].name if res.get("vat_path") else "",
+        client_path=res["client_path"].name if res.get("client_path") else "",
     )
     if truth_idx is not None:
         from kafa.eval import evaluate, render_eval
@@ -187,6 +189,7 @@ def _masked_file(fr: FileResult) -> dict:
         "review_report": fr.review_path,
         "intermediate_csv": fr.csv_path,
         "vat_summary_report": fr.vat_path,
+        "client_report": fr.client_path,
         # 부가세 신고 보조 집계(금액은 PII 아님 — 합계만)
         "vat_summary": ({
             "과세공제_공급가액": str(getattr(fr.vat_obj, "과세공제_공급가액", "")),

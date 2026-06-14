@@ -72,6 +72,7 @@ def process_rows(rows: list[InputRow], out_path: Path, *,
                  dup: DupGuard | None = None,
                  config_dir: str | None = None) -> dict:
     from kafa.io_wehago.writer import to_output_row, write_upload_xls
+    from kafa.report.client_report import build_client_report
     from kafa.report.review import build_review, render_report, write_review_csv
     from kafa.report.vat_summary import build_vat_summary, render_vat_summary
 
@@ -96,9 +97,14 @@ def process_rows(rows: list[InputRow], out_path: Path, *,
     vat_path = out_path.with_name(out_path.stem + "_vat.txt")
     vat_path.write_text(render_vat_summary(vat), encoding="utf-8")
 
+    # 고객 제공용 요약 리포트(세무대리인 → 고객)
+    client_path = out_path.with_name(out_path.stem + "_client.txt")
+    client_path.write_text(build_client_report(classified, config_dir=config_dir),
+                           encoding="utf-8")
+
     return {"report_obj": rep, "report": report_text,
             "report_path": report_path, "csv_path": csv_path,
-            "vat": vat, "vat_path": vat_path,
+            "vat": vat, "vat_path": vat_path, "client_path": client_path,
             "classified": classified,
             "skipped": skipped, "written": len(out_rows), "files": files}
 
