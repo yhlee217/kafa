@@ -1,0 +1,45 @@
+# 자율 개발 플레이북 (kafa)
+
+이 문서는 GitHub Actions의 Claude(`claude-autonomous.yml`)가 **스스로 다음 작업을 골라
+개발**할 때 따르는 규칙이다. 대화형(`@claude`) 작업에도 동일하게 적용한다.
+방법론 전체 설명은 [`docs/methodology.md`](../docs/methodology.md) 참고.
+
+## 절대 규칙 (보안 제0원칙 — 위반 금지)
+- 원천 세무데이터(**사업자번호·카드번호·거래처 실명 = PII**)는 어떤 LLM 컨텍스트에도
+  올리지 않는다. 테스트·예시는 **합성(가짜) 데이터만** 사용한다.
+- 저장소에 실제 위하고 엑셀(.xlsx/.xls)이 있어도 **내용을 열어 읽지 않는다**(.gitignore로 차단됨).
+- 마스킹이 필요하면 `kafa/security.py`의 `mask_name`/`mask_bizno`/`hash_id`를 쓴다.
+
+## 작업 선택 우선순위
+1. **실패하는 테스트·버그 수정** (`python -m pytest -q`가 빨가면 그것부터).
+2. **테스트 커버리지·엣지케이스 보강** (룰 엔진/리포트/IO 경계값).
+3. **골격·TODO 완성 중 '데이터가 필요 없는' 것**:
+   - `io_wehago/writer.py` 거래구분/봉사료 처리 견고화(허용값은 config 자리표시자 유지),
+   - `io_wehago/account_sheet.py` 파서 인터페이스·머지 로직 보강(시트 없으면 no-op),
+   - `report/review.py` 리포트 가독성·항목 추가,
+   - 코드 정리/리팩터/타입 힌트/문서 docstring.
+4. **문서 동기화** (README/CLAUDE/decisions/usage가 코드와 어긋난 부분).
+
+## 하지 말 것 (데이터 확보 시 사람이 확정)
+아래는 실제 데이터가 있어야 확정된다. **추측으로 값을 박지 말 것** — 골격/플래그/검토 플래그만 둔다.
+1. 개인사업자 상대계정(인출금 등) — 법인(262) 폴백 유지.
+2. 카면(58) 실제 처리·식당 의제 — 율/한도 계산 금지(플래그만).
+3. 간이과세자 자동 불공제 식별자.
+4. 봉사료=비과세 동일성 / 거래구분 허용값 / .xlsx 업로드 허용 / 대변거래처 양식 위치.
+5. '계정과목(참고용)' 시트 실제 매핑(시트 미확보).
+
+## 작업 방식
+- **작은 단위 하나**만. 큰 리팩터·아키텍처 변경은 하지 말고, 필요하면 이슈로 제안만.
+- 새 브랜치(`claude/auto/<요약>`)에서 작업.
+- `pip install -e ".[mcp]"` 후 **`python -m pytest -q` 전부 통과** 확인.
+- 규칙·코드표는 코드에 하드코딩하지 말고 `config/*.yaml`에 외부화.
+- 변경 근거를 `docs/decisions.md` 변경 이력에 한 줄 추가.
+- **PR만 생성하고 병합은 하지 않는다.** 본문에 "무엇을/왜/테스트 결과"를 적는다.
+- 이미 열린 `claude/auto/*` PR이 있으면 새로 만들지 말고 종료(중복 방지).
+
+## 활성화 (사람이 1회)
+1. GitHub App 설치: 로컬에서 `claude` 실행 후 `/install-github-app` (또는 https://github.com/apps/claude).
+2. 구독 OAuth 토큰 생성: 로컬에서 `claude setup-token`.
+3. 리포지토리 Settings → Secrets and variables → Actions 에 `CLAUDE_CODE_OAUTH_TOKEN` 등록.
+4. 이 워크플로가 **기본 브랜치(main)** 에 있어야 스케줄/이벤트 트리거가 동작한다(PR 병합 후 활성화).
+   수동 실행은 Actions 탭 → "Claude 자율 개발" → Run workflow.

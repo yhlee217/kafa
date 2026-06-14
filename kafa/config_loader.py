@@ -41,8 +41,19 @@ def load_account_codes(config_dir: str | None = None) -> dict[str, int]:
     """
     base = Path(config_dir) if config_dir else _DEFAULT_CONFIG_DIR
     data = _load_yaml(base / "account_codes.yaml")
-    mapping = data.get("account_name_to_code", {})
-    return {str(k): int(v) for k, v in mapping.items()}
+    mapping = {str(k): int(v) for k, v in data.get("account_name_to_code", {}).items()}
+
+    # 1.7 (선택) rules.yaml 의 account_sheet_path 가 있으면 계정과목 시트를 머지.
+    #     config 검증분이 우선(setdefault). 시트 형식 문제는 무시(검증분만 사용).
+    sheet_path = load_rules(config_dir).get("account_sheet_path")
+    if sheet_path and not is_todo(sheet_path):
+        from kafa.io_wehago.account_sheet import parse_account_sheet  # 지연(순환 방지)
+        try:
+            for k, v in parse_account_sheet(sheet_path).items():
+                mapping.setdefault(str(k), int(v))
+        except Exception:  # noqa: BLE001 — 시트 파싱 실패가 매핑 로딩을 막지 않음
+            pass
+    return mapping
 
 
 def is_todo(value: Any) -> bool:

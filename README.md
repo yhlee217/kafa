@@ -167,5 +167,12 @@ docs/
 
 ---
 
+## 자율 개발 (스스로 개발→검수→재개발)
+프로젝트가 작은 개선을 반복적으로 쌓도록 **개발 → 자체 검수(/code-review) → 재개발** 루프를
+운영한다. 무인 자동(GitHub Actions cron `.github/workflows/claude-autonomous.yml`)과 대화형
+(`@claude`) 두 방식이 있으며, 둘 다 같은 플레이북·가드레일(PII 금지·PR-only·보류 추측 금지)을
+따른다. 방법론·활성화 절차: [`docs/methodology.md`](docs/methodology.md),
+플레이북: [`.github/AUTONOMOUS_DEV.md`](.github/AUTONOMOUS_DEV.md).
+
 ## 라이선스 / 용도
 세무회계사무소 내부 신용카드 매입 기장 자동화 전용. 원천 세무데이터는 로컬에서만 처리합니다.

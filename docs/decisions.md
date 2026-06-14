@@ -151,6 +151,12 @@ PII 로컬 원칙상 외부 웹서비스화는 의도적으로 배제하고, 세
   통합(CLI는 출력기로 경량화), MCP 서버(kafa/mcp_server.py, FastMCP) 추가로 Claude Desktop
   에서 자연어 사용. MCP/LLM 에는 마스킹 요약만 반환(보안 제0원칙). 결정론(동일 입력→동일
   .xls)·preview 안전성 테스트 포함, 단위테스트 94케이스. docs/usage.md(담당자용) 추가.
+- 2026-06-13: [세션 내 자율 사이클1] account_sheet 계정과목 시트 파서 구조 기반 구현
+  (헤더 자동탐지·'계정코드' 우선·비숫자 행 제외·핸들 재사용). 값 추측 없음(구조만).
+  /code-review(high) 자체검수 2건 반영. 단위테스트 119케이스.
+- 2026-06-13: [세션 내 자율 사이클2] 시트 자동 머지 연결 — rules.yaml `account_sheet_path`
+  지정 시 load_account_codes 가 계정과목 시트를 계정명→코드 매핑에 머지(config 우선,
+  파싱 실패 안전). 파서가 실제 매핑에 반영됨. 단위테스트 121케이스.
 
 ## 사용 형태 (사용자 관점)
 - **Claude Desktop(MCP)**: `convert`/`preview` 도구. 변환은 결정론적 코드가 수행, 출력은

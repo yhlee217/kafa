@@ -39,7 +39,7 @@ kafa/
   io_wehago/          엑셀 입출력(원천 데이터 로컬 전용)
     reader.py         .xlsx 읽기(pandas), 요약행 제외
     writer.py         .xls 쓰기(xlwt, CP949) — Phase 3 골격
-    account_sheet.py  '계정과목(참고용)' 시트 파서 — [보류] 골격
+    account_sheet.py  '계정과목(참고용)' 시트 파서 — 구조(헤더) 기반 자동 매핑
     schema.py         입출력 컬럼 상수
   recommend/          Phase 2 미추천 해소 (핵심: AI 대차변 추정 + 근거 생성)
     features.py       비-PII 특징(업태/종목/품명/유형) 추출 + 서명(PII 차단)
@@ -56,6 +56,11 @@ tests/                Phase 1 표 기반 단위테스트
 
 ## 규칙/코드표는 코드에 하드코딩하지 않는다
 모두 `config/*.yaml` 로 외부화. 변경은 YAML에서. 결정 이력은 `docs/decisions.md`.
+
+## 자율 개발 (개발→검수→재개발 루프)
+무인 자동(`.github/workflows/claude-autonomous.yml`, cron)·대화형(`@claude`, `claude.yml`)으로
+작은 개선을 반복. 플레이북 `.github/AUTONOMOUS_DEV.md`, 방법론 `docs/methodology.md`.
+가드레일: PII 금지·합성데이터만·보류 추측 금지·PR-only·근거는 decisions.md.
 
 ## 실행
 ```bash
