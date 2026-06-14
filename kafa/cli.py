@@ -75,7 +75,11 @@ def process_rows(rows: list[InputRow], out_path: Path, *,
     from kafa.report.client_report import build_client_report
     from kafa.report.evidence_check import build_evidence_check, render_evidence_check
     from kafa.report.review import build_review, render_report, write_review_csv
-    from kafa.report.vat_summary import build_vat_summary, render_vat_summary
+    from kafa.report.vat_summary import (
+        build_vat_summary,
+        render_vat_summary,
+        write_vat_summary_csv,
+    )
 
     classified, skipped = classify_rows(
         rows, client_type=client_type, seed=seed, recommender=recommender,
@@ -97,6 +101,7 @@ def process_rows(rows: list[InputRow], out_path: Path, *,
     vat = build_vat_summary(classified)
     vat_path = out_path.with_name(out_path.stem + "_vat.txt")
     vat_path.write_text(render_vat_summary(vat), encoding="utf-8")
+    write_vat_summary_csv(vat, out_path.with_name(out_path.stem + "_vat.csv"))
 
     # 고객 제공용 요약 리포트(세무대리인 → 고객)
     client_path = out_path.with_name(out_path.stem + "_client.txt")
