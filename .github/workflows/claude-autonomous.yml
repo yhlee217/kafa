@@ -29,7 +29,7 @@ jobs:
   autonomous:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0          # 전체 히스토리(분석용)
 
