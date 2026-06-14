@@ -38,7 +38,6 @@ jobs:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           base_branch: "main"
           branch_prefix: "claude/auto/"
-          track_progress: true
           prompt: |
             저장소: ${{ github.repository }}
             너는 kafa 프로젝트를 자율적으로 점진 개선한다.
