@@ -36,7 +36,6 @@ jobs:
       - uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          show_full_output: true        # 디버그: 실제 에러 표시(원인 파악 후 제거)
           base_branch: "main"
           branch_prefix: "claude/auto/"
           prompt: |
