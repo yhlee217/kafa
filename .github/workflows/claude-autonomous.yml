@@ -28,6 +28,8 @@ concurrency:
 jobs:
   autonomous:
     runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}   # gh CLI 인증(방향 이슈 읽기용)
     steps:
       - uses: actions/checkout@v5
         with:
@@ -45,7 +47,14 @@ jobs:
             먼저 읽어라: README.md, CLAUDE.md, docs/decisions.md, .github/AUTONOMOUS_DEV.md.
             .github/AUTONOMOUS_DEV.md 의 규칙과 우선순위를 반드시 따른다.
 
-            요청 작업(비어 있으면 플레이북 우선순위로 네가 하나 선택):
+            [방향 우선] 담당자가 적어둔 방향 지시를 먼저 확인하라:
+              gh issue list --state open --search "자율 개발 방향 in:title" --json number,title
+              결과가 있으면 `gh issue view <번호> --comments` 로 본문과 코멘트를 읽고,
+              그 지시(담당자가 한국어로 적어둠)를 이번 작업의 **최우선 지침**으로 삼는다(플레이북보다 우선).
+              지시가 없거나 비어 있으면 아래 '요청 작업' 또는 플레이북 우선순위를 따른다.
+              단, 방향 지시도 보안 제0원칙·보류 추측 금지·PR전용 가드레일은 절대 위반하지 않는다.
+
+            요청 작업(비어 있으면 위 방향 지시 또는 플레이북 우선순위로 네가 하나 선택):
             "${{ github.event.inputs.task }}"
 
             진행 방식:
