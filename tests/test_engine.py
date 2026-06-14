@@ -64,3 +64,48 @@ def test_individual_client_falls_back_to_corporate_with_review():
     # 개인 상대계정 [보류] → 법인(262)로 폴백 + 검토 플래그
     assert c.대변계정코드 == 262
     assert c.needs_review is True
+
+
+# ── finalize_reversal 통합 (classify_rows 경유) ─────────────────────────────
+
+def test_negative_unrecommended_finalized_after_recommendation():
+    """음수 미추천 행: Phase2 추천 성공 후 finalize_reversal 이 swap 을 확정해야 한다.
+
+    classify_row 는 차변이 미정(미추천)이므로 is_reversal 플래그만 세우고 swap 을 보류.
+    classify_rows 가 추천으로 차변을 채운 뒤 finalize_reversal 을 호출 → swap 완료.
+    """
+    from kafa.cli import classify_rows
+    from kafa.recommend.recommender import SeedRecommender
+    from kafa.recommend.seed import SeedIndex
+
+    row = _row(차변계정="", 전표상태="미추천", 합계=Decimal("-11000"))
+    seed = SeedIndex()
+    seed.add("합성가맹점", "000-00-00000", 822)   # 차량유지비(822)를 추천하게 시딩
+    classified, _ = classify_rows([row], client_type="corporate",
+                                   recommender=SeedRecommender(seed))
+    c = classified[0]
+
+    assert c.is_reversal is True
+    assert c.reversal_applied is True
+    # swap 결과: 원래 대변(미지급비용 262) → 차변, 추천 계정(822) → 대변
+    assert c.차변계정코드 == 262
+    assert c.대변계정코드 == 822
+    assert c.판정유형 == Verdict.RECOMMENDED
+
+
+def test_negative_unrecommended_no_swap_without_recommendation():
+    """음수 미추천 행: 추천 실패 시 방향반전 미확정(플래그만, 차변 여전히 None)."""
+    from kafa.cli import classify_rows
+    from kafa.recommend.recommender import SeedRecommender
+    from kafa.recommend.seed import SeedIndex
+
+    row = _row(차변계정="", 전표상태="미추천", 합계=Decimal("-11000"))
+    # 빈 시드 → 추천 실패
+    classified, _ = classify_rows([row], client_type="corporate",
+                                   recommender=SeedRecommender(SeedIndex()))
+    c = classified[0]
+
+    assert c.is_reversal is True        # 음수 플래그 세워짐
+    assert c.reversal_applied is False  # 차변 미정이라 swap 보류
+    assert c.차변계정코드 is None
+    assert c.판정유형 == Verdict.UNRESOLVED
