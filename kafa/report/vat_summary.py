@@ -6,8 +6,10 @@
 """
 from __future__ import annotations
 
+import csv
 from dataclasses import dataclass, field
 from decimal import Decimal
+from pathlib import Path
 
 from kafa.rules.models import ClassifiedRow, Deduct
 
@@ -88,3 +90,26 @@ def render_vat_summary(s: VatSummary) -> str:
         lines.append(f"[확인 필요] {s.검토_건수}건 / 공급가액 {s.검토_공급가액:,} "
                      f"— 공제여부 미확정, 담당자 확정 후 반영")
     return "\n".join(lines)
+
+
+# 부가세 신고 보조용 집계표 CSV 컬럼 (구분/건수/공급가액/세액)
+_CSV_COLUMNS = ["구분", "건수", "공급가액", "세액"]
+
+
+def write_vat_summary_csv(s: VatSummary, path: str | Path) -> Path:
+    """집계표를 신고 보조용 CSV 로. 율·한도는 신고 단계(여기선 합산만)."""
+    rows = [
+        ("과세매입_공제대상", s.과세공제_건수, s.과세공제_공급가액, s.과세공제_세액),
+        ("매입_불공제", s.불공제_건수, s.불공제_공급가액, s.불공제_세액),
+        ("면세매입", s.면세_건수, s.면세_금액, Decimal(0)),
+        ("의제매입_대상후보", s.의제대상_건수, s.의제대상_면세매입액, Decimal(0)),
+        ("확인필요_미확정", s.검토_건수, s.검토_공급가액, s.검토_세액),
+    ]
+    out = Path(path)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    with out.open("w", encoding="utf-8-sig", newline="") as fh:
+        w = csv.writer(fh)
+        w.writerow(_CSV_COLUMNS)
+        for name, cnt, supply, tax in rows:
+            w.writerow([name, cnt, supply, tax])
+    return out

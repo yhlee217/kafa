@@ -1,7 +1,12 @@
 """부가세 신고 보조 집계."""
+import csv
 from decimal import Decimal
 
-from kafa.report.vat_summary import build_vat_summary, render_vat_summary
+from kafa.report.vat_summary import (
+    build_vat_summary,
+    render_vat_summary,
+    write_vat_summary_csv,
+)
 from kafa.rules.models import ClassifiedRow, Deduct, InputRow
 
 
@@ -46,3 +51,15 @@ def test_render_has_sections():
 def test_empty():
     s = build_vat_summary([])
     assert s.written == 0 and s.공제_매입세액 == Decimal(0)
+
+
+def test_csv_export(tmp_path):
+    s = build_vat_summary(_rows())
+    p = write_vat_summary_csv(s, tmp_path / "vat.csv")
+    with p.open(encoding="utf-8-sig") as fh:
+        rows = list(csv.reader(fh))
+    assert rows[0] == ["구분", "건수", "공급가액", "세액"]
+    by = {r[0]: r for r in rows[1:]}
+    assert by["과세매입_공제대상"][1] == "2"
+    assert by["과세매입_공제대상"][3] == "3000"      # 공제매입세액
+    assert by["확인필요_미확정"][1] == "1"
