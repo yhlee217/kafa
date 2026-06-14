@@ -36,6 +36,8 @@ class FileResult:
     accuracy_path: str = ""
     accuracy_text: str = ""
     report_obj: object = None       # ReviewReport (로컬 전용 — 마스킹된 라인 보유)
+    vat_obj: object = None          # VatSummary (부가세 신고 보조 집계)
+    vat_path: str = ""
 
 
 @dataclass
@@ -155,7 +157,8 @@ def _run_one(rows, out, *, client_type, seed, recommender, dup, truth_idx,
         automation_rate=rep.automation_rate,
         output_files=[p.name for p in res["files"]],
         review_path=res["report_path"].name, csv_path=res["csv_path"].name,
-        report_obj=rep,
+        report_obj=rep, vat_obj=res.get("vat"),
+        vat_path=res["vat_path"].name if res.get("vat_path") else "",
     )
     if truth_idx is not None:
         from kafa.eval import evaluate, render_eval
@@ -183,6 +186,16 @@ def _masked_file(fr: FileResult) -> dict:
         "accuracy": fr.accuracy,
         "review_report": fr.review_path,
         "intermediate_csv": fr.csv_path,
+        "vat_summary_report": fr.vat_path,
+        # 부가세 신고 보조 집계(금액은 PII 아님 — 합계만)
+        "vat_summary": ({
+            "과세공제_공급가액": str(getattr(fr.vat_obj, "과세공제_공급가액", "")),
+            "공제_매입세액": str(getattr(fr.vat_obj, "공제_매입세액", "")),
+            "불공제_공급가액": str(getattr(fr.vat_obj, "불공제_공급가액", "")),
+            "면세_금액": str(getattr(fr.vat_obj, "면세_금액", "")),
+            "의제대상_면세매입액": str(getattr(fr.vat_obj, "의제대상_면세매입액", "")),
+            "검토_건수": getattr(fr.vat_obj, "검토_건수", None),
+        } if fr.vat_obj is not None else None),
         # 아래 라인들은 build_review 가 이미 마스킹한 것(실명/번호 없음)
         "review_items": list(getattr(rep, "review_lines", []) or []),
         "recommendations": list(getattr(rep, "recommendation_lines", []) or []),
