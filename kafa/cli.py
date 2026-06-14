@@ -73,6 +73,7 @@ def process_rows(rows: list[InputRow], out_path: Path, *,
                  config_dir: str | None = None) -> dict:
     from kafa.io_wehago.writer import to_output_row, write_upload_xls
     from kafa.report.client_report import build_client_report
+    from kafa.report.evidence_check import build_evidence_check, render_evidence_check
     from kafa.report.review import build_review, render_report, write_review_csv
     from kafa.report.vat_summary import build_vat_summary, render_vat_summary
 
@@ -102,9 +103,15 @@ def process_rows(rows: list[InputRow], out_path: Path, *,
     client_path.write_text(build_client_report(classified, config_dir=config_dir),
                            encoding="utf-8")
 
+    # 증빙·리스크 점검(세무대리인)
+    evid = build_evidence_check(classified)
+    risk_path = out_path.with_name(out_path.stem + "_risk.txt")
+    risk_path.write_text(render_evidence_check(evid), encoding="utf-8")
+
     return {"report_obj": rep, "report": report_text,
             "report_path": report_path, "csv_path": csv_path,
             "vat": vat, "vat_path": vat_path, "client_path": client_path,
+            "evid": evid, "risk_path": risk_path,
             "classified": classified,
             "skipped": skipped, "written": len(out_rows), "files": files}
 
