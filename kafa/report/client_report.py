@@ -11,9 +11,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from decimal import Decimal
 
+from kafa.report._common import row_identifier
 from kafa.report.vat_summary import build_vat_summary
 from kafa.rules.models import ClassifiedRow, Verdict
-from kafa.security import mask_name
 from kafa.validate import valid_bizno, vat_rate_anomaly
 
 
@@ -62,14 +62,9 @@ def build_client_report(rows: list[ClassifiedRow], *,
     for r in written:
         reason = _client_reason(r)
         if reason and r.source is not None:
-            desc = (r.source.품명 or r.source.업태 or "").strip() or "(품목 미상)"
-            attention.append(AttentionItem(
-                date=f"{r.source.연도}-{r.source.일자}".strip("-"),
-                desc=desc,
-                amount=Decimal(r.source.합계 or 0),
-                vendor_masked=mask_name(r.source.거래처) if mask else (r.source.거래처 or ""),
-                reason=reason,
-            ))
+            date, desc, amount, vendor = row_identifier(r, mask=mask)
+            attention.append(AttentionItem(date=date, desc=desc, amount=amount,
+                                           vendor_masked=vendor, reason=reason))
 
     lines = [
         f"[{period_label}] 신용카드 매입 처리 안내",

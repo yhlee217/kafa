@@ -12,10 +12,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from decimal import Decimal
+from decimal import Decimal  # noqa: F401 — RiskFlag.amount 타입힌트(annotations)용
 
+from kafa.report._common import row_identifier
 from kafa.rules.models import ClassifiedRow, Deduct
-from kafa.security import mask_name
 from kafa.validate import valid_bizno, vat_rate_anomaly
 
 CAT_불공제 = "불공제(공제 제외)"
@@ -49,20 +49,11 @@ class EvidenceReport:
         return out
 
 
-def _ident(r: ClassifiedRow, *, mask: bool):
-    s = r.source
-    date = f"{s.연도}-{s.일자}".strip("-") if s else ""
-    desc = ((s.품명 or s.업태) if s else "").strip() or "(품목 미상)"
-    amount = Decimal(s.합계 or 0) if s else Decimal(0)
-    vendor = (mask_name(s.거래처) if mask else (s.거래처 or "")) if s else ""
-    return date, desc, amount, vendor
-
-
 def build_evidence_check(rows: list[ClassifiedRow], *, mask: bool = True) -> EvidenceReport:
     rep = EvidenceReport()
     for r in rows:
         s = r.source
-        date, desc, amount, vendor = _ident(r, mask=mask)
+        date, desc, amount, vendor = row_identifier(r, mask=mask)
 
         if r.skipped:
             if (r.skip_reason or "").strip() == "중복전표":
