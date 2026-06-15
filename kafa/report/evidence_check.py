@@ -93,11 +93,12 @@ def render_evidence_check(rep: EvidenceReport) -> str:
         "── 증빙·리스크 점검 (신용카드 매입) ──",
         f"신용카드매출전표 = 적격증빙(매입세액공제 가능). 적격 {rep.적격증빙_건수}건 / "
         f"공제 가능 {rep.공제가능_건수}건.",
-        f"점검 필요 {len(rep.flags)}건:",
     ]
-    cats = rep.by_category()
     if not rep.flags:
-        lines.append("  - 점검 필요 항목 없음.")
+        lines.append("점검 필요 항목 없음.")
+        return "\n".join(lines)
+    lines.append(f"점검 필요 {len(rep.flags)}건:")
+    cats = rep.by_category()
     for cat in (CAT_불공제, CAT_검토, CAT_미등록, CAT_부가율, CAT_중복):
         items = cats.get(cat)
         if not items:

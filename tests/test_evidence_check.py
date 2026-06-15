@@ -54,4 +54,12 @@ def test_render_and_masking():
 def test_clean_no_flags():
     rep = build_evidence_check([_row(10000, 1000, Deduct.DEDUCTIBLE)])
     assert rep.flags == []
-    assert "점검 필요 항목 없음" in render_evidence_check(rep)
+    txt = render_evidence_check(rep)
+    assert "점검 필요 항목 없음" in txt
+    assert "0건" not in txt                        # 깔끔한 "없음" 메시지 — "0건:" 중복 표기 없어야 함
+
+
+def test_render_flag_count_shown_when_present():
+    rows = [_row(10000, 1000, Deduct.DEDUCTIBLE, bizno="111-11-11111")]
+    txt = render_evidence_check(build_evidence_check(rows))
+    assert "점검 필요 1건:" in txt                  # 플래그 있을 때는 건수 표기
