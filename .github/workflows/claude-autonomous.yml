@@ -6,7 +6,7 @@ name: Claude 자율 개발 (정기/수동)
 
 on:
   schedule:
-    - cron: "0 0 * * 1"          # 매주 월요일 09:00 KST (00:00 UTC)
+    - cron: "37 0 * * 1"         # 매주 월요일 09:37 KST (00:37 UTC) — 정시(:00) 혼잡 회피
   workflow_dispatch:
     inputs:
       task:
@@ -71,5 +71,5 @@ jobs:
             테스트는 합성(가짜) 데이터만 쓴다. 실제 위하고 엑셀이 있어도 내용을 열어 컨텍스트에
             올리지 않는다.
           claude_args: |
-            --max-turns 60
+            --max-turns 120
             --allowedTools "Read,Edit,Write,Bash"
