@@ -90,3 +90,4 @@ recommend:
 # Phase 4 검토 리포트
 report:
   vat_rate_tol: 0.01               # 표준 부가율 10% 대비 허용 편차(절대). 초과 시 이상
+  client_report: false             # 고객 제공용 요약(_client.txt) 생성 여부(선택). 기본 off.

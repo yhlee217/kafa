@@ -70,7 +70,9 @@ def process_rows(rows: list[InputRow], out_path: Path, *,
                  seed: SeedIndex | None = None,
                  recommender: Recommender | None = None,
                  dup: DupGuard | None = None,
+                 client_report: bool | None = None,
                  config_dir: str | None = None) -> dict:
+    from kafa.config_loader import load_rules
     from kafa.io_wehago.writer import to_output_row, write_upload_xls
     from kafa.report.client_report import build_client_report
     from kafa.report.evidence_check import build_evidence_check, render_evidence_check
@@ -80,6 +82,10 @@ def process_rows(rows: list[InputRow], out_path: Path, *,
         render_vat_summary,
         write_vat_summary_csv,
     )
+
+    if client_report is None:        # 미지정 시 config 기본값(선택 기능, 기본 off)
+        client_report = bool((load_rules(config_dir).get("report", {}) or {})
+                             .get("client_report", False))
 
     classified, skipped = classify_rows(
         rows, client_type=client_type, seed=seed, recommender=recommender,
@@ -103,10 +109,12 @@ def process_rows(rows: list[InputRow], out_path: Path, *,
     vat_path.write_text(render_vat_summary(vat), encoding="utf-8")
     write_vat_summary_csv(vat, out_path.with_name(out_path.stem + "_vat.csv"))
 
-    # 고객 제공용 요약 리포트(세무대리인 → 고객)
-    client_path = out_path.with_name(out_path.stem + "_client.txt")
-    client_path.write_text(build_client_report(classified, config_dir=config_dir),
-                           encoding="utf-8")
+    # 고객 제공용 요약 리포트(세무대리인 → 고객) — 선택(opt-in)
+    client_path = None
+    if client_report:
+        client_path = out_path.with_name(out_path.stem + "_client.txt")
+        client_path.write_text(build_client_report(classified, config_dir=config_dir),
+                               encoding="utf-8")
 
     # 증빙·리스크 점검(세무대리인)
     evid = build_evidence_check(classified)
@@ -140,6 +148,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--dup-store", default=None, help="중복 가드 JSON 경로")
     p.add_argument("--truth", default=None,
                    help="담당자 정답 CSV(수작업 대조) — 정확도 검증")
+    p.add_argument("--client-report", action=argparse.BooleanOptionalAction,
+                   default=None, help="고객 제공용 요약(_client.txt) 생성 여부(기본=config)")
     p.add_argument("--config-dir", default=None)
     args = p.parse_args(argv)
 
@@ -148,7 +158,7 @@ def main(argv: list[str] | None = None) -> int:
 
     batch = run_batch(args.input, args.output, client_type=args.client_type,
                       dup_store=args.dup_store, truth=args.truth,
-                      config_dir=args.config_dir)
+                      client_report=args.client_report, config_dir=args.config_dir)
 
     for name, msg in batch.failures.items():
         print(f"[{name}] 실패 → {msg}", file=sys.stderr)
