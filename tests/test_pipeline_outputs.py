@@ -30,17 +30,29 @@ def test_pipeline_produces_all_artifacts(tmp_path):
     # 업로드본 + 모든 보조 산출물
     assert res["files"] and all(Path(p).exists() for p in res["files"])
     stem = out.with_name(out.stem)  # .../3월_upload
-    for suffix in ("_review.txt", "_review.csv", "_vat.txt", "_vat.csv",
-                   "_client.txt", "_risk.txt"):
+    for suffix in ("_review.txt", "_review.csv", "_vat.txt", "_vat.csv", "_risk.txt"):
         assert Path(str(stem) + suffix).exists(), suffix
+
+    # 고객 보고서는 기본 off → 생성되지 않음
+    assert not Path(str(stem) + "_client.txt").exists()
 
     # 스킵(중복) 제외하고 2건 작성
     assert res["written"] == 2 and res["skipped"] == 1
 
-    # 핵심 내용 확인(거래처 실명 미노출 — 마스킹)
-    client_txt = Path(str(stem) + "_client.txt").read_text(encoding="utf-8")
-    assert "처리 현황" in client_txt and "주유소" not in client_txt
+    # 핵심 내용 확인
     vat_txt = Path(str(stem) + "_vat.txt").read_text(encoding="utf-8")
     assert "부가세 신고 보조 집계" in vat_txt
     risk_txt = Path(str(stem) + "_risk.txt").read_text(encoding="utf-8")
     assert "증빙·리스크 점검" in risk_txt and "중복전표" in risk_txt
+
+
+def test_client_report_opt_in(tmp_path):
+    out = tmp_path / "3월_upload.xls"
+    stem = out.with_name(out.stem)
+    # 기본(off): _client.txt 없음
+    process_rows(_rows(), out, client_type="corporate")
+    assert not Path(str(stem) + "_client.txt").exists()
+    # 켜면(on): 생성되고 거래처 실명은 마스킹
+    process_rows(_rows(), out, client_type="corporate", client_report=True)
+    client_txt = Path(str(stem) + "_client.txt").read_text(encoding="utf-8")
+    assert "처리 현황" in client_txt and "주유소" not in client_txt

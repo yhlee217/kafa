@@ -67,6 +67,7 @@ def run_batch(
     client_type: Optional[str] = None,
     dup_store: Optional[str] = None,
     truth: Optional[str] = None,
+    client_report: Optional[bool] = None,
     config_dir: Optional[str] = None,
 ) -> BatchResult:
     """입력(파일/폴더) → 출력 폴더. 파일별 에러 격리, 매니페스트 기록."""
@@ -110,7 +111,7 @@ def run_batch(
         try:
             fr = _run_one(rows, out, client_type=client_type, seed=seed,
                           recommender=recommender, dup=dup, truth_idx=truth_idx,
-                          config_dir=config_dir)
+                          client_report=client_report, config_dir=config_dir)
         except Exception as e:                    # noqa: BLE001
             result.failures[f.name] = f"{type(e).__name__}: {e}"
             continue
@@ -149,11 +150,12 @@ def _merge_seed(rows_iter, *, config_dir):
 
 
 def _run_one(rows, out, *, client_type, seed, recommender, dup, truth_idx,
-             config_dir) -> FileResult:
+             config_dir, client_report=None) -> FileResult:
     """한 파일 처리 → FileResult (정확도 평가 포함)."""
     from kafa.cli import process_rows
     res = process_rows(rows, out, client_type=client_type, seed=seed,
-                       recommender=recommender, dup=dup, config_dir=config_dir)
+                       recommender=recommender, dup=dup,
+                       client_report=client_report, config_dir=config_dir)
     rep = res["report_obj"]
     fr = FileResult(
         input_name=out.name, written=res["written"], skipped=res["skipped"],
@@ -269,6 +271,7 @@ def convert(
     recommendations: Optional[list] = None,
     dup_store: Optional[str] = None,
     truth: Optional[str] = None,
+    client_report: Optional[bool] = None,
     config_dir: Optional[str] = None,
 ) -> dict:
     """업로드용 .xls 생성 → **마스킹된 요약 dict** 반환. raw PII 미포함.
@@ -276,6 +279,7 @@ def convert(
     recommendations 가 주어지면(호스트 Claude 가 analyze 로 추정한 차변계정) 그 값을 적용한다.
     형식: [{"id": <analyze의 id>, "account_code": int, "confidence"?: float, "rationale"?: str}].
     미지정/미허용/미매칭 항목은 자동 시드 추천으로 폴백한다.
+    client_report=True 면 고객 제공용 요약(_client.txt)도 생성(선택, 기본 off).
     """
     load_rules(config_dir)
     out_dir = Path(output_dir)
@@ -310,14 +314,15 @@ def convert(
             truth_idx = load_truth_csv(truth)
         fr = _run_one(rows, out, client_type=client_type, seed=seed,
                       recommender=recommender, dup=None, truth_idx=truth_idx,
-                      config_dir=config_dir)
+                      client_report=client_report, config_dir=config_dir)
         fr.input_name = in_path.name
         return {"ok": True, "output_dir": str(out_dir), "manifest": None,
                 "files": [_masked_file(fr)], "failures": {},
                 "guidance": _guidance([_masked_file(fr)], {})}
 
     batch = run_batch(input_path, output_dir, client_type=client_type,
-                      dup_store=dup_store, truth=truth, config_dir=config_dir)
+                      dup_store=dup_store, truth=truth,
+                      client_report=client_report, config_dir=config_dir)
     files = [_masked_file(fr) for fr in batch.files]
     return {
         "ok": batch.ok,

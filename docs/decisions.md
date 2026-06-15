@@ -177,6 +177,11 @@ PII 로컬 원칙상 외부 웹서비스화는 의도적으로 배제하고, 세
   구분/건수/공급가액/세액. CLI `_vat.csv` 산출. 데이터 불필요한 서비스 확장 4종 완료
   (집계·고객요약·증빙점검·신고CSV). 단위테스트 +1(총 132).
 
+- 2026-06-15: 고객 제공용 요약(`_client.txt`)을 **선택(opt-in)** 으로 변경. 기본 off
+  (`config report.client_report`). CLI `--client-report/--no-client-report`, MCP convert
+  `client_report` 인자, service/process_rows `client_report` 파라미터로 제어. 나머지 산출물
+  (upload/review/vat/risk)은 항상 생성. 단위테스트 +1.
+
 ## 사용 형태 (사용자 관점)
 - **Claude Desktop(MCP)**: `convert`/`preview` 도구. 변환은 결정론적 코드가 수행, 출력은
   고정 .xls 스키마, 결과는 마스킹 요약만 → "정해진 템플릿으로 항상 오차없이". 설정/사용 docs/usage.md.

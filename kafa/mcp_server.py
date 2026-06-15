@@ -64,6 +64,7 @@ def _build_server():
         client_type: str = "corporate",
         recommendations: Optional[list] = None,
         truth: Optional[str] = None,
+        client_report: Optional[bool] = None,
     ) -> dict:
         """위하고 신용카드 다운로드본(.xlsx)을 업로드용 .xls 로 변환한다.
 
@@ -73,9 +74,12 @@ def _build_server():
           미지정/미허용 항목은 자동 시드 추천으로 폴백한다.
         client_type: 'corporate'(법인, 기본) | 'individual'(개인-보류, 법인 폴백).
         truth: 담당자 정답 CSV 경로(선택) — 정확도 검증.
+        client_report: True 면 고객 제공용 요약(_client.txt)도 생성(선택, 기본 off).
+          사용자가 '고객 보고서/고객용 요약도 만들어줘'라고 할 때만 True 로 넘기세요.
         """
         return service.convert(input_path, output_dir, client_type=client_type,
-                               recommendations=recommendations, truth=truth)
+                               recommendations=recommendations, truth=truth,
+                               client_report=client_report)
 
     return mcp
 
