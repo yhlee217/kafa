@@ -1,16 +1,22 @@
 """모델 호출 어댑터 — 공급자 비종속(주입형) Completion.
 
 - Completion: 콜러블 프로토콜 `(system, user, *, effort, json_schema, model) -> str`.
-- AnthropicCompletion: 실사용(opt-in). client 주입 가능, anthropic SDK 지연 import.
+- CliCompletion: **로컬 기본**. 설치된 Claude Code CLI(`claude -p`)를 구독 인증으로 호출 →
+  별도 API 키도, 추가 토큰 과금도 없음. 루프가 사람 개입 없이 스스로 돈다.
+- AnthropicCompletion: API 폴백(opt-in). client 주입 가능, anthropic SDK 지연 import.
   temperature/top_p/top_k 미사용(현재 Claude 400). 강도는 output_config.effort,
   구조화 출력은 output_config.format(json_schema)로 제어.
 - FunctionCompletion: 평범한 함수를 Completion 으로 감싸는 테스트/대체용 어댑터.
+- default_completion: 로컬 claude CLI 우선 → 없으면 API 키 → 둘 다 없으면 에러.
 - parse_evaluation: 평가자 JSON(마크다운 펜스/잡음 허용) 파싱 + 점수 클램프.
 """
 from __future__ import annotations
 
 import json
+import os
 import re
+import shutil
+import subprocess
 from typing import Callable, Optional, Protocol
 
 
@@ -38,6 +44,57 @@ class FunctionCompletion:
                  model=None) -> str:
         return self._fn(system, user, effort=effort, json_schema=json_schema,
                         model=model)
+
+
+class CliCompletion:
+    """로컬 Claude Code CLI(`claude -p`)를 모델로 사용 — 로컬 기본 백엔드.
+
+    구독 인증으로 동작하므로 별도 API 키도, 추가 토큰 과금도 없다(프로젝트 원칙).
+    `claude` 바이너리가 PATH 에 있어야 한다(Claude Code 설치 시 제공).
+
+    호출: `claude -p <user> --system-prompt <system> [--model M] --output-format json`.
+    --output-format json 의 봉투에서 result(모델 텍스트)만 꺼낸다. 구조화 출력은 CLI 에
+    effort/스키마 강제가 없으므로 시스템 프롬프트에 JSON 스키마 지시를 덧붙이고
+    parse_evaluation 이 견고하게 파싱한다. effort 는 CLI 가 노출하지 않아 무시한다.
+    """
+
+    def __init__(self, *, claude_bin: str = "claude", model: Optional[str] = None,
+                 timeout: int = 180, extra_args: Optional[list[str]] = None):
+        self.claude_bin = claude_bin
+        self.model = model
+        self.timeout = timeout
+        self.extra_args = list(extra_args or [])
+
+    def __call__(self, system: str, user: str, *, effort=None, json_schema=None,
+                 model=None) -> str:
+        sys_prompt = system
+        if json_schema is not None:
+            sys_prompt = (
+                system
+                + "\n\n[출력 형식] 아래 JSON 스키마를 만족하는 JSON 객체 하나만 출력하라"
+                  "(코드펜스·설명 문장 금지):\n"
+                + json.dumps(json_schema, ensure_ascii=False)
+            )
+        cmd = [self.claude_bin, "-p", user,
+               "--system-prompt", sys_prompt,
+               "--output-format", "json"]
+        m = model or self.model
+        if m:
+            cmd += ["--model", m]
+        cmd += self.extra_args
+
+        proc = subprocess.run(cmd, capture_output=True, text=True,
+                              timeout=self.timeout, stdin=subprocess.DEVNULL)
+        if proc.returncode != 0:
+            raise RuntimeError(
+                f"claude CLI 실패(code={proc.returncode}): {proc.stderr.strip()[:500]}")
+        try:
+            env = json.loads(proc.stdout)
+        except json.JSONDecodeError as e:
+            raise RuntimeError(f"claude CLI 출력 파싱 실패: {proc.stdout[:500]!r}") from e
+        if env.get("is_error"):
+            raise RuntimeError(f"claude CLI 오류: {env.get('result') or env}")
+        return env.get("result", "")
 
 
 class AnthropicCompletion:
@@ -73,6 +130,20 @@ class AnthropicCompletion:
         resp = self._get_client().messages.create(**kwargs)
         return next((b.text for b in resp.content
                      if getattr(b, "type", None) == "text"), "")
+
+
+def default_completion(*, model: Optional[str] = None, timeout: int = 180):
+    """로컬 기본 백엔드 선택: claude CLI(구독·무과금) 우선 → API 키 폴백.
+
+    둘 다 없으면 RuntimeError. 테스트/대체는 직접 콜러블을 주입하면 된다.
+    """
+    if shutil.which("claude"):
+        return CliCompletion(model=model, timeout=timeout)
+    if os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN"):
+        return AnthropicCompletion(model=model or "claude-opus-4-8")
+    raise RuntimeError(
+        "모델 백엔드 없음: 로컬에 Claude Code CLI(`claude`) 설치 또는 "
+        "ANTHROPIC_API_KEY 설정이 필요합니다.")
 
 
 _FENCE = re.compile(r"```(?:json)?\s*(.*?)\s*```", re.DOTALL)

@@ -197,6 +197,15 @@ PII 로컬 원칙상 외부 웹서비스화는 의도적으로 배제하고, 세
   문자열을 전달만 하고, input_data 의 비-PII 보장은 호출자 책임(루브릭에도 PII 금지 기준 포함).
   단위테스트 +12(총 146).
 
+- 2026-06-22: [루프 백엔드: 로컬 CLI 우선] "로컬인데 왜 API를 쓰냐 — CLI 쓰면 되지" 지적 반영.
+  **`CliCompletion`** 추가 — 설치된 Claude Code CLI(`claude -p ... --system-prompt
+  --output-format json`)를 **구독 인증**으로 호출해 모델로 사용. 별도 API 키도, 추가 토큰
+  과금도 없고 루프가 사람 개입 없이 스스로 돈다. `default_completion()` 이 claude CLI 우선 →
+  없으면 API 키(`AnthropicCompletion`) 폴백 → 둘 다 없으면 에러. 실행기 `examples/run_loop_cli.py`
+  추가. CLI 는 effort/스키마 강제가 없어 시스템 프롬프트에 JSON 스키마 지시를 덧붙이고
+  parse_evaluation 으로 견고 파싱. 실측: rationale 루프를 CLI 로 자율 실행해 1회차 통과(95점)
+  확인(JSONL 추적). 단위테스트 +6(총 152).
+
 ## 사용 형태 (사용자 관점)
 - **Claude Desktop(MCP)**: `convert`/`preview` 도구. 변환은 결정론적 코드가 수행, 출력은
   고정 .xls 스키마, 결과는 마스킹 요약만 → "정해진 템플릿으로 항상 오차없이". 설정/사용 docs/usage.md.

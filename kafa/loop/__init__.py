@@ -9,17 +9,19 @@
 - temperature 대신 effort(현재 Claude는 temperature 미지원). Evaluator는 결정성 위해 effort 낮게 + 구조화 JSON.
 - 이력 보관: 매 반복의 결과물/점수/비평을 로그로 남김.
 
-빠른 사용(테스트/실사용 공통):
-    from kafa.loop import run_loop, load_loop_spec, AnthropicCompletion
+빠른 사용(로컬 기본 = Claude CLI, 별도 API·추가 토큰 없음):
+    from kafa.loop import run_loop, load_loop_spec, default_completion
     spec = load_loop_spec("example")              # config/loops/example.yaml
-    actor = AnthropicCompletion()                 # opt-in(추가 토큰). 테스트는 가짜 콜러블.
-    result = run_loop(spec, "입력(비-PII)", actor, log_path="logs/run.jsonl")
+    model = default_completion()                  # 로컬 claude CLI 우선 → API 폴백
+    result = run_loop(spec, "입력(비-PII)", model, log_path="logs/run.jsonl")
     print(result.passed, result.best_score, result.best_output)
 """
 from kafa.loop.clients import (
     AnthropicCompletion,
+    CliCompletion,
     Completion,
     FunctionCompletion,
+    default_completion,
     parse_evaluation,
 )
 from kafa.loop.config_loader import (
@@ -32,7 +34,8 @@ from kafa.loop.orchestrator import EVAL_SCHEMA, run_loop
 
 __all__ = [
     "LoopSpec", "Iteration", "LoopResult",
-    "Completion", "FunctionCompletion", "AnthropicCompletion", "parse_evaluation",
+    "Completion", "FunctionCompletion", "CliCompletion", "AnthropicCompletion",
+    "default_completion", "parse_evaluation",
     "load_loop_spec", "loop_spec_from_dict", "available_loops",
     "run_loop", "EVAL_SCHEMA",
 ]

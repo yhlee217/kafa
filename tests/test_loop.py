@@ -12,12 +12,15 @@ import pytest
 
 from kafa.loop import (
     AnthropicCompletion,
+    CliCompletion,
     LoopSpec,
     available_loops,
+    default_completion,
     load_loop_spec,
     parse_evaluation,
     run_loop,
 )
+from kafa.loop import clients as _clients
 
 
 def _spec(**kw) -> LoopSpec:
@@ -175,6 +178,75 @@ def test_load_example_loop_spec():
     assert spec.name == "rationale" and spec.pass_score == 90
     assert spec.rubric and spec.evaluator_effort == "low"
     assert "example" in available_loops()
+
+
+# ── CLI 어댑터: 로컬 claude -p (구독·무과금) ──
+
+def test_cli_completion_builds_command_and_parses_result(monkeypatch):
+    captured = {}
+
+    def fake_run(cmd, **kw):
+        captured["cmd"] = cmd
+        captured["kw"] = kw
+        env = {"type": "result", "is_error": False, "result": "생성된 결과물"}
+        return type("P", (), {"returncode": 0, "stdout": json.dumps(env),
+                              "stderr": ""})()
+
+    monkeypatch.setattr(_clients.subprocess, "run", fake_run)
+    comp = CliCompletion(model="claude-sonnet-4-6")
+    out = comp("시스템", "사용자", model=None)
+    assert out == "생성된 결과물"
+    cmd = captured["cmd"]
+    assert cmd[0] == "claude" and "-p" in cmd and "사용자" in cmd
+    assert cmd[cmd.index("--system-prompt") + 1] == "시스템"
+    assert cmd[cmd.index("--output-format") + 1] == "json"
+    assert cmd[cmd.index("--model") + 1] == "claude-sonnet-4-6"
+    # 표준입력은 막아 stdin 대기 경고를 피한다.
+    assert captured["kw"].get("stdin") is _clients.subprocess.DEVNULL
+
+
+def test_cli_completion_appends_json_schema_instruction(monkeypatch):
+    captured = {}
+
+    def fake_run(cmd, **kw):
+        captured["cmd"] = cmd
+        env = {"is_error": False, "result": '{"score": 90, "is_passed": true, "critique": ""}'}
+        return type("P", (), {"returncode": 0, "stdout": json.dumps(env),
+                              "stderr": ""})()
+
+    monkeypatch.setattr(_clients.subprocess, "run", fake_run)
+    comp = CliCompletion()
+    comp("평가자", "대상", json_schema={"type": "object"})
+    sys_arg = captured["cmd"][captured["cmd"].index("--system-prompt") + 1]
+    assert "JSON 스키마" in sys_arg and '"type": "object"' in sys_arg
+
+
+def test_cli_completion_raises_on_error(monkeypatch):
+    def fake_run(cmd, **kw):
+        return type("P", (), {"returncode": 1, "stdout": "",
+                              "stderr": "boom"})()
+    monkeypatch.setattr(_clients.subprocess, "run", fake_run)
+    with pytest.raises(RuntimeError, match="claude CLI 실패"):
+        CliCompletion()("s", "u")
+
+
+def test_default_completion_prefers_cli(monkeypatch):
+    monkeypatch.setattr(_clients.shutil, "which", lambda n: "/usr/bin/claude")
+    assert isinstance(default_completion(), CliCompletion)
+
+
+def test_default_completion_falls_back_to_api(monkeypatch):
+    monkeypatch.setattr(_clients.shutil, "which", lambda n: None)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+    assert isinstance(default_completion(), AnthropicCompletion)
+
+
+def test_default_completion_raises_when_no_backend(monkeypatch):
+    monkeypatch.setattr(_clients.shutil, "which", lambda n: None)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_AUTH_TOKEN", raising=False)
+    with pytest.raises(RuntimeError, match="모델 백엔드 없음"):
+        default_completion()
 
 
 # ── Anthropic 어댑터: temperature 없음, output_config 구성 ──

@@ -120,17 +120,27 @@ return 최고점본 + 경고                       # 폴백(max_iter 도달)
   코드 수정 없이 새 주제를 추가. `load_loop_spec("name")` 로 로드.
 - **temperature 대신 effort** — 현재 Claude(Opus 4.8/Fable 5)는 temperature 미지원.
   Actor 는 `actor_effort`, Evaluator 는 결정성 위해 `evaluator_effort='low'` + 구조화 JSON.
-- **공급자 비종속** — 모델 호출은 주입형 `Completion` 콜러블. 테스트는 가짜 콜러블,
-  실사용은 `AnthropicCompletion`(opt-in — 추가 토큰). 자기평가는 evaluator 생략.
+- **공급자 비종속, 로컬 무과금** — 모델 호출은 주입형 `Completion` 콜러블. **로컬 기본은
+  설치된 Claude Code CLI(`claude -p`)** 를 구독 인증으로 부르는 `CliCompletion` — 별도 API
+  키도, 추가 토큰 과금도 없고 루프가 사람 개입 없이 스스로 돈다. `default_completion()` 이
+  CLI 우선 → 없으면 API 키(`AnthropicCompletion`) 폴백. 테스트는 가짜 콜러블, 자기평가는
+  evaluator 생략. 실행기는 `examples/run_loop_cli.py`.
 - **보안 제0원칙** — 프레임워크는 받은 문자열을 전달만 한다. `input_data` 의 비-PII 보장은
   호출자 책임이며, 예시 루브릭에도 "PII 미포함" 기준을 둔다.
 
 ```python
-from kafa.loop import run_loop, load_loop_spec, AnthropicCompletion
+from kafa.loop import run_loop, load_loop_spec, default_completion
 spec = load_loop_spec("example")
 res = run_loop(spec, "업태=음식점, 품명=커피, 유형=카과, 계정=(판)복리후생비",
-               AnthropicCompletion(), log_path="logs/run.jsonl")
+               default_completion(), log_path="logs/run.jsonl")  # 로컬 claude CLI
 print(res.passed, res.best_score, res.best_output)
+```
+
+또는 셸에서 바로:
+```bash
+python examples/run_loop_cli.py example \
+  "업태=소매업 / 종목=문구 / 품명=A4용지·토너 / 유형=카과 / 계정=(판)소모품비" \
+  --log run.jsonl
 ```
 
 ---
