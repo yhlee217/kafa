@@ -72,8 +72,10 @@ def test_improves_with_injected_critique():
     assert res.best_output == "개선본" and res.best_score == 96
     # 2번째 Actor 호출의 user 프롬프트에 1번째 비평이 주입됐는지
     assert "더 구체적으로 써라" in seen_user[1]
-    # 최초 호출엔 비평 없음 표기
-    assert "최초 시도" in seen_user[0]
+    # 직전 결과물('초안')도 함께 주어 '고쳐쓰기'를 유도(퇴행 방지)
+    assert "초안" in seen_user[1] and "직전 결과물" in seen_user[1]
+    # 최초 호출엔 비평·직전 결과물 없음
+    assert "최초 시도" in seen_user[0] and "직전 결과물" not in seen_user[0]
 
 
 def test_max_iter_fallback_returns_best():

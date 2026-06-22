@@ -62,11 +62,12 @@ def run_loop(
         log_file.parent.mkdir(parents=True, exist_ok=True)
 
     critique: str | None = None  # 최초 시도엔 비평 없음
+    prev_output: str | None = None  # 직전 결과물(고쳐쓰기용)
     iterations: list[Iteration] = []
     stopped_reason = "max_iter"
 
     for i in range(spec.max_iter):
-        actor_user = prompts.render_actor_user(spec, input_data, critique)
+        actor_user = prompts.render_actor_user(spec, input_data, critique, prev_output)
         output = actor(actor_sys, actor_user, effort=spec.actor_effort,
                        model=spec.actor_model)
 
@@ -84,7 +85,8 @@ def run_loop(
             stopped_reason = "passed"
             break
 
-        critique = it.critique  # 비평 주입 후 재생성
+        critique = it.critique  # 비평 주입
+        prev_output = output    # 직전 결과물도 함께 주어 '고쳐쓰기' 유도(퇴행 방지)
 
     if stopped_reason == "passed":
         best = iterations[-1]  # 통과를 일으킨 회차

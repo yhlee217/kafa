@@ -34,14 +34,20 @@ def render_actor_system(spec: LoopSpec) -> str:
     return "\n".join(parts)
 
 
-def render_actor_user(spec: LoopSpec, input_data: str, critique: str | None) -> str:
-    """Actor 사용자 프롬프트 — 입력 + 직전 비평(있으면)."""
-    return (
-        "[입력]\n"
-        f"{input_data}\n\n"
-        "[이전 비평]\n"
-        f"{critique.strip() if critique and critique.strip() else _NO_CRITIQUE}"
-    )
+def render_actor_user(spec: LoopSpec, input_data: str, critique: str | None,
+                      prev_output: str | None = None) -> str:
+    """Actor 사용자 프롬프트 — 입력 + 직전 결과물/비평(있으면).
+
+    직전 결과물을 함께 주어 '처음부터 새로 쓰기'가 아니라 '비평대로 고치기'를 유도한다
+    (회차 간 품질 퇴행 방지 — 잘된 부분은 유지하고 지적된 부분만 수정).
+    """
+    blocks = ["[입력]", input_data]
+    if prev_output and prev_output.strip():
+        blocks += ["", "[직전 결과물 — 아래 비평대로 이 결과물을 고쳐라(잘된 부분은 유지)]",
+                   prev_output.strip()]
+    blocks += ["", "[이전 비평]",
+               critique.strip() if critique and critique.strip() else _NO_CRITIQUE]
+    return "\n".join(blocks)
 
 
 def render_evaluator_system(spec: LoopSpec) -> str:
