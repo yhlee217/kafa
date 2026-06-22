@@ -182,6 +182,21 @@ PII 로컬 원칙상 외부 웹서비스화는 의도적으로 배제하고, 세
   `client_report` 인자, service/process_rows `client_report` 파라미터로 제어. 나머지 산출물
   (upload/review/vat/risk)은 항상 생성. 단위테스트 +1.
 
+- 2026-06-22: [루프 엔지니어링 세팅] **Actor↔Evaluator 생성-평가-재생성 프레임워크**
+  (`kafa/loop/`) 추가. 사용자 제공 포맷(Actor/Evaluator 표준 프롬프트 + 오케스트레이터 제어흐름
+  + 튜닝)을 다듬어 구현: ① 프롬프트/루브릭은 `config/loops/*.yaml` 로 외부화(코드 수정 없이
+  새 주제), ② temperature 대신 **effort**(현재 Claude(Opus 4.8/Fable 5)는 temperature 미지원),
+  Evaluator 는 결정성 위해 effort 낮게 + 구조화 JSON 스키마, ③ 모델 호출은 공급자 비종속
+  **주입형 Completion**(테스트는 가짜 콜러블, 실사용 `AnthropicCompletion` opt-in — 추가 토큰),
+  ④ 매 회차 결과물/점수/비평을 **JSONL 로그**로 남김(추적성). 제어흐름: critique=None 초기화 →
+  max_iter 반복(Actor 생성→Evaluator 채점) → `is_passed` 또는 `score>=pass_score` 면 통과 종료,
+  아니면 비평 주입 후 재생성 → 미통과 시 **최고점본 폴백** + 경고 로그. 모듈: models(LoopSpec/
+  Iteration/LoopResult)·prompts·clients(Completion/AnthropicCompletion/parse_evaluation)·
+  orchestrator(run_loop)·config_loader(load_loop_spec). 예시 스펙 `config/loops/example.yaml`
+  (비-PII 근거 문장 다듬기 — 거래처 실명·사업자번호 금지). 보안 제0원칙: 프레임워크는 받은
+  문자열을 전달만 하고, input_data 의 비-PII 보장은 호출자 책임(루브릭에도 PII 금지 기준 포함).
+  단위테스트 +12(총 146).
+
 ## 사용 형태 (사용자 관점)
 - **Claude Desktop(MCP)**: `convert`/`preview` 도구. 변환은 결정론적 코드가 수행, 출력은
   고정 .xls 스키마, 결과는 마스킹 요약만 → "정해진 템플릿으로 항상 오차없이". 설정/사용 docs/usage.md.

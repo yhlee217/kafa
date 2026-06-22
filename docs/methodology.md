@@ -98,6 +98,43 @@ GitHub App 설치·토큰 생성·시크릿 등록·기본 브랜치 병합은 �
 
 ---
 
+## 6.5. 코드 안의 루프 — Actor↔Evaluator 프레임워크 (`kafa/loop/`)
+
+위 ①~⑦ 사이클이 *개발 프로세스*의 루프라면, `kafa/loop/` 는 **결과물 한 건을
+생성→평가→재생성으로 끌어올리는** 루프를 코드로 제공한다(예: 근거 문장 품질 향상).
+설계는 위 가드레일과 같은 원칙을 따른다.
+
+```
+critique = None
+for i in range(max_iter):
+    output  = Actor(input, critique)      # 생성(비평 있으면 반영)
+    verdict = Evaluator(input, output)    # 채점 → {score, is_passed, critique}
+    log(output, score, critique)          # 추적성(JSONL)
+    if is_passed or score >= pass_score:  # 통과 → 종료
+        return output
+    critique = verdict.critique           # 비평 주입 후 재생성
+return 최고점본 + 경고                       # 폴백(max_iter 도달)
+```
+
+- **프롬프트·루브릭 외부화** — `config/loops/<name>.yaml`(역할/작업/출력형식/루브릭/통과기준).
+  코드 수정 없이 새 주제를 추가. `load_loop_spec("name")` 로 로드.
+- **temperature 대신 effort** — 현재 Claude(Opus 4.8/Fable 5)는 temperature 미지원.
+  Actor 는 `actor_effort`, Evaluator 는 결정성 위해 `evaluator_effort='low'` + 구조화 JSON.
+- **공급자 비종속** — 모델 호출은 주입형 `Completion` 콜러블. 테스트는 가짜 콜러블,
+  실사용은 `AnthropicCompletion`(opt-in — 추가 토큰). 자기평가는 evaluator 생략.
+- **보안 제0원칙** — 프레임워크는 받은 문자열을 전달만 한다. `input_data` 의 비-PII 보장은
+  호출자 책임이며, 예시 루브릭에도 "PII 미포함" 기준을 둔다.
+
+```python
+from kafa.loop import run_loop, load_loop_spec, AnthropicCompletion
+spec = load_loop_spec("example")
+res = run_loop(spec, "업태=음식점, 품명=커피, 유형=카과, 계정=(판)복리후생비",
+               AnthropicCompletion(), log_path="logs/run.jsonl")
+print(res.passed, res.best_score, res.best_output)
+```
+
+---
+
 ## 7. 다른 프로젝트로 재사용
 
 이 방법론은 3개 부품으로 이식된다:

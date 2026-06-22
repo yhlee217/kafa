@@ -49,9 +49,16 @@ kafa/
   report/             Phase 4 검토 리포트(담당자 전용) + 세무대리인 서비스 확장
     review.py         요약·부가율 이상·미등록 의심·추천내역 + 중간산출물 CSV(근거 포함)
     vat_summary.py    부가세 신고 보조 집계(과세공제/불공제/면세/의제/검토 합산)
+  loop/               루프 엔지니어링(Actor↔Evaluator 생성→평가→재생성)
+    models.py         LoopSpec(스펙)/Iteration/LoopResult
+    prompts.py        Actor/Evaluator 표준 프롬프트(스펙으로 렌더링)
+    clients.py        주입형 Completion(공급자 비종속)·AnthropicCompletion·parse_evaluation
+    orchestrator.py   run_loop — 통과/최고점 폴백 + JSONL 추적성
+    config_loader.py  config/loops/*.yaml → LoopSpec 로더
 config/
   rules.yaml          모든 규칙·코드·키워드 외부화
   account_codes.yaml  검증된 계정명→코드(시트 파싱분과 머지 예정)
+  loops/example.yaml  루프 스펙 예시(비-PII 근거 문장 다듬기)
 tests/                Phase 1 표 기반 단위테스트
 ```
 
