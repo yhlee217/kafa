@@ -263,6 +263,13 @@ PII 로컬 원칙상 외부 웹서비스화는 의도적으로 배제하고, 세
   미입력). `service.withholding_calc`/`intake_checklist`. intake.build_intake_checklist 에
   mask 토글 추가. loop 는 의도적으로 미결선(개발용). 테스트 +5(총 177).
 
+- 2026-06-23: [중복 정리] 검토에서 지적된 중복 로직 제거. ① `prefile_check` 가 불공제/검토/
+  미등록(체크섬·미상)/부가율/중복을 자체 재계산하던 것을 **EvidenceReport 재사용**으로 변경,
+  고유 검산(합계=공급가액+세액+비과세)만 직접 수행. `build_prefile_check(rows, evidence=...)`
+  로 이미 만든 evid 주입 → `process_rows` 의 중복 스캔 제거(진실 소스 1개). ② 로컬 JSON 저장
+  공용화 `kafa/jsonstore.py`(load_json/save_json) → `DupGuard`·`VendorBaseline` 가 공유(손상
+  회복·부모 생성 일원화). 동작 동일(테스트 177 유지).
+
 ## 사용 형태 (사용자 관점)
 - **Claude Desktop(MCP)**: `convert`/`preview` 도구. 변환은 결정론적 코드가 수행, 출력은
   고정 .xls 스키마, 결과는 마스킹 요약만 → "정해진 템플릿으로 항상 오차없이". 설정/사용 docs/usage.md.

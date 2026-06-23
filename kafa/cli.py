@@ -126,8 +126,8 @@ def process_rows(rows: list[InputRow], out_path: Path, *,
     risk_path = out_path.with_name(out_path.stem + "_risk.txt")
     risk_path.write_text(render_evidence_check(evid), encoding="utf-8")
 
-    # 신고 전 자가검증 체크리스트(세무대리인) — 항상
-    prefile = build_prefile_check(classified)
+    # 신고 전 자가검증 체크리스트(세무대리인) — 항상. 이미 만든 evid 재사용(중복 스캔 방지)
+    prefile = build_prefile_check(classified, evidence=evid)
     prefile_path = out_path.with_name(out_path.stem + "_prefile.txt")
     prefile_path.write_text(render_prefile_check(prefile), encoding="utf-8")
 

@@ -8,9 +8,9 @@
 """
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
+from kafa.jsonstore import load_json, save_json
 from kafa.security import hash_id
 
 
@@ -24,12 +24,8 @@ class DupGuard:
 
     def __init__(self, store_path: str | Path):
         self.store_path = Path(store_path)
-        self._seen: set[str] = set()
-        if self.store_path.exists():
-            try:
-                self._seen = set(json.loads(self.store_path.read_text("utf-8")))
-            except (json.JSONDecodeError, OSError):
-                self._seen = set()
+        loaded = load_json(self.store_path, [])
+        self._seen: set[str] = set(loaded) if isinstance(loaded, list) else set()
 
     def is_duplicate(self, key: str) -> bool:
         return key in self._seen
@@ -38,5 +34,4 @@ class DupGuard:
         self._seen.add(key)
 
     def flush(self) -> None:
-        self.store_path.parent.mkdir(parents=True, exist_ok=True)
-        self.store_path.write_text(json.dumps(sorted(self._seen)), "utf-8")
+        save_json(self.store_path, sorted(self._seen))

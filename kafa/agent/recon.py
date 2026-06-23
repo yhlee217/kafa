@@ -9,10 +9,10 @@
 """
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from kafa.jsonstore import load_json, save_json
 from kafa.rules.models import ClassifiedRow
 from kafa.security import hash_id, mask_name
 
@@ -84,16 +84,12 @@ class VendorBaseline:
 
     def __init__(self, store_path: str | Path):
         self.store_path = Path(store_path)
-        self.mapping: dict[str, int] = {}
-        if self.store_path.exists():
-            try:
-                self.mapping = {k: int(v) for k, v in
-                                json.loads(self.store_path.read_text("utf-8")).items()}
-            except (json.JSONDecodeError, OSError, ValueError):
-                self.mapping = {}
+        raw = load_json(self.store_path, {})
+        try:
+            self.mapping: dict[str, int] = {k: int(v) for k, v in raw.items()}
+        except (AttributeError, TypeError, ValueError):
+            self.mapping = {}
 
     def save(self, mapping: dict[str, int]) -> None:
         self.mapping = dict(mapping)
-        self.store_path.parent.mkdir(parents=True, exist_ok=True)
-        self.store_path.write_text(
-            json.dumps(self.mapping, ensure_ascii=False), "utf-8")
+        save_json(self.store_path, self.mapping)
