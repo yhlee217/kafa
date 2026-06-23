@@ -30,11 +30,13 @@ def test_pipeline_produces_all_artifacts(tmp_path):
     # 업로드본 + 모든 보조 산출물
     assert res["files"] and all(Path(p).exists() for p in res["files"])
     stem = out.with_name(out.stem)  # .../3월_upload
-    for suffix in ("_review.txt", "_review.csv", "_vat.txt", "_vat.csv", "_risk.txt"):
+    for suffix in ("_review.txt", "_review.csv", "_vat.txt", "_vat.csv", "_risk.txt",
+                   "_prefile.txt", "_bizno.txt"):
         assert Path(str(stem) + suffix).exists(), suffix
 
-    # 고객 보고서는 기본 off → 생성되지 않음
+    # 고객 보고서는 기본 off → 생성되지 않음. 대사(recon)도 기준선 저장소 지정 시에만.
     assert not Path(str(stem) + "_client.txt").exists()
+    assert not Path(str(stem) + "_recon.txt").exists()
 
     # 스킵(중복) 제외하고 2건 작성
     assert res["written"] == 2 and res["skipped"] == 1
@@ -44,6 +46,16 @@ def test_pipeline_produces_all_artifacts(tmp_path):
     assert "부가세 신고 보조 집계" in vat_txt
     risk_txt = Path(str(stem) + "_risk.txt").read_text(encoding="utf-8")
     assert "증빙·리스크 점검" in risk_txt and "중복전표" in risk_txt
+
+
+def test_recon_artifact_opt_in(tmp_path):
+    from kafa.agent.recon import VendorBaseline
+    out = tmp_path / "3월_upload.xls"
+    stem = out.with_name(out.stem)
+    base = tmp_path / "recon.json"
+    # 지정하면 _recon.txt 생성 + 기준선 저장
+    process_rows(_rows(), out, client_type="corporate", recon=VendorBaseline(base))
+    assert Path(str(stem) + "_recon.txt").exists() and base.exists()
 
 
 def test_client_report_opt_in(tmp_path):

@@ -184,6 +184,94 @@ PII 로컬 원칙상 외부 웹서비스화는 의도적으로 배제하고, 세
   `client_report` 인자, service/process_rows `client_report` 파라미터로 제어. 나머지 산출물
   (upload/review/vat/risk)은 항상 생성. 단위테스트 +1.
 
+- 2026-06-22: [루프 엔지니어링 세팅] **Actor↔Evaluator 생성-평가-재생성 프레임워크**
+  (`kafa/loop/`) 추가. 사용자 제공 포맷(Actor/Evaluator 표준 프롬프트 + 오케스트레이터 제어흐름
+  + 튜닝)을 다듬어 구현: ① 프롬프트/루브릭은 `config/loops/*.yaml` 로 외부화(코드 수정 없이
+  새 주제), ② temperature 대신 **effort**(현재 Claude(Opus 4.8/Fable 5)는 temperature 미지원),
+  Evaluator 는 결정성 위해 effort 낮게 + 구조화 JSON 스키마, ③ 모델 호출은 공급자 비종속
+  **주입형 Completion**(테스트는 가짜 콜러블, 실사용 `AnthropicCompletion` opt-in — 추가 토큰),
+  ④ 매 회차 결과물/점수/비평을 **JSONL 로그**로 남김(추적성). 제어흐름: critique=None 초기화 →
+  max_iter 반복(Actor 생성→Evaluator 채점) → `is_passed` 또는 `score>=pass_score` 면 통과 종료,
+  아니면 비평 주입 후 재생성 → 미통과 시 **최고점본 폴백** + 경고 로그. 모듈: models(LoopSpec/
+  Iteration/LoopResult)·prompts·clients(Completion/AnthropicCompletion/parse_evaluation)·
+  orchestrator(run_loop)·config_loader(load_loop_spec). 예시 스펙 `config/loops/example.yaml`
+  (비-PII 근거 문장 다듬기 — 거래처 실명·사업자번호 금지). 보안 제0원칙: 프레임워크는 받은
+  문자열을 전달만 하고, input_data 의 비-PII 보장은 호출자 책임(루브릭에도 PII 금지 기준 포함).
+  단위테스트 +12(총 146).
+
+- 2026-06-22: [루프 백엔드: 로컬 CLI 우선] "로컬인데 왜 API를 쓰냐 — CLI 쓰면 되지" 지적 반영.
+  **`CliCompletion`** 추가 — 설치된 Claude Code CLI(`claude -p ... --system-prompt
+  --output-format json`)를 **구독 인증**으로 호출해 모델로 사용. 별도 API 키도, 추가 토큰
+  과금도 없고 루프가 사람 개입 없이 스스로 돈다. `default_completion()` 이 claude CLI 우선 →
+  없으면 API 키(`AnthropicCompletion`) 폴백 → 둘 다 없으면 에러. 실행기 `examples/run_loop_cli.py`
+  추가. CLI 는 effort/스키마 강제가 없어 시스템 프롬프트에 JSON 스키마 지시를 덧붙이고
+  parse_evaluation 으로 견고 파싱. 실측: rationale 루프를 CLI 로 자율 실행해 1회차 통과(95점)
+  확인(JSONL 추적). 단위테스트 +6(총 152).
+
+- 2026-06-22: [루프 스펙 2종 추가 + 3종 자율 실증] 로컬 CLI 로 세 제어흐름을 모두 실측.
+  새 스펙 `config/loops/guide.yaml`(60대 비전문가용 단계별 안내 — 접근성 가치 직결),
+  `config/loops/docfix.yaml`(초안 문단 명확·간결 편집 — 자율 개발 연계). 자율 실행 결과:
+  ① example/rationale = **즉시 통과**(1회차 95점), ② docfix = **개선→통과**(80→85→90, 3회차),
+  ③ guide = **미통과→최고점 폴백**(82→83→84→77, 최고점 84 채택 + 경고 로그). 셋 다 CLI(구독)로
+  사람 개입 없이 생성·채점·재생성 — Evaluator 가 회차마다 구체적 비평 제시(특히 guide 는
+  60대 접근성 기준이 엄격해 90점 미달, 폴백 정상 동작 확인). 모두 비-PII 합성 입력. 코드 변경 없음.
+
+- 2026-06-22: [루프 수렴 개선 + 루브릭 정교화] (b/c) ① **퇴행 방지** — Actor 가 매 회차
+  '처음부터 새로 쓰기'를 하던 것을, 직전 결과물을 함께 받아 '비평대로 고쳐쓰기'로 전환
+  (prompts.render_actor_user 에 prev_output, orchestrator 가 직전 출력 주입). 잘된 부분을
+  유지하고 지적분만 수정 → 회차 간 점수 퇴행 방지. ② **rationale 루브릭 실전화**
+  (config/loops/example.yaml) — (제)/(판) 구분 적정성, 과세유형 정확성(카과=공제 가능/
+  카면=면세·공제 불가, 공제 과장 금지), 불확실 시 검토/대안 표명, 담당자 30초 검증, PII 금지.
+  ③ **guide 스펙 튜닝** — 단축키/용어 괄호 풀이, 폴더 열기 선행동작, 다건 반복, 안전한 담당자
+  문의를 task 에 명시(max_iter 5). 실측(CLI 자율): guide 84(폴백)→**92 통과**(2회차, 직전 결과물
+  고쳐쓰기로 수렴), rationale 면세(카면) 케이스 **92 통과**(면세 공제불가 정확 반영·(판) 구분).
+  단위테스트 보강(prev_output 주입 검증). 모두 비-PII 합성 입력.
+
+- 2026-06-22: [세무대리인 반복업무 자동화 발의 5건] `kafa/agent/` 신설 — 매달 반복·고소요
+  업무의 데이터 불필요·PII 안전 코어를 구현. ① `prefile_check`(부가세 신고 전 자가검증
+  체크리스트: 합계검산·공제정합·체크섬·부가율·중복), ② `bizno_batch`(사업자번호 일괄 검증·
+  중복제거·홈택스 조회목록 — 실조회 보류), ③ `withholding`(원천징수 계산: 사업소득 3.3%/
+  기타소득 8.8%, 율 config/agent.yaml 외부화, 원단위 절사·소액부징수 플래그), ④ `intake`
+  (월별 자료 수취 체크리스트·누락 점검·요청 메시지 초안), ⑤ `recon`(전월 대비 거래처/계정
+  변동 대사 — 거래처 해시 보존으로 PII 안전). 발의·As-Is/To-Be·보류는
+  `docs/proposals/세무대리인_자동화_초안.md`. config_loader.load_agent 추가. 외부 노출은
+  마스킹/해시/합계만. 보류(실데이터·서식·API 필요): 홈택스 상태조회·지급명세서 서식·매출
+  교차검증·파일 자동인식. 단위테스트 +11(총 163).
+
+- 2026-06-22: [CI 추가] `.github/workflows/ci.yml` — `pull_request`·main push 에서 pytest 실행
+  (Python 3.11/3.12 매트릭스, `pip install -e ".[dev]"`). pull_request 이벤트는 PR 브랜치의
+  워크플로 파일을 사용하므로 PR #19부터 즉시 검사 동작. 이전엔 PR 트리거 CI 가 없어
+  체크런 0개였음 → 이제 진짜 CI 실패 감시 가능.
+
+- 2026-06-23: [기능 검토 — 버그/엣지 수정] loop·agent 코드 리뷰(병렬 2건)로 발견한
+  버그 3 + 엣지 4 수정. 버그: ① `run_loop` max_iter≤0 시 `max(빈 리스트)` 크래시 →
+  빈 결과(stopped_reason="no_iterations") 안전 반환, ② `parse_evaluation` 가 문자열
+  `"false"`를 `bool("false")==True`로 통과 처리 → `_coerce_bool`로 강제, ③ `withholding`
+  음수 지급액 ValueError 가드(ROUND_DOWN 절사 오류·소액부징수 오플래그 방지). 엣지:
+  ④ `parse_evaluation` 여러 JSON 객체 시 "Extra data" 크래시 → `_first_json_object`
+  (raw_decode로 첫 유효 객체), ⑤ `CliCompletion` TimeoutExpired → RuntimeError 래핑,
+  ⑥ `recon` 배치 내 계정변동 누락·미정(None) 거래처 매달 재신규 → live 기준선 비교 +
+  '봤음' 센티넬(_SEEN_NO_CODE)·신규 dedupe, ⑦ `prefile_check` 합계검산에 tol 적용(엑셀
+  float 오차 오탐 방지). 회귀 테스트 +9(총 172). 미수정(별도): agent/loop 제품 결선,
+  prefile↔evidence/review 중복, VendorBaseline↔DupGuard 공용화.
+
+- 2026-06-23: [제품 결선] standalone 이던 agent 5종을 실제 진입점에 연결. ① 행 기반 3종을
+  변환 파이프라인 산출물로: `prefile_check`→`_prefile.txt`(항상), `bizno_batch`→`_bizno.txt`
+  (행의 사업자번호를 로컬 처리·요약만 마스킹, 항상), `recon`→`_recon.txt`(기준선 저장소
+  지정 시 opt-in; CLI `--recon-store`, MCP convert `recon_store`, run_batch 가 VendorBaseline
+  누적·저장). `process_rows`/`_run_one`/`run_batch`/`convert`/`_masked_file` 에 결선(마스킹/집계만
+  노출). ② 비-행 2종을 MCP 도구 + service 파사드로: `withholding`(원천징수 계산 — 금액·유형만,
+  수령자 PII 없음), `intake`(자료 수취 체크리스트 — 고객명 대신 '{고객명}' 자리표시자, PII
+  미입력). `service.withholding_calc`/`intake_checklist`. intake.build_intake_checklist 에
+  mask 토글 추가. loop 는 의도적으로 미결선(개발용). 테스트 +5(총 177).
+
+- 2026-06-23: [중복 정리] 검토에서 지적된 중복 로직 제거. ① `prefile_check` 가 불공제/검토/
+  미등록(체크섬·미상)/부가율/중복을 자체 재계산하던 것을 **EvidenceReport 재사용**으로 변경,
+  고유 검산(합계=공급가액+세액+비과세)만 직접 수행. `build_prefile_check(rows, evidence=...)`
+  로 이미 만든 evid 주입 → `process_rows` 의 중복 스캔 제거(진실 소스 1개). ② 로컬 JSON 저장
+  공용화 `kafa/jsonstore.py`(load_json/save_json) → `DupGuard`·`VendorBaseline` 가 공유(손상
+  회복·부모 생성 일원화). 동작 동일(테스트 177 유지).
+
 ## 사용 형태 (사용자 관점)
 - **Claude Desktop(MCP)**: `convert`/`preview` 도구. 변환은 결정론적 코드가 수행, 출력은
   고정 .xls 스키마, 결과는 마스킹 요약만 → "정해진 템플릿으로 항상 오차없이". 설정/사용 docs/usage.md.

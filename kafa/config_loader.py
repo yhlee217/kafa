@@ -56,6 +56,13 @@ def load_account_codes(config_dir: str | None = None) -> dict[str, int]:
     return mapping
 
 
+@lru_cache(maxsize=None)
+def load_agent(config_dir: str | None = None) -> dict[str, Any]:
+    """config/agent.yaml 로드 — 세무대리인 보조 업무(kafa/agent) 설정(율·목록)."""
+    base = Path(config_dir) if config_dir else _DEFAULT_CONFIG_DIR
+    return _load_yaml(base / "agent.yaml")
+
+
 def is_todo(value: Any) -> bool:
     """값이 미확정 자리표시자(TODO)인지."""
     return isinstance(value, str) and value.strip().upper() == TODO

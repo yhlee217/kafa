@@ -41,6 +41,12 @@ class FileResult:
     client_path: str = ""           # 고객 제공용 요약 리포트(로컬)
     evid_obj: object = None         # EvidenceReport (증빙·리스크 점검)
     risk_path: str = ""
+    prefile_obj: object = None      # PrefileReport (신고 전 자가검증)
+    prefile_path: str = ""
+    bizno_obj: object = None        # BiznoBatch (사업자번호 일괄검증)
+    bizno_path: str = ""
+    recon_obj: object = None        # ReconResult (거래처/계정 변동 대사)
+    recon_path: str = ""
 
 
 @dataclass
@@ -66,11 +72,15 @@ def run_batch(
     *,
     client_type: Optional[str] = None,
     dup_store: Optional[str] = None,
+    recon_store: Optional[str] = None,
     truth: Optional[str] = None,
     client_report: Optional[bool] = None,
     config_dir: Optional[str] = None,
 ) -> BatchResult:
-    """입력(파일/폴더) → 출력 폴더. 파일별 에러 격리, 매니페스트 기록."""
+    """입력(파일/폴더) → 출력 폴더. 파일별 에러 격리, 매니페스트 기록.
+
+    recon_store: 전월 대비 거래처/계정 대사 기준선 JSON 경로(지정 시에만 _recon.txt 산출).
+    """
     from kafa.cli import process_rows           # 지연 import(순환 방지)
     from kafa.io_wehago.reader import read_download_xlsx
 
@@ -105,12 +115,15 @@ def run_batch(
     recommender = build_recommender(seed, config_dir=config_dir)
 
     dup = DupGuard(dup_store) if dup_store else None
+    from kafa.agent.recon import VendorBaseline
+    recon = VendorBaseline(recon_store) if recon_store else None
 
     for f, rows in per_file.items():
         out = out_dir / (f.stem + "_upload.xls")
         try:
             fr = _run_one(rows, out, client_type=client_type, seed=seed,
-                          recommender=recommender, dup=dup, truth_idx=truth_idx,
+                          recommender=recommender, dup=dup, recon=recon,
+                          truth_idx=truth_idx,
                           client_report=client_report, config_dir=config_dir)
         except Exception as e:                    # noqa: BLE001
             result.failures[f.name] = f"{type(e).__name__}: {e}"
@@ -150,11 +163,11 @@ def _merge_seed(rows_iter, *, config_dir):
 
 
 def _run_one(rows, out, *, client_type, seed, recommender, dup, truth_idx,
-             config_dir, client_report=None) -> FileResult:
+             config_dir, recon=None, client_report=None) -> FileResult:
     """한 파일 처리 → FileResult (정확도 평가 포함)."""
     from kafa.cli import process_rows
     res = process_rows(rows, out, client_type=client_type, seed=seed,
-                       recommender=recommender, dup=dup,
+                       recommender=recommender, dup=dup, recon=recon,
                        client_report=client_report, config_dir=config_dir)
     rep = res["report_obj"]
     fr = FileResult(
@@ -167,6 +180,12 @@ def _run_one(rows, out, *, client_type, seed, recommender, dup, truth_idx,
         client_path=res["client_path"].name if res.get("client_path") else "",
         evid_obj=res.get("evid"),
         risk_path=res["risk_path"].name if res.get("risk_path") else "",
+        prefile_obj=res.get("prefile"),
+        prefile_path=res["prefile_path"].name if res.get("prefile_path") else "",
+        bizno_obj=res.get("bizno"),
+        bizno_path=res["bizno_path"].name if res.get("bizno_path") else "",
+        recon_obj=res.get("recon"),
+        recon_path=res["recon_path"].name if res.get("recon_path") else "",
     )
     if truth_idx is not None:
         from kafa.eval import evaluate, render_eval
@@ -198,6 +217,28 @@ def _masked_file(fr: FileResult) -> dict:
         "client_report": fr.client_path,
         "risk_report": fr.risk_path,
         "risk_flags": len(getattr(fr.evid_obj, "flags", []) or []) if fr.evid_obj else None,
+        # 신고 전 자가검증(집계/PASS·WARN만)
+        "prefile_report": fr.prefile_path,
+        "prefile_ok": getattr(fr.prefile_obj, "all_ok", None),
+        "prefile_warnings": ([{"name": i.name, "detail": i.detail}
+                              for i in getattr(fr.prefile_obj, "warnings", [])]
+                             if fr.prefile_obj is not None else None),
+        # 사업자번호 일괄검증(건수 + 마스킹 오류 목록)
+        "bizno_report": fr.bizno_path,
+        "bizno": ({
+            "unique": getattr(fr.bizno_obj, "unique", None),
+            "valid": getattr(fr.bizno_obj, "n_valid", None),
+            "invalid": getattr(fr.bizno_obj, "n_invalid", None),
+            "duplicates": getattr(fr.bizno_obj, "duplicates", None),
+        } if fr.bizno_obj is not None else None),
+        # 거래처/계정 대사(거래처는 reconcile 가 이미 마스킹)
+        "recon_report": fr.recon_path,
+        "recon": ({
+            "new_vendors": list(getattr(fr.recon_obj, "new_vendors", []) or []),
+            "account_changes": [
+                {"vendor": v, "from": a, "to": b}
+                for (v, a, b) in getattr(fr.recon_obj, "account_changes", []) or []],
+        } if fr.recon_obj is not None else None),
         # 부가세 신고 보조 집계(금액은 PII 아님 — 합계만)
         "vat_summary": ({
             "과세공제_공급가액": str(getattr(fr.vat_obj, "과세공제_공급가액", "")),
@@ -270,6 +311,7 @@ def convert(
     client_type: Optional[str] = None,
     recommendations: Optional[list] = None,
     dup_store: Optional[str] = None,
+    recon_store: Optional[str] = None,
     truth: Optional[str] = None,
     client_report: Optional[bool] = None,
     config_dir: Optional[str] = None,
@@ -312,8 +354,11 @@ def convert(
         if truth:
             from kafa.eval import load_truth_csv
             truth_idx = load_truth_csv(truth)
+        from kafa.agent.recon import VendorBaseline
+        recon = VendorBaseline(recon_store) if recon_store else None
         fr = _run_one(rows, out, client_type=client_type, seed=seed,
-                      recommender=recommender, dup=None, truth_idx=truth_idx,
+                      recommender=recommender, dup=None, recon=recon,
+                      truth_idx=truth_idx,
                       client_report=client_report, config_dir=config_dir)
         fr.input_name = in_path.name
         return {"ok": True, "output_dir": str(out_dir), "manifest": None,
@@ -321,7 +366,7 @@ def convert(
                 "guidance": _guidance([_masked_file(fr)], {})}
 
     batch = run_batch(input_path, output_dir, client_type=client_type,
-                      dup_store=dup_store, truth=truth,
+                      dup_store=dup_store, recon_store=recon_store, truth=truth,
                       client_report=client_report, config_dir=config_dir)
     files = [_masked_file(fr) for fr in batch.files]
     return {
@@ -350,6 +395,59 @@ def _guidance(files: list[dict], failures: dict) -> str:
     if failures:
         parts.append(f"실패 {len(failures)}건: {list(failures)}")
     return " / ".join(parts)
+
+
+def withholding_calc(payments: list, *, config_dir: Optional[str] = None) -> dict:
+    """원천징수세액 계산(세무대리인). 금액·유형만 사용 — 수령자 PII 없음.
+
+    payments: [{"amount": 1000000, "type": "사업소득"}, ...] 또는 [[amount, type], ...].
+    type 은 config/agent.yaml 의 유형 키(사업소득/기타소득…).
+    """
+    from kafa.agent.withholding import compute_batch, render_withholding
+
+    norm = []
+    for p in payments or []:
+        if isinstance(p, dict):
+            norm.append((p.get("amount", p.get("지급액", 0)),
+                         p.get("type", p.get("income_type", p.get("유형")))))
+        else:
+            norm.append((p[0], p[1]))
+    try:
+        batch = compute_batch(norm, config_dir=config_dir)
+    except (ValueError, KeyError) as e:
+        return {"ok": False, "error": str(e)}
+    return {
+        "ok": True,
+        "rows": [{
+            "유형": r.income_type, "지급액": str(r.지급액),
+            "소득세": str(r.소득세), "지방소득세": str(r.지방소득세),
+            "원천징수합계": str(r.원천징수합계), "실지급액": str(r.실지급액),
+            "소액부징수_검토": r.소액부징수_검토,
+        } for r in batch.rows],
+        "지급액합계": str(batch.지급액합계),
+        "원천징수합계": str(batch.원천징수합계),
+        "실지급합계": str(batch.실지급합계),
+        "report": render_withholding(batch),
+    }
+
+
+def intake_checklist(period: str, received_types: list, *,
+                     config_dir: Optional[str] = None) -> dict:
+    """월별 자료 수취 체크리스트(세무대리인). 고객명은 받지 않고 '{고객명}' 자리표시자 사용.
+
+    period: 예 '2026-03'. received_types: 이미 받은 자료유형 목록(config/agent.yaml 기준).
+    """
+    from kafa.agent.intake import (build_intake_checklist, draft_request_message,
+                                   render_intake_checklist)
+
+    c = build_intake_checklist(period, "{고객명}", received_types, mask=False,
+                               config_dir=config_dir)
+    return {
+        "ok": True, "period": c.period, "received": c.received,
+        "missing": c.missing, "complete": c.complete,
+        "checklist": render_intake_checklist(c),
+        "request_message": draft_request_message(c),
+    }
 
 
 def preview(input_path: str | Path) -> dict:

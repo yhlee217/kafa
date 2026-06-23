@@ -10,6 +10,7 @@ import argparse
 import sys
 from pathlib import Path
 
+from kafa.agent.recon import VendorBaseline
 from kafa.dup_guard import DupGuard, make_key
 from kafa.recommend.recommender import Recommender, SeedRecommender
 from kafa.recommend.seed import SeedIndex, build_seed_from_inputrows
@@ -70,8 +71,12 @@ def process_rows(rows: list[InputRow], out_path: Path, *,
                  seed: SeedIndex | None = None,
                  recommender: Recommender | None = None,
                  dup: DupGuard | None = None,
+                 recon: VendorBaseline | None = None,
                  client_report: bool | None = None,
                  config_dir: str | None = None) -> dict:
+    from kafa.agent.bizno_batch import check_biznos, render_bizno_summary
+    from kafa.agent.prefile_check import build_prefile_check, render_prefile_check
+    from kafa.agent.recon import reconcile, render_recon
     from kafa.config_loader import load_rules
     from kafa.io_wehago.writer import to_output_row, write_upload_xls
     from kafa.report.client_report import build_client_report
@@ -121,10 +126,34 @@ def process_rows(rows: list[InputRow], out_path: Path, *,
     risk_path = out_path.with_name(out_path.stem + "_risk.txt")
     risk_path.write_text(render_evidence_check(evid), encoding="utf-8")
 
+    # 신고 전 자가검증 체크리스트(세무대리인) — 항상. 이미 만든 evid 재사용(중복 스캔 방지)
+    prefile = build_prefile_check(classified, evidence=evid)
+    prefile_path = out_path.with_name(out_path.stem + "_prefile.txt")
+    prefile_path.write_text(render_prefile_check(prefile), encoding="utf-8")
+
+    # 사업자번호 일괄검증 — 행의 번호는 로컬에서만 처리, 요약은 마스킹
+    biznos = [c.source.사업자등록번호 for c in classified
+              if c.source and c.source.사업자등록번호]
+    bizno = check_biznos(biznos)
+    bizno_path = out_path.with_name(out_path.stem + "_bizno.txt")
+    bizno_path.write_text(render_bizno_summary(bizno), encoding="utf-8")
+
+    # 전월 대비 거래처/계정 변동 대사 — 기준선 저장소 지정 시에만(opt-in)
+    recon_obj = None
+    recon_path = None
+    if recon is not None:
+        recon_obj, new_base = reconcile(classified, recon.mapping)
+        recon.save(new_base)
+        recon_path = out_path.with_name(out_path.stem + "_recon.txt")
+        recon_path.write_text(render_recon(recon_obj), encoding="utf-8")
+
     return {"report_obj": rep, "report": report_text,
             "report_path": report_path, "csv_path": csv_path,
             "vat": vat, "vat_path": vat_path, "client_path": client_path,
             "evid": evid, "risk_path": risk_path,
+            "prefile": prefile, "prefile_path": prefile_path,
+            "bizno": bizno, "bizno_path": bizno_path,
+            "recon": recon_obj, "recon_path": recon_path,
             "classified": classified,
             "skipped": skipped, "written": len(out_rows), "files": files}
 
@@ -146,6 +175,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--client-type", choices=["corporate", "individual"],
                    default=None, help="기장 클라이언트 유형(기본=config)")
     p.add_argument("--dup-store", default=None, help="중복 가드 JSON 경로")
+    p.add_argument("--recon-store", default=None,
+                   help="전월 대비 거래처/계정 대사 기준선 JSON 경로(지정 시 _recon.txt 산출)")
     p.add_argument("--truth", default=None,
                    help="담당자 정답 CSV(수작업 대조) — 정확도 검증")
     p.add_argument("--client-report", action=argparse.BooleanOptionalAction,
@@ -157,8 +188,9 @@ def main(argv: list[str] | None = None) -> int:
     from kafa.service import run_batch
 
     batch = run_batch(args.input, args.output, client_type=args.client_type,
-                      dup_store=args.dup_store, truth=args.truth,
-                      client_report=args.client_report, config_dir=args.config_dir)
+                      dup_store=args.dup_store, recon_store=args.recon_store,
+                      truth=args.truth, client_report=args.client_report,
+                      config_dir=args.config_dir)
 
     for name, msg in batch.failures.items():
         print(f"[{name}] 실패 → {msg}", file=sys.stderr)
