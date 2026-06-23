@@ -276,3 +276,49 @@ def test_anthropic_completion_no_temperature_uses_effort():
     assert k["model"] == "claude-opus-4-8"
     assert k["output_config"]["effort"] == "low"
     assert k["output_config"]["format"]["type"] == "json_schema"
+
+
+# ── 버그/엣지 회귀 방지 ──
+
+def test_run_loop_max_iter_zero_is_safe():
+    def boom(*a, **k):
+        raise AssertionError("max_iter<=0 이면 호출되면 안 됨")
+    res = run_loop(_spec(max_iter=0), "입력", boom, boom)
+    assert res.iterations == [] and not res.passed
+    assert res.stopped_reason == "no_iterations" and res.best_output == ""
+
+
+def test_parse_evaluation_string_boolean():
+    # 문자열 "false" 가 통과로 뒤집히지 않아야 함
+    assert parse_evaluation('{"score":40,"is_passed":"false","critique":"x"}')["is_passed"] is False
+    assert parse_evaluation('{"score":91,"is_passed":"true","critique":""}')["is_passed"] is True
+
+
+def test_parse_evaluation_amid_noise_and_multiple_objects():
+    assert parse_evaluation('잡음 {"score":75,"is_passed":false,"critique":"b"} 끝')["score"] == 75
+    assert parse_evaluation('{"score":80,"is_passed":true,"critique":"a"} trailing')["score"] == 80
+    out = parse_evaluation('{"score":88,"is_passed":true,"critique":"c"}\n{"score":1}')
+    assert out["score"] == 88  # 첫 유효 객체 채택, 크래시 없음
+
+
+def test_cli_completion_timeout_wrapped(monkeypatch):
+    def fake_run(cmd, **kw):
+        raise _clients.subprocess.TimeoutExpired(cmd, kw.get("timeout"))
+    monkeypatch.setattr(_clients.subprocess, "run", fake_run)
+    with pytest.raises(RuntimeError, match="타임아웃"):
+        CliCompletion(timeout=1)("s", "u")
+
+
+def test_cli_completion_error_envelope_and_bad_json(monkeypatch):
+    def err_env(cmd, **kw):
+        env = {"is_error": True, "result": "boom"}
+        return type("P", (), {"returncode": 0, "stdout": json.dumps(env), "stderr": ""})()
+    monkeypatch.setattr(_clients.subprocess, "run", err_env)
+    with pytest.raises(RuntimeError, match="오류"):
+        CliCompletion()("s", "u")
+
+    def bad_json(cmd, **kw):
+        return type("P", (), {"returncode": 0, "stdout": "not json", "stderr": ""})()
+    monkeypatch.setattr(_clients.subprocess, "run", bad_json)
+    with pytest.raises(RuntimeError, match="파싱 실패"):
+        CliCompletion()("s", "u")

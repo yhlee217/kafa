@@ -83,8 +83,11 @@ class CliCompletion:
             cmd += ["--model", m]
         cmd += self.extra_args
 
-        proc = subprocess.run(cmd, capture_output=True, text=True,
-                              timeout=self.timeout, stdin=subprocess.DEVNULL)
+        try:
+            proc = subprocess.run(cmd, capture_output=True, text=True,
+                                  timeout=self.timeout, stdin=subprocess.DEVNULL)
+        except subprocess.TimeoutExpired as e:
+            raise RuntimeError(f"claude CLI 타임아웃({self.timeout}s 초과)") from e
         if proc.returncode != 0:
             raise RuntimeError(
                 f"claude CLI 실패(code={proc.returncode}): {proc.stderr.strip()[:500]}")
@@ -149,23 +152,48 @@ def default_completion(*, model: Optional[str] = None, timeout: int = 180):
 _FENCE = re.compile(r"```(?:json)?\s*(.*?)\s*```", re.DOTALL)
 
 
+def _coerce_bool(v) -> bool:
+    """JSON 불리언/숫자/문자열을 bool 로. 문자열 'false'/'0' 은 False
+    (파이썬 bool('false') == True 함정 방지)."""
+    if isinstance(v, bool):
+        return v
+    if isinstance(v, (int, float)):
+        return v != 0
+    return str(v).strip().lower() in ("true", "1", "yes", "y")
+
+
+def _first_json_object(raw: str):
+    """앞뒤 잡음·여러 객체가 섞여도 첫 유효 JSON 객체(dict)를 반환. 없으면 None."""
+    try:
+        obj = json.loads(raw)
+        if isinstance(obj, dict):
+            return obj
+    except json.JSONDecodeError:
+        pass
+    dec = json.JSONDecoder()
+    for i, ch in enumerate(raw):
+        if ch == "{":
+            try:
+                obj, _ = dec.raw_decode(raw[i:])
+            except json.JSONDecodeError:
+                continue
+            if isinstance(obj, dict):
+                return obj
+    return None
+
+
 def parse_evaluation(text: str) -> dict:
     """평가자 응답 → {score:int(0~100), is_passed:bool, critique:str}.
 
-    마크다운 펜스/앞뒤 잡음이 섞여도 첫 JSON 객체를 추출해 파싱한다.
+    마크다운 펜스/앞뒤 잡음/여러 객체가 섞여도 첫 유효 JSON 객체를 추출해 파싱한다.
     """
     raw = (text or "").strip()
     m = _FENCE.search(raw)
     if m:
         raw = m.group(1).strip()
-    try:
-        data = json.loads(raw)
-    except json.JSONDecodeError:
-        s, e = raw.find("{"), raw.rfind("}")
-        if s == -1 or e == -1 or e < s:
-            raise ValueError(f"평가 JSON 파싱 실패: {text!r}")
-        data = json.loads(raw[s:e + 1])
-
+    data = _first_json_object(raw)
+    if data is None:
+        raise ValueError(f"평가 JSON 파싱 실패: {text!r}")
     try:
         score = int(round(float(data.get("score", 0))))
     except (TypeError, ValueError):
@@ -173,6 +201,6 @@ def parse_evaluation(text: str) -> dict:
     score = max(0, min(100, score))
     return {
         "score": score,
-        "is_passed": bool(data.get("is_passed", False)),
+        "is_passed": _coerce_bool(data.get("is_passed", False)),
         "critique": str(data.get("critique", "")).strip(),
     }

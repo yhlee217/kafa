@@ -241,6 +241,18 @@ PII 로컬 원칙상 외부 웹서비스화는 의도적으로 배제하고, 세
   워크플로 파일을 사용하므로 PR #19부터 즉시 검사 동작. 이전엔 PR 트리거 CI 가 없어
   체크런 0개였음 → 이제 진짜 CI 실패 감시 가능.
 
+- 2026-06-23: [기능 검토 — 버그/엣지 수정] loop·agent 코드 리뷰(병렬 2건)로 발견한
+  버그 3 + 엣지 4 수정. 버그: ① `run_loop` max_iter≤0 시 `max(빈 리스트)` 크래시 →
+  빈 결과(stopped_reason="no_iterations") 안전 반환, ② `parse_evaluation` 가 문자열
+  `"false"`를 `bool("false")==True`로 통과 처리 → `_coerce_bool`로 강제, ③ `withholding`
+  음수 지급액 ValueError 가드(ROUND_DOWN 절사 오류·소액부징수 오플래그 방지). 엣지:
+  ④ `parse_evaluation` 여러 JSON 객체 시 "Extra data" 크래시 → `_first_json_object`
+  (raw_decode로 첫 유효 객체), ⑤ `CliCompletion` TimeoutExpired → RuntimeError 래핑,
+  ⑥ `recon` 배치 내 계정변동 누락·미정(None) 거래처 매달 재신규 → live 기준선 비교 +
+  '봤음' 센티넬(_SEEN_NO_CODE)·신규 dedupe, ⑦ `prefile_check` 합계검산에 tol 적용(엑셀
+  float 오차 오탐 방지). 회귀 테스트 +9(총 172). 미수정(별도): agent/loop 제품 결선,
+  prefile↔evidence/review 중복, VendorBaseline↔DupGuard 공용화.
+
 ## 사용 형태 (사용자 관점)
 - **Claude Desktop(MCP)**: `convert`/`preview` 도구. 변환은 결정론적 코드가 수행, 출력은
   고정 .xls 스키마, 결과는 마스킹 요약만 → "정해진 템플릿으로 항상 오차없이". 설정/사용 docs/usage.md.

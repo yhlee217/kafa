@@ -37,13 +37,15 @@ def build_prefile_check(rows: list[ClassifiedRow], *, tol: float = 0.01) -> Pref
     """분류 결과로 신고 전 점검표 생성. 스킵(중복 등) 행은 검산 대상에서 제외."""
     active = [r for r in rows if not r.skipped]
 
-    # 1) 합계 검산: 공급가액 + 세액 + 비과세 == 합계
+    # 1) 합계 검산: 공급가액 + 세액 + 비과세 == 합계 (엑셀 float 유래 오차 대비 tol 허용)
+    tol_dec = Decimal(str(tol))
     mismatch = 0
     for r in active:
         s = r.source
         if s is None:
             continue
-        if Decimal(s.공급가액) + Decimal(s.세액) + Decimal(s.비과세) != Decimal(s.합계):
+        diff = Decimal(s.공급가액) + Decimal(s.세액) + Decimal(s.비과세) - Decimal(s.합계)
+        if abs(diff) > tol_dec:
             mismatch += 1
 
     # 2) 공제여부 분류 정합(검토 잔여가 있으면 신고 미완)

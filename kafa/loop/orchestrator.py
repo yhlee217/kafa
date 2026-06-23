@@ -88,6 +88,11 @@ def run_loop(
         critique = it.critique  # 비평 주입
         prev_output = output    # 직전 결과물도 함께 주어 '고쳐쓰기' 유도(퇴행 방지)
 
+    if not iterations:
+        # max_iter <= 0 등으로 루프 본문이 한 번도 안 돌면 빈 결과를 안전 반환.
+        return LoopResult(passed=False, best_output="", best_score=0,
+                          iterations=[], stopped_reason="no_iterations")
+
     if stopped_reason == "passed":
         best = iterations[-1]  # 통과를 일으킨 회차
     else:

@@ -17,6 +17,11 @@ from kafa.rules.models import ClassifiedRow
 from kafa.security import hash_id, mask_name
 
 
+# 계정 미정(미추천) 거래처를 '봤지만 코드 없음'으로 표시(유효 계정코드는 양수).
+# 미정 거래처가 매달 '신규'로 재플래그되는 것을 막는다.
+_SEEN_NO_CODE = 0
+
+
 def _vendor_key(name: str) -> str:
     return hash_id(name, salt="recon", length=16)
 
@@ -36,6 +41,7 @@ def reconcile(rows: list[ClassifiedRow],
     """직전 기준선(거래처해시→차변계정코드) 대비 신규/변동을 찾고, 갱신된 기준선을 반환."""
     res = ReconResult()
     new_baseline = dict(baseline)
+    seen_new: set[str] = set()
     for r in rows:
         if r.skipped or not r.source or not r.source.거래처:
             continue
@@ -43,11 +49,17 @@ def reconcile(rows: list[ClassifiedRow],
         key = _vendor_key(name)
         code = r.차변계정코드
         if key not in baseline:
-            res.new_vendors.append(mask_name(name))
-        elif code is not None and baseline[key] != code:
-            res.account_changes.append((mask_name(name), baseline[key], code))
-        if code is not None:
-            new_baseline[key] = code
+            if key not in seen_new:          # 신규는 한 번만 보고
+                res.new_vendors.append(mask_name(name))
+                seen_new.add(key)
+        else:
+            prev = new_baseline.get(key)     # 배치 내 변경도 반영(live 기준선)
+            if (code is not None and prev not in (None, _SEEN_NO_CODE)
+                    and prev != code):
+                res.account_changes.append((mask_name(name), prev, code))
+        # 기준선 갱신: 코드 있으면 코드, 없으면 '봤음' 표시 유지(미정도 재신규 방지)
+        new_baseline[key] = code if code is not None else \
+            new_baseline.get(key, _SEEN_NO_CODE)
     return res, new_baseline
 
 

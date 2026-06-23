@@ -39,6 +39,8 @@ def compute_withholding(지급액, income_type: str, *,
         raise ValueError(
             f"미정의 원천징수 유형: {income_type!r} (가능: {list(types)})")
     base = Decimal(str(지급액))
+    if base < 0:
+        raise ValueError("지급액은 음수일 수 없습니다(원천징수 대상 금액).")
     rate = Decimal(str(types[income_type]["소득세율"]))
     소득세 = _floor_won(base * rate)
     지방 = _floor_won(소득세 * Decimal(str(cfg["지방소득세_소득세대비율"])))

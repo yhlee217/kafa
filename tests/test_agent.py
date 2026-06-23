@@ -136,3 +136,38 @@ def test_vendor_baseline_roundtrip(tmp_path):
     vb = VendorBaseline(p)
     vb.save({"abc123": 811})
     assert VendorBaseline(p).mapping == {"abc123": 811}
+
+
+# ── 버그/엣지 회귀 방지 ──
+
+def test_withholding_rejects_negative():
+    with pytest.raises(ValueError):
+        compute_withholding(-1000, "사업소득")
+
+
+def test_prefile_sum_check_tolerance():
+    # 0.005 차이는 tol(0.01) 이내 → 합계 경고 없음
+    ok = build_prefile_check([_row(합계="11000.005")])
+    assert not any("합계" in w.name for w in ok.warnings)
+    # 1원 차이는 경고
+    bad = build_prefile_check([_row(합계="11001")])
+    assert any("합계" in w.name for w in bad.warnings)
+
+
+def test_recon_intrabatch_change_and_unresolved_seen():
+    # 계정 미정(None) 신규 → 다음 달 코드 부여돼도 재신규/오변동 아님
+    r1, base1 = reconcile([_row(거래처="에이스", code=None)], {})
+    assert r1.new_vendors == ["에이*"]
+    r2, _ = reconcile([_row(거래처="에이스", code=811)], base1)
+    assert not r2.new_vendors and not r2.account_changes
+    # 기존 거래처가 한 배치 안에서 계정 변경 → 1회 보고
+    _, base3 = reconcile([_row(거래처="비코무역", code=900)], {})
+    r4, _ = reconcile([_row(거래처="비코무역", code=900),
+                       _row(거래처="비코무역", code=901)], base3)
+    assert len(r4.account_changes) == 1 and r4.account_changes[0][1:] == (900, 901)
+
+
+def test_vendor_baseline_corrupt_recovers(tmp_path):
+    p = tmp_path / "b.json"
+    p.write_text("{ not valid json", encoding="utf-8")
+    assert VendorBaseline(p).mapping == {}
