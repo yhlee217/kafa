@@ -25,14 +25,18 @@ class IntakeChecklist:
 
 
 def build_intake_checklist(period: str, client_name: str,
-                           received_types, *,
+                           received_types, *, mask: bool = True,
                            config_dir: str | None = None) -> IntakeChecklist:
-    """기본 자료유형 대비 수취/누락 분류. received_types = 받은 자료유형 집합."""
+    """기본 자료유형 대비 수취/누락 분류. received_types = 받은 자료유형 집합.
+
+    mask=True(기본): 고객명 마스킹. mask=False: 자리표시자('{고객명}' 등)를 그대로 둘 때 사용.
+    """
     types = load_agent(config_dir)["intake"]["자료유형"]
     recv = set(received_types or [])
     received = [t for t in types if t in recv]
     missing = [t for t in types if t not in recv]
-    return IntakeChecklist(period=period, client=mask_name(client_name),
+    client = mask_name(client_name) if mask else client_name
+    return IntakeChecklist(period=period, client=client,
                            received=received, missing=missing)
 
 

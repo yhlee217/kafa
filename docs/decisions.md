@@ -253,6 +253,16 @@ PII 로컬 원칙상 외부 웹서비스화는 의도적으로 배제하고, 세
   float 오차 오탐 방지). 회귀 테스트 +9(총 172). 미수정(별도): agent/loop 제품 결선,
   prefile↔evidence/review 중복, VendorBaseline↔DupGuard 공용화.
 
+- 2026-06-23: [제품 결선] standalone 이던 agent 5종을 실제 진입점에 연결. ① 행 기반 3종을
+  변환 파이프라인 산출물로: `prefile_check`→`_prefile.txt`(항상), `bizno_batch`→`_bizno.txt`
+  (행의 사업자번호를 로컬 처리·요약만 마스킹, 항상), `recon`→`_recon.txt`(기준선 저장소
+  지정 시 opt-in; CLI `--recon-store`, MCP convert `recon_store`, run_batch 가 VendorBaseline
+  누적·저장). `process_rows`/`_run_one`/`run_batch`/`convert`/`_masked_file` 에 결선(마스킹/집계만
+  노출). ② 비-행 2종을 MCP 도구 + service 파사드로: `withholding`(원천징수 계산 — 금액·유형만,
+  수령자 PII 없음), `intake`(자료 수취 체크리스트 — 고객명 대신 '{고객명}' 자리표시자, PII
+  미입력). `service.withholding_calc`/`intake_checklist`. intake.build_intake_checklist 에
+  mask 토글 추가. loop 는 의도적으로 미결선(개발용). 테스트 +5(총 177).
+
 ## 사용 형태 (사용자 관점)
 - **Claude Desktop(MCP)**: `convert`/`preview` 도구. 변환은 결정론적 코드가 수행, 출력은
   고정 .xls 스키마, 결과는 마스킹 요약만 → "정해진 템플릿으로 항상 오차없이". 설정/사용 docs/usage.md.
