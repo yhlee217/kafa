@@ -282,6 +282,14 @@ PII 로컬 원칙상 외부 웹서비스화는 의도적으로 배제하고, 세
   DB·산출물 로컬 전용·외부 노출은 마스킹 요약. 설계: `docs/pipeline_plan.md`. 단위테스트 +7
   (store 3 + pipeline 4, 총 184). 후속: Phase 2 폴더 감시·Windows 자동시작·.exe(트레이).
 
+- 2026-06-23: [파이프라인 Phase 2 — 폴더 감시·알림] `kafa/pipeline/watch.py` — 외부 의존성
+  없는 **폴링 감시**(파일 크기가 직전 스캔과 같으면=다운로드 완료로 보고 처리, 반쯤 받은 파일
+  방지). 처리분은 run_pipeline 이 _archive 로 옮겨 재처리 없음. `kafa/pipeline/notify.py` —
+  Windows 토스트(win10toast, 없으면 콘솔 폴백). CLI `kafa-watch <inbox> <out>`(상시 감시,
+  Ctrl+C 종료) 등록. Windows 자동 실행 가이드 `docs/windows_setup.md` + 시작프로그램용
+  `scripts/windows/kafa-watch.bat`(.exe 빌드 안내 포함). 테스트/제어용 stop·max_cycles·sleep
+  주입. 단위테스트 +4(총 188). 후속: Phase 3 일일 요약·진행 보드, .exe 트레이앱.
+
 ## 사용 형태 (사용자 관점)
 - **Claude Desktop(MCP)**: `convert`/`preview` 도구. 변환은 결정론적 코드가 수행, 출력은
   고정 .xls 스키마, 결과는 마스킹 요약만 → "정해진 템플릿으로 항상 오차없이". 설정/사용 docs/usage.md.
