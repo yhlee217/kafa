@@ -272,6 +272,16 @@ PII 로컬 원칙상 외부 웹서비스화는 의도적으로 배제하고, 세
   공용화 `kafa/jsonstore.py`(load_json/save_json) → `DupGuard`·`VendorBaseline` 가 공유(손상
   회복·부모 생성 일원화). 동작 동일(테스트 177 유지).
 
+- 2026-06-23: [베이스 데이터 파이프라인 Phase 1] inbox 디렉토리 일괄 처리 토대 구축.
+  `kafa/store/`(SQLite `VoucherStore`) — 고객·기간별 거래 누적 단일 원본, voucher_key 해시
+  INSERT OR IGNORE 멱등(같은 파일 재투입해도 중복 적재 없음·기존 보존). `kafa/pipeline/`
+  (`run_pipeline`) — inbox 의 .xlsx 를 고객별(하위폴더=고객ID)로 모아 분류·미추천해소·리포트
+  (process_rows 재사용)·DB 적재·업로드 .xls 산출 후 원본을 `_archive` 로 이동. 고객별
+  dup·recon 기준선 분리(대사 정확성), 파일별 에러 격리, `_logs/manifest.json`. CLI
+  `kafa-pipeline <inbox> <out>`(콘솔 스크립트 등록). 위하고 접근 없음(로컬 파일만, ToS 안전),
+  DB·산출물 로컬 전용·외부 노출은 마스킹 요약. 설계: `docs/pipeline_plan.md`. 단위테스트 +7
+  (store 3 + pipeline 4, 총 184). 후속: Phase 2 폴더 감시·Windows 자동시작·.exe(트레이).
+
 ## 사용 형태 (사용자 관점)
 - **Claude Desktop(MCP)**: `convert`/`preview` 도구. 변환은 결정론적 코드가 수행, 출력은
   고정 .xls 스키마, 결과는 마스킹 요약만 → "정해진 템플릿으로 항상 오차없이". 설정/사용 docs/usage.md.
