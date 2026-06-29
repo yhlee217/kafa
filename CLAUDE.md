@@ -49,6 +49,9 @@ kafa/
   report/             Phase 4 검토 리포트(담당자 전용) + 세무대리인 서비스 확장
     review.py         요약·부가율 이상·미등록 의심·추천내역 + 중간산출물 CSV(근거 포함)
     vat_summary.py    부가세 신고 보조 집계(과세공제/불공제/면세/의제/검토 합산)
+  agent/              세무대리인 보조(신고전점검·사업자번호검증·원천징수·자료수취·대사)
+  store/              베이스 데이터 SQLite 누적(VoucherStore, 멱등 upsert) — 로컬 단일 원본
+  pipeline/           inbox 일괄 처리(runner)·폴더 감시(watch)·알림(notify) + CLI(kafa-pipeline/kafa-watch)
   loop/               루프 엔지니어링(Actor↔Evaluator 생성→평가→재생성)
     models.py         LoopSpec(스펙)/Iteration/LoopResult
     prompts.py        Actor/Evaluator 표준 프롬프트(스펙으로 렌더링)
