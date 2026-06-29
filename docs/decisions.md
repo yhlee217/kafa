@@ -290,6 +290,13 @@ PII 로컬 원칙상 외부 웹서비스화는 의도적으로 배제하고, 세
   `scripts/windows/kafa-watch.bat`(.exe 빌드 안내 포함). 테스트/제어용 stop·max_cycles·sleep
   주입. 단위테스트 +4(총 188). 후속: Phase 3 일일 요약·진행 보드, .exe 트레이앱.
 
+- 2026-06-23: [파이프라인 Phase 3 — 고객 진행 현황 보드] `kafa/pipeline/summary.py` —
+  SQLite 누적을 고객별 한 화면 요약(텍스트 `_board.txt` + 브라우저용 `_board.html`).
+  고객별 누적 건수·기간수·최근 기간·**확인 필요**(검토+미해소)·최근 처리시각. `VoucherStore`
+  에 `board_rows()` 집계 쿼리 추가. run_pipeline 종료 시 `write_board` 자동 갱신(실패 무해).
+  CLI `kafa-board <out>` 등록(언제든 재출력). 값은 비-PII 수치/기간만(거래처·금액 없음).
+  단위테스트 +3(총 191). 후속: 단일 .exe(트레이) 패키징·일일 알림 다이제스트.
+
 ## 사용 형태 (사용자 관점)
 - **Claude Desktop(MCP)**: `convert`/`preview` 도구. 변환은 결정론적 코드가 수행, 출력은
   고정 .xls 스키마, 결과는 마스킹 요약만 → "정해진 템플릿으로 항상 오차없이". 설정/사용 docs/usage.md.

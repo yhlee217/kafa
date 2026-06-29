@@ -140,4 +140,10 @@ def run_pipeline(inbox, output_dir, *, client_type: Optional[str] = None,
                     "failures": result.failures,
                     "total_in_db": result.total_in_db},
                    ensure_ascii=False, indent=2), encoding="utf-8")
+
+    try:  # 고객 진행 현황 보드 갱신(실패해도 파이프라인 결과엔 영향 없음)
+        from kafa.pipeline.summary import write_board
+        write_board(out_dir)
+    except Exception:  # noqa: BLE001
+        pass
     return result

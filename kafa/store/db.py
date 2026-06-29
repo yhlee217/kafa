@@ -154,6 +154,23 @@ class VoucherStore:
         return [r[0] for r in self._conn.execute(
             "SELECT client_id FROM clients ORDER BY client_id")]
 
+    def board_rows(self) -> list[dict]:
+        """고객별 집계(진행 현황 보드용). 값은 모두 비-PII 수치/기간."""
+        sql = (
+            "SELECT client_id, COUNT(*) AS vouchers, COUNT(DISTINCT period) AS periods, "
+            "MAX(period) AS latest_period, MAX(ingested_at) AS last_ingested, "
+            "COALESCE(SUM(공제여부='공제'),0) AS deduct, "
+            "COALESCE(SUM(공제여부='불공제'),0) AS nondeduct, "
+            "COALESCE(SUM(공제여부='검토'),0) AS review, "
+            "COALESCE(SUM(판정유형='recommended'),0) AS recommended, "
+            "COALESCE(SUM(판정유형='unresolved'),0) AS unresolved, "
+            "COALESCE(SUM(skipped),0) AS skipped "
+            "FROM vouchers GROUP BY client_id ORDER BY client_id"
+        )
+        cols = ["client_id", "vouchers", "periods", "latest_period", "last_ingested",
+                "deduct", "nondeduct", "review", "recommended", "unresolved", "skipped"]
+        return [dict(zip(cols, r)) for r in self._conn.execute(sql)]
+
     def record_run(self, run_id: str, inbox, files: int, written: int,
                    skipped: int, failures: int) -> None:
         self._conn.execute(
