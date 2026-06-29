@@ -173,6 +173,8 @@ def render_report(rep: ReviewReport) -> str:
         checks.append(f"부가율 이상 {len(rep.vat_anomaly_lines)}거래처 확인")
     if rep.suspect_vendor_lines:
         checks.append(f"미등록 의심 {len(rep.suspect_vendor_lines)}거래처 홈택스 조회")
+    if rep.deemed_candidates:
+        checks.append(f"의제매입 대상 후보 {rep.deemed_candidates}건 — 부가세 신고 시 검토")
     if checks:
         out += "\n\n☑ 체크포인트: " + " · ".join(checks)
     return out

@@ -100,3 +100,29 @@ def test_write_review_csv(tmp_path):
     # 마스킹 기본: 거래처 컬럼에 실명 없음
     body = "\n".join(",".join(r) for r in rows[1:])
     assert "정상가맹점" not in body
+
+
+def test_deemed_candidate_checkpoint():
+    """의제매입 대상 후보 행이 있으면 체크포인트에 의제매입 안내가 포함된다."""
+    src = _src("음식점", bizno="111-11-11119", 공급=Decimal("5000"), 세액=Decimal("0"))
+    row = _cls(src, 유형코드=58, 의제대상여부=True, 면세매입액=Decimal("5000"))
+    rep = build_review([row])
+    assert rep.deemed_candidates == 1
+    text = render_report(rep)
+    assert "의제매입" in text and "체크포인트" in text
+
+
+def test_known_biznos_flags_unregistered_vendor():
+    """known_biznos 를 지정하면 마스터에 없는 유효 사업자번호를 '마스터 미등록 신규'로 표시한다."""
+    KNOWN_BIZNO = "111-11-11119"    # 알려진 거래처
+    NEW_VALID_BIZNO = "123-45-67891"  # 유효 체크섬이지만 마스터에 없음
+    rows = [
+        _cls(_src("기존거래처", bizno=KNOWN_BIZNO)),
+        _cls(_src("신규거래처", bizno=NEW_VALID_BIZNO)),
+    ]
+    rep = build_review(rows, known_biznos=[KNOWN_BIZNO])
+    # 신규 거래처만 '마스터 미등록 신규'로 플래그
+    assert len(rep.suspect_vendor_lines) == 1
+    assert "마스터 미등록" in rep.suspect_vendor_lines[0]
+    # 기존 거래처는 정상
+    assert "기존" not in "\n".join(rep.suspect_vendor_lines)
