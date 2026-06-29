@@ -22,6 +22,7 @@ mcp = ["mcp>=1.0"]
 [project.scripts]
 kafa = "kafa.cli:main"
 kafa-mcp = "kafa.mcp_server:main"
+kafa-pipeline = "kafa.pipeline.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["kafa*"]
