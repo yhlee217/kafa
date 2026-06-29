@@ -46,8 +46,9 @@ def test_pipeline_end_to_end(tmp_path):
     # 원본은 아카이브로 이동(인박스에서 사라짐)
     assert not (inbox / "고객001" / "3월.xlsx").exists()
     assert (out / "_archive" / "고객001" / "3월.xlsx").exists()
-    # 로그
+    # 로그 + 고객 진행 현황 보드(자동 갱신)
     assert (out / "_logs" / "manifest.json").exists()
+    assert (out / "_board.html").exists() and (out / "_board.txt").exists()
 
 
 def test_pipeline_idempotent_rerun(tmp_path):
