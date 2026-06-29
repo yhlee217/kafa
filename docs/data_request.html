@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>kafa 자동화 — 필요 자료 요청서</title>
+<style>
+  :root{ --line:#e2e2e6; --ink:#1f2330; --sub:#5b6170; --bg:#fbfbfd; }
+  *{box-sizing:border-box}
+  body{font-family:'Malgun Gothic','Apple SD Gothic Neo',system-ui,sans-serif;
+       margin:0;background:var(--bg);color:var(--ink);line-height:1.5}
+  .wrap{max-width:860px;margin:0 auto;padding:28px 20px 60px}
+  header{border-bottom:3px solid var(--ink);padding-bottom:14px;margin-bottom:18px}
+  h1{font-size:24px;margin:0 0 4px}
+  .meta{color:var(--sub);font-size:13px}
+  .meta div{display:inline-block;margin-right:18px;margin-top:6px}
+  .meta input{border:none;border-bottom:1px solid var(--line);font-size:13px;
+              padding:2px 4px;min-width:120px}
+  .intro{background:#eef3fb;border:1px solid #cfe0f5;border-radius:10px;
+         padding:12px 14px;font-size:14px;margin-bottom:14px}
+  .pii{background:#fdecea;border:1px solid #f0a9a0;border-radius:10px;
+       padding:12px 14px;font-size:14px;margin-bottom:22px;color:#8a1c12}
+  .pii b{color:#b71c1c}
+  section{margin-bottom:26px}
+  h2{font-size:16px;margin:0 0 10px;padding-bottom:6px;border-bottom:1px solid var(--line)}
+  .item{display:flex;gap:12px;padding:12px;border:1px solid var(--line);
+        border-radius:10px;margin-bottom:10px;background:#fff;align-items:flex-start}
+  .item.done{background:#f3faf4;border-color:#bfe3c6}
+  .chk{margin-top:3px;transform:scale(1.3);flex:none}
+  .body{flex:1}
+  .t{font-weight:700}
+  .d{color:var(--sub);font-size:13.5px;margin-top:3px}
+  .why{font-size:12.5px;color:#3a6ea5;margin-top:4px}
+  .badge{font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;
+         color:#fff;white-space:nowrap;margin-left:auto}
+  .req{background:#e53935}.rec{background:#f59f00}.chkc{background:#1c7ed6}
+  .note{width:100%;margin-top:8px;border:1px solid var(--line);border-radius:6px;
+        padding:6px 8px;font-size:13px;font-family:inherit}
+  .legend{font-size:12.5px;color:var(--sub);margin:2px 0 18px}
+  .legend span{margin-right:14px}
+  footer{margin-top:30px;border-top:1px solid var(--line);padding-top:12px;
+         font-size:12.5px;color:var(--sub)}
+  .tools{margin:18px 0 8px}
+  button{font:inherit;padding:7px 12px;border:1px solid var(--line);background:#fff;
+         border-radius:8px;cursor:pointer;margin-right:8px}
+  @media print{ body{background:#fff} .tools{display:none} .note{border-color:#bbb}
+                .item{break-inside:avoid} }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>신용카드 매입 자동화(kafa) — 필요 자료 요청서</h1>
+    <div class="meta">
+      <div>받는 분: <input placeholder="성함/부서"></div>
+      <div>보내는 분: <input placeholder="이름"></div>
+      <div>작성일: <input placeholder="2026-06-__"></div>
+    </div>
+  </header>
+
+  <div class="intro">
+    아래 자료가 준비되면 <b>매출 처리·원천세 계산·사업자번호 검증·계정 자동매핑</b>까지
+    자동화를 완성할 수 있습니다. 급한 것부터(🔴) 주시면 되고, 나머지는 나중에 받아도 됩니다.
+  </div>
+  <div class="pii">
+    ⚠️ <b>개인정보 주의</b> — 실제 고객 자료의 <b>거래처 실명·사업자번호·카드번호</b>는
+    가린(더미) 샘플로 주세요. 카톡·메일로 <b>평문 PII를 그대로 보내지 마세요.</b>
+    (프로그램은 전부 로컬에서만 처리하며 인터넷으로 자료를 보내지 않습니다.)
+  </div>
+
+  <div class="legend">
+    <span>🔴 <b>필수</b> — 없으면 다음 단계 불가</span>
+    <span>🟡 <b>권장</b> — 기능 확장용</span>
+    <span>🔵 <b>확인</b> — 위하고T에서 직접 확인 가능</span>
+  </div>
+
+  <section>
+    <h2>A. 양식 · 샘플 파일</h2>
+
+    <label class="item">
+      <input type="checkbox" class="chk">
+      <div class="body">
+        <div class="t">① 위하고 ‘신용카드 매입 엑셀 업로드’ 빈 양식(.xls)<span class="badge req">필수</span></div>
+        <div class="d">가능하면 ‘계정과목(참고용)’ 시트가 포함된 실제 파일.</div>
+        <div class="why">→ 계정 이름→코드 자동 매핑을 확정합니다.</div>
+        <input class="note" placeholder="비고 / 받은 날짜">
+      </div>
+    </label>
+
+    <label class="item">
+      <input type="checkbox" class="chk">
+      <div class="body">
+        <div class="t">② 위하고에서 내려받은 ‘신용카드’ 결과 파일 샘플 1개<span class="badge req">필수</span></div>
+        <div class="d">거래처명·사업자번호는 가린(더미) 파일로.</div>
+        <div class="why">→ 입력 형식과 고객 자동 식별 방식을 확정합니다.</div>
+        <input class="note" placeholder="비고 / 받은 날짜">
+      </div>
+    </label>
+
+    <label class="item">
+      <input type="checkbox" class="chk">
+      <div class="body">
+        <div class="t">③ 매출 자료 업로드 양식 — 세금계산서 / 계산서 / 현금영수증<span class="badge rec">권장</span></div>
+        <div class="d">있는 양식만.</div>
+        <div class="why">→ 매입에서 매출까지 기장 확장.</div>
+        <input class="note" placeholder="비고 / 받은 날짜">
+      </div>
+    </label>
+
+    <label class="item">
+      <input type="checkbox" class="chk">
+      <div class="body">
+        <div class="t">④ 원천세 지급명세서 서식 — 사업소득 · 기타소득<span class="badge rec">권장</span></div>
+        <div class="d">위하고 또는 국세청 양식.</div>
+        <div class="why">→ 원천징수 계산 산출물(지급명세서)을 완성합니다.</div>
+        <input class="note" placeholder="비고 / 받은 날짜">
+      </div>
+    </label>
+  </section>
+
+  <section>
+    <h2>B. 규칙 · 값 확인 (답변만)</h2>
+
+    <label class="item">
+      <input type="checkbox" class="chk">
+      <div class="body">
+        <div class="t">⑤ 업로드 양식 ‘거래구분’ 칸에 들어갈 수 있는 값 목록<span class="badge req">필수</span></div>
+        <div class="why">→ 업로드 양식의 빈칸을 정확히 채웁니다.</div>
+        <input class="note" placeholder="답변 / 비고">
+      </div>
+    </label>
+
+    <label class="item">
+      <input type="checkbox" class="chk">
+      <div class="body">
+        <div class="t">⑥ 카드사(대변 거래처)는 양식 어느 칸에 적나요?<span class="badge req">필수</span></div>
+        <input class="note" placeholder="답변 / 비고">
+      </div>
+    </label>
+
+    <label class="item">
+      <input type="checkbox" class="chk">
+      <div class="body">
+        <div class="t">⑦ 업로드가 .xls만 되나요, .xlsx도 되나요?<span class="badge req">필수</span></div>
+        <input class="note" placeholder="답변 / 비고">
+      </div>
+    </label>
+
+    <label class="item">
+      <input type="checkbox" class="chk">
+      <div class="body">
+        <div class="t">⑧ 개인사업자일 때 상대계정(예: 인출금) 처리 기준<span class="badge rec">권장</span></div>
+        <input class="note" placeholder="답변 / 비고">
+      </div>
+    </label>
+
+    <label class="item">
+      <input type="checkbox" class="chk">
+      <div class="body">
+        <div class="t">⑨ 면세(카면) · 간이과세자 · 식당 의제매입 처리 기준<span class="badge rec">권장</span></div>
+        <input class="note" placeholder="답변 / 비고">
+      </div>
+    </label>
+
+    <label class="item">
+      <input type="checkbox" class="chk">
+      <div class="body">
+        <div class="t">⑩ 봉사료는 비과세와 똑같이 처리하면 되나요?<span class="badge rec">권장</span></div>
+        <input class="note" placeholder="답변 / 비고">
+      </div>
+    </label>
+  </section>
+
+  <section>
+    <h2>C. 위하고T 환경 확인 (직접 확인 가능)</h2>
+
+    <label class="item">
+      <input type="checkbox" class="chk">
+      <div class="body">
+        <div class="t">⑪ 자동수집(수집정보등록)을 쓰고 계신가요?<span class="badge chkc">확인</span></div>
+        <div class="why">→ 켜져 있으면 카드사에서 직접 받을 필요 없음.</div>
+        <input class="note" placeholder="예 / 아니오 / 비고">
+      </div>
+    </label>
+
+    <label class="item">
+      <input type="checkbox" class="chk">
+      <div class="body">
+        <div class="t">⑫ 여러 거래처 자료를 ‘한 번에’ 엑셀로 내보내기가 되나요?<span class="badge chkc">확인</span></div>
+        <div class="why">→ 다운로드 배치화 가능 여부 결정.</div>
+        <input class="note" placeholder="예 / 아니오 / 비고">
+      </div>
+    </label>
+
+    <label class="item">
+      <input type="checkbox" class="chk">
+      <div class="body">
+        <div class="t">⑬ 외부 프로그램과 자동 연동(API)이 가능한가요?<span class="badge chkc">확인</span></div>
+        <div class="why">→ 가져오기/업로드까지 합법 자동화 가능 여부.</div>
+        <input class="note" placeholder="예 / 아니오 / 비고">
+      </div>
+    </label>
+  </section>
+
+  <div class="tools">
+    <button onclick="window.print()">🖨️ 인쇄 / PDF 저장</button>
+    <button onclick="if(confirm('체크·비고를 모두 지울까요?')){localStorage.removeItem(KEY);location.reload();}">초기화</button>
+  </div>
+
+  <footer>
+    회신 방법: 파일은 가린(더미) 샘플로, 답변은 이 표의 ‘비고’ 칸에 적어 주세요. ·
+    이 문서의 체크/메모는 이 브라우저에 자동 저장됩니다(전송되지 않음).
+  </footer>
+</div>
+
+<script>
+  // 체크/메모를 로컬에만 저장(전송 없음). 인쇄·재방문 시 유지.
+  const KEY = 'kafa-data-request-v1';
+  const items = [...document.querySelectorAll('.item')];
+  function save(){
+    const data = items.map(it => ({
+      c: it.querySelector('.chk').checked,
+      n: it.querySelector('.note').value
+    }));
+    try{ localStorage.setItem(KEY, JSON.stringify(data)); }catch(e){}
+  }
+  function load(){
+    let data; try{ data = JSON.parse(localStorage.getItem(KEY)||'[]'); }catch(e){ data=[]; }
+    items.forEach((it,i)=>{
+      const d = data[i]; if(!d) return;
+      it.querySelector('.chk').checked = !!d.c;
+      it.querySelector('.note').value = d.n||'';
+      it.classList.toggle('done', !!d.c);
+    });
+  }
+  items.forEach(it=>{
+    const chk = it.querySelector('.chk');
+    chk.addEventListener('change', ()=>{ it.classList.toggle('done', chk.checked); save(); });
+    it.querySelector('.note').addEventListener('input', save);
+  });
+  load();
+</script>
+</body>
+</html>
