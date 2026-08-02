@@ -50,6 +50,7 @@ kafa/
     review.py         요약·부가율 이상·미등록 의심·추천내역 + 중간산출물 CSV(근거 포함)
     vat_summary.py    부가세 신고 보조 집계(과세공제/불공제/면세/의제/검토 합산)
   agent/              세무대리인 보조(신고전점검·사업자번호검증·원천징수·자료수취·대사)
+  learn/              처리 이력 → 보류 규칙 추정(infer, 자동적용 금지·근거 제시) + CLI(kafa-learn)
   store/              베이스 데이터 SQLite 누적(VoucherStore, 멱등 upsert) — 로컬 단일 원본
   pipeline/           inbox 일괄 처리(runner)·폴더 감시(watch)·알림(notify)·진행 보드(summary) + CLI(kafa-pipeline/kafa-watch/kafa-board)
   loop/               루프 엔지니어링(Actor↔Evaluator 생성→평가→재생성)

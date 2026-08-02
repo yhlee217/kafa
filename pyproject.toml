@@ -26,6 +26,7 @@ kafa-mcp = "kafa.mcp_server:main"
 kafa-pipeline = "kafa.pipeline.cli:main"
 kafa-watch = "kafa.pipeline.watch_cli:main"
 kafa-board = "kafa.pipeline.board_cli:main"
+kafa-learn = "kafa.learn.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["kafa*"]
