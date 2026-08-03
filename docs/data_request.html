@@ -82,7 +82,9 @@
   .badge{font-family:var(--mono);font-size:10.5px;letter-spacing:.05em;
          padding:2px 7px;border:1px solid currentColor;border-radius:2px;
          white-space:nowrap}
-  .b-req{color:var(--req)} .b-rec{color:var(--rec)}
+  .b-req{color:var(--req)} .b-rec{color:var(--rec)} .b-ok{color:var(--have)}
+  .item.done-ans{background:var(--have-soft);border-color:var(--have)}
+  .item.done-ans .now .lab{color:var(--have)}
   .d{color:var(--muted);font-size:13.4px;margin-top:4px}
   .where{font-family:var(--mono);font-size:12.2px;margin-top:7px;padding:6px 10px;
          background:var(--stripe);border-left:2px solid var(--accent);
@@ -144,8 +146,8 @@
 
   <div class="split">
     <div class="self"><span class="n">10</span><span class="l">내가 직접 받거나 확인</span></div>
-    <div class="ask"><span class="n">3</span><span class="l">아버지께 여쭐 것</span></div>
-    <div class="done"><span class="n">완료</span><span class="l">컬럼 구조 · 유형 코드 · 계정코드 11개</span></div>
+    <div class="done"><span class="n">3</span><span class="l">아버지 답변 완료 (8/3 통화)</span></div>
+    <div class="ask"><span class="n">1</span><span class="l">남은 확인 — 간이과세 구분</span></div>
   </div>
 
   <div class="have-box">
@@ -164,10 +166,12 @@
     <label class="item">
       <input type="checkbox" class="box">
       <div class="body">
-        <div class="row1"><span class="t">① 업로드 양식의 ‘계정과목(참고용)’ 시트</span>
+        <div class="row1"><span class="t">① 계정과목 코드 목록</span>
           <span class="badge b-req">가장 급함</span></div>
-        <div class="d">신용카드 매입 업로드 서식을 내려받아 계정과목 시트가 있는지 확인.</div>
-        <div class="where">전표관리 › 자동전표처리 › 신용카드 › 구분=매입 › 엑셀 서식 다운로드</div>
+        <div class="d">기본 세팅된 계정과목 전체가 나오는 화면. 여기서 목록을 뽑으면 됩니다.
+          (담당자 확인: 제조원가 500번대 · 공사(도급)원가 600번대 · 판관비 800번대 —
+          예를 들어 복리후생비는 511 / 611 / 811)</div>
+        <div class="where">기초데이터 › 계정과목(변경)</div>
         <div class="now"><span class="lab">지금</span>계정코드를 11개만 알고 있어
           실제 전표의 계정 대부분을 코드로 못 바꿉니다.</div>
         <input class="note" placeholder="확인 결과 / 파일 위치" aria-label="① 메모">
@@ -279,54 +283,54 @@
 
   <section>
     <div class="shead">
-      <h2><span class="k askc">여쭐 것</span>아버지께 — 실무 판단 3가지</h2>
-      <p>화면에 답이 없는, 경험으로 정하는 부분입니다.
-         자료를 받아 실제 처리 이력을 보면 상당 부분 추정할 수 있으니,
-         그때 “이렇게 하면 맞나요?”로 여쭈면 더 간단합니다.</p>
+      <h2><span class="k askc">확인됨</span>아버지 답변 — 2026-08-03 통화</h2>
+      <p>세 가지 중 둘은 확정해 코드에 반영했고, 하나는 “규정을 따른다”로 정리됐습니다.
+         남은 확인거리는 아래 마지막 항목뿐입니다.</p>
     </div>
 
-    <label class="item q">
-      <input type="checkbox" class="box">
+    <label class="item q done-ans">
+      <input type="checkbox" class="box" checked>
       <div class="body">
-        <div class="row1"><span class="t">개인사업자일 때 상대계정</span></div>
-        <div class="d">인출금 등, 개인사업자 건은 어떤 계정으로 잡으시는지.</div>
-        <div class="now"><span class="lab">지금</span>법인 기준(미지급비용 262)으로 처리하고
-          ‘확인 필요’ 표시를 남깁니다.</div>
-        <input class="note" placeholder="답변" aria-label="상대계정 답변">
+        <div class="row1"><span class="t">개인사업자 상대계정 — 인출금 또는 미지급금</span>
+          <span class="badge b-ok">반영됨</span></div>
+        <div class="now"><span class="lab">반영</span>인출금 코드를 아직 몰라서,
+          코드가 있는 <b>미지급금(253)</b>으로 처리하고 ‘확인 필요’ 표시를 남깁니다.
+          ①번 계정과목 목록이 오면 인출금으로 바꿉니다.</div>
+      </div>
+    </label>
+
+    <label class="item q done-ans">
+      <input type="checkbox" class="box" checked>
+      <div class="body">
+        <div class="row1"><span class="t">봉사료 — 접대성 경비라 전부 불공제</span>
+          <span class="badge b-ok">반영됨</span></div>
+        <div class="now"><span class="lab">반영</span>봉사료가 붙은 거래는 국세청 값과 무관하게
+          <b>불공제</b>로 처리합니다. 다만 다운로드본의 ‘비과세’ 칸이 곧 봉사료인지는
+          아직 확인 전이라 검토 표시를 함께 남깁니다.</div>
+      </div>
+    </label>
+
+    <label class="item q done-ans">
+      <input type="checkbox" class="box" checked>
+      <div class="body">
+        <div class="row1"><span class="t">의제매입 — 업종·법인격·매출 규모에 따라 율이 다름</span>
+          <span class="badge b-ok">설계 확인</span></div>
+        <div class="now"><span class="lab">반영</span>율이 매출 규모에 따라 갈리므로
+          <b>전표 단계에서 계산하지 않는 현재 설계가 맞습니다</b> — 대상만 표시하고
+          율·한도는 신고 단계에서 처리합니다.</div>
       </div>
     </label>
 
     <label class="item q">
       <input type="checkbox" class="box">
       <div class="body">
-        <div class="row1"><span class="t">면세(카면) · 간이과세자 · 식당 의제매입</span></div>
-        <div class="d">각각 어떤 기준으로 처리하시는지.</div>
-        <div class="now"><span class="lab">지금</span>의제 대상은 표시만 하고 율·한도 계산은
-          하지 않습니다. 간이과세자는 구분하지 못합니다.</div>
-        <input class="note" placeholder="답변" aria-label="면세 답변">
+        <div class="row1"><span class="t">남은 것 — 간이과세자는 어떻게 구분하세요?</span></div>
+        <div class="d">통화에서 다루지 못한 부분입니다.</div>
+        <div class="now"><span class="lab">지금</span>다운로드본 ‘구분’ 칸에 간이 표시가 있는지
+          이력 분석(<b>kafa-learn</b>)으로 확인 중입니다. 샘플이 오면 자동으로 판별됩니다.</div>
+        <input class="note" placeholder="답변" aria-label="간이과세 답변">
       </div>
     </label>
-
-    <label class="item q">
-      <input type="checkbox" class="box">
-      <div class="body">
-        <div class="row1"><span class="t">봉사료는 비과세와 똑같이 보면 되는지</span></div>
-        <div class="now"><span class="lab">지금</span>비과세 금액을 봉사료 칸에 넣고 있습니다
-          (확인 안 된 추정).</div>
-        <input class="note" placeholder="답변" aria-label="봉사료 답변">
-      </div>
-    </label>
-
-    <div class="kakao">
-      <h3>그대로 보내도 되는 메시지</h3>
-      <pre>아버지, 프로그램 만들면서 세 가지만 여쭤볼게요.
-
-1. 개인사업자 건은 상대계정을 뭘로 잡으세요? (인출금 같은 거요)
-2. 면세(카면)랑 간이과세자, 식당 의제매입은 각각 어떻게 처리하세요?
-3. 봉사료는 비과세랑 똑같이 보면 되나요?
-
-나머지는 제가 위하고에서 직접 확인할게요. 천천히 알려주셔도 돼요!</pre>
-    </div>
   </section>
 
   <section>

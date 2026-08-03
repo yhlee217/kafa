@@ -54,7 +54,7 @@ def classify_row(
 
     # 1.3 공제여부 (3단)
     ded = resolve_deductibility(row.국세청, row.업태, row.종목, row.품명,
-                                config_dir=config_dir)
+                                봉사료=row.비과세, config_dir=config_dir)
     out.공제여부 = ded.value
     out.add_rule(ded.rule_id)
     if ded.verdict == Verdict.REVIEW:

@@ -59,8 +59,9 @@ def test_negative_reverses_direction():
     assert c.대변계정코드 == 822
 
 
-def test_individual_client_falls_back_to_corporate_with_review():
+def test_individual_client_uses_configured_account_with_review():
     c = classify_row(_row(), client_type="individual")
-    # 개인 상대계정 [보류] → 법인(262)로 폴백 + 검토 플래그
-    assert c.대변계정코드 == 262
+    # [확정 2026-08 담당자] 개인은 인출금/미지급금. 인출금 코드 미확보 →
+    # 코드가 있는 미지급금(253) 적용 + 확인 플래그 유지.
+    assert c.대변계정코드 == 253
     assert c.needs_review is True

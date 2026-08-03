@@ -26,7 +26,15 @@ counterparty:
     account: 미지급비용
     code: 262
     vendor: 카드사        # 업로드 배치(어느 카드로 받았는지)로 귀속되는 것으로 추정
-  individual_client: TODO  # [보류] 개인사업자 샘플 없음. 법인 경로를 기본 동작으로.
+  # [확정 2026-08 담당자] 개인사업자는 **인출금 또는 미지급금**을 사용.
+  # 인출금 코드는 아직 미확보(계정과목 목록 수령 시 확정) → 코드가 있는 미지급금(253)을
+  # 적용하되 needs_review 로 담당자 확인을 남긴다. 인출금 코드 확보 시 아래를 교체.
+  individual_client:
+    account: 미지급금
+    code: 253
+    vendor: 카드사
+    needs_review: true
+    note: 담당자 확인(2026-08) — 개인은 인출금/미지급금. 인출금 코드 미확보로 미지급금 적용.
   default_client_type: corporate
 
 # 1.3 [확정] 불공제 3단 분기. 국세청 컬럼은 자동추정값(참고). 담당자 오버라이드 가능.
@@ -38,6 +46,13 @@ non_deductible:
     - 접대성업종
     - 사업무관의심
   simplified_taxpayer: TODO        # [보류] 다운로드 데이터에 간이/일반 식별자 유무 미확인
+  # [확정 2026-08 담당자] "봉사료가 들어가는 건 접대성 경비 → 부가세와 무관, 다 불공제".
+  # 다만 다운로드본 '비과세' 컬럼 = 봉사료 인지(동일성)는 아직 미확인([보류]) →
+  # 불공제로 처리하되 검토 플래그를 남긴다. 동일성 확인되면 confirmed_identity: true.
+  service_charge:
+    non_deductible: true
+    source_column: 비과세
+    confirmed_identity: false
   # [AI] flag_for_review 판정용 키워드. 업태/종목/품명에 매칭되면 review 플래그.
   #      세무 전문가 검수 대상 — 같은 가맹점도 목적에 따라 갈리므로 자동 확정하지 않음.
   review_keywords:
