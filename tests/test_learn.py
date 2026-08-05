@@ -73,11 +73,11 @@ def test_service_charge_signal():
 # ── 미매핑 계정 / 업종 패턴 ──
 
 def test_unmapped_accounts_listed():
-    rows = [_row(차변계정="(판)지급수수료") for _ in range(2)] + [_row()]
+    rows = [_row(차변계정="(판)존재하지않는계정") for _ in range(2)] + [_row()]
     rep = infer_rules(rows)
     names = dict(rep.unmapped_accounts)
-    assert names.get("(판)지급수수료") == 2       # config 에 없는 계정
-    assert "(판)복리후생비" not in names          # 매핑되는 계정은 제외
+    assert names.get("(판)존재하지않는계정") == 2   # 계정표에 없는 계정
+    assert "(판)복리후생비" not in names            # 매핑되는 계정은 제외
 
 
 def test_industry_pattern_needs_support_and_ratio():
