@@ -93,6 +93,13 @@ negative:
 recommend:
   similarity_floor: 0.80           # 시드 유사도 폴백 임계
   similarity_confidence_cap: 0.60  # 유사도 기반 추천 신뢰도 상한
+  # 업종 최빈 폴백 — **이 수임처가 그 업종을 처리해온 방식**을 이력에서 학습.
+  # 기준이 수임처마다 다른 항목(예: 음식점 = 접대비냐 복리후생비냐)을 고객별로 흡수한다.
+  # 근거가 약하므로 상한(cap)을 두고, 최소 건수·최소 편중을 못 넘으면 추천하지 않는다
+  # (반반으로 갈리는 업종은 담당자 확인으로 넘긴다).
+  industry_confidence_cap: 0.55
+  industry_min_support: 3
+  industry_min_ratio: 0.65
   # AI 차변계정 추정: 기본은 **Claude Desktop/Code의 호스트 모델**이 수행한다(별도 API 키·
   # 추가 토큰 청구 없음). MCP analyze→convert 흐름에서 호스트 Claude 가 비-PII 특징으로
   # 추정하고 결과만 넘긴다. 거래처/사업자번호는 모델에 전달되지 않는다.

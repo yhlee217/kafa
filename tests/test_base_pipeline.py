@@ -134,3 +134,36 @@ def test_db_history_is_per_client(tmp_path):
         "SELECT 차변계정코드 FROM vouchers WHERE client_id='고객002'")]
     con.close()
     assert codes == [None]         # 다른 고객 이력은 미사용 → 미해소
+
+
+def test_industry_rule_is_learned_per_client(tmp_path):
+    """음식점 기준이 수임처마다 달라도, 각 고객 이력에서 각자 학습한다.
+
+    고객A: 음식점 → 접대비(813) / 고객B: 음식점 → 복리후생비(811) 로 처리해온 경우,
+    처음 보는 식당이 미추천으로 와도 각자 자기 기준으로 해소되어야 한다.
+    """
+    def 식당(거래처, 계정, 일자, 상태="확정가능"):
+        return ["2026", 일자, "A", 거래처, "법인", "", 9000, 900, 0, 9900,
+                "불공제", "음식점업", "한식", "일반", 계정, "미지급비용", "", 상태,
+                "111-11-11119"]
+
+    inbox, out = tmp_path / "inbox", tmp_path / "out"
+    # 1월: 두 고객이 서로 다른 기준으로 음식점을 처리(각 3건 = min_support 충족)
+    _xlsx(inbox / "고객A" / "1월.xlsx",
+          [식당(f"식당A{i}", "(판)접대비(기업업무추진비)", f"01-1{i}") for i in range(3)])
+    _xlsx(inbox / "고객B" / "1월.xlsx",
+          [식당(f"식당B{i}", "(판)복리후생비", f"01-1{i}") for i in range(3)])
+    assert run_pipeline(inbox, out).ok
+
+    # 2월: 양쪽 모두 '처음 보는' 식당이 미추천으로 등장 → 가맹점 시드로는 못 푼다
+    _xlsx(inbox / "고객A" / "2월.xlsx", [식당("새로운맛집", "", "02-10", "미추천")])
+    _xlsx(inbox / "고객B" / "2월.xlsx", [식당("낯선식당", "", "02-10", "미추천")])
+    assert run_pipeline(inbox, out).ok
+
+    import sqlite3
+    con = sqlite3.connect(out / "kafa.db")
+    got = dict(con.execute(
+        "SELECT client_id, 차변계정코드 FROM vouchers WHERE period='2026-02'"))
+    con.close()
+    assert got["고객A"] == 813      # 이 수임처는 접대비로 처리해왔음
+    assert got["고객B"] == 811      # 이 수임처는 복리후생비로 처리해왔음

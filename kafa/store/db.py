@@ -29,6 +29,8 @@ CREATE TABLE IF NOT EXISTS vouchers (
     거래처        TEXT,
     사업자번호    TEXT,
     품명          TEXT,
+    업태          TEXT,
+    종목          TEXT,
     공급가액      TEXT,
     세액          TEXT,
     비과세        TEXT,
@@ -58,7 +60,7 @@ CREATE TABLE IF NOT EXISTS runs (
 """
 
 _COLUMNS = [
-    "client_id", "period", "거래일자", "거래처", "사업자번호", "품명",
+    "client_id", "period", "거래일자", "거래처", "사업자번호", "품명", "업태", "종목",
     "공급가액", "세액", "비과세", "합계", "유형코드", "차변계정코드", "대변계정코드",
     "공제여부", "판정유형", "신뢰도", "추천근거", "skipped", "skip_reason", "source_file",
 ]
@@ -92,6 +94,8 @@ def _to_row(client_id: str, period: str, c: ClassifiedRow, source_file: str) -> 
         s.거래처 if s else "",
         s.사업자등록번호 if s else "",
         s.품명 if s else "",
+        s.업태 if s else "",
+        s.종목 if s else "",
         str(s.공급가액) if s else "0",
         str(s.세액) if s else "0",
         str(s.비과세) if s else "0",
@@ -111,7 +115,15 @@ class VoucherStore:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._conn = sqlite3.connect(str(self.db_path))
         self._conn.executescript(_DDL)
+        self._migrate()
         self._conn.commit()
+
+    def _migrate(self) -> None:
+        """기존 DB에 없는 컬럼을 추가(구버전 파일 호환)."""
+        have = {r[1] for r in self._conn.execute("PRAGMA table_info(vouchers)")}
+        for col in ("업태", "종목"):
+            if col not in have:
+                self._conn.execute(f"ALTER TABLE vouchers ADD COLUMN {col} TEXT")
 
     def __enter__(self) -> "VoucherStore":
         return self
@@ -165,7 +177,7 @@ class VoucherStore:
         주의: 반환값에 거래처·사업자번호(PII)가 포함된다. **로컬 처리 전용**이며
         모델·리포트로 내보내지 않는다(시드는 코드가 계정코드만 뽑아 쓴다).
         """
-        sql = ("SELECT 거래처, 사업자번호, 차변계정코드 FROM vouchers "
+        sql = ("SELECT 거래처, 사업자번호, 차변계정코드, 업태, 종목 FROM vouchers "
                "WHERE 차변계정코드 IS NOT NULL AND skipped=0")
         params: list = []
         if client_id is not None:
@@ -174,7 +186,7 @@ class VoucherStore:
         if exclude_source:
             sql += " AND COALESCE(source_file,'') <> ?"
             params.append(exclude_source)
-        return [(r[0] or "", r[1] or "", int(r[2]))
+        return [(r[0] or "", r[1] or "", int(r[2]), r[3] or "", r[4] or "")
                 for r in self._conn.execute(sql, params)]
 
     def board_rows(self) -> list[dict]:
