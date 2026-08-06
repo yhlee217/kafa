@@ -88,3 +88,49 @@ def test_pipeline_multi_client(tmp_path):
     assert res.total_in_db == 4               # 고객별 별도 누적
     assert (out / "고객001" / "2026-03" / "3월_upload.xls").exists()
     assert (out / "고객002" / "2026-03" / "3월_upload.xls").exists()
+
+
+def _row(거래처, 차변계정, 일자="03-15", 전표상태="확정가능"):
+    return ["2026", 일자, "A", 거래처, "법인", "커피", 5000, 500, 0, 5500,
+            "공제", "음식점", "카페", "카과", 차변계정, "미지급비용", "", 전표상태,
+            "111-11-11119"]
+
+
+def test_db_history_resolves_next_month(tmp_path):
+    """지난 달 DB 이력으로 이번 달 같은 가맹점의 미추천이 자동 해소된다."""
+    inbox, out = tmp_path / "inbox", tmp_path / "out"
+    # 1월: 카페A 를 (판)복리후생비로 처리한 이력이 DB에 쌓임
+    _xlsx(inbox / "고객001" / "1월.xlsx",
+          [_row("카페A", "(판)복리후생비", "01-10")])
+    r1 = run_pipeline(inbox, out)
+    assert r1.ok and r1.total_in_db == 1
+
+    # 2월: 같은 카페A 인데 미추천(차변계정 비어있음)
+    _xlsx(inbox / "고객001" / "2월.xlsx",
+          [_row("카페A", "", "02-10", 전표상태="미추천")])
+    r2 = run_pipeline(inbox, out)
+    assert r2.ok
+
+    import sqlite3
+    con = sqlite3.connect(out / "kafa.db")
+    codes = [c for (c,) in con.execute(
+        "SELECT 차변계정코드 FROM vouchers WHERE period='2026-02'")]
+    con.close()
+    assert codes == [811]          # 이력에서 복리후생비(811)로 해소
+
+
+def test_db_history_is_per_client(tmp_path):
+    """다른 고객의 이력은 섞이지 않는다."""
+    inbox, out = tmp_path / "inbox", tmp_path / "out"
+    _xlsx(inbox / "고객001" / "1월.xlsx", [_row("카페A", "(판)복리후생비", "01-10")])
+    run_pipeline(inbox, out)
+    # 고객002 에 같은 가맹점이 미추천으로 등장 → 고객001 이력을 쓰면 안 됨
+    _xlsx(inbox / "고객002" / "2월.xlsx", [_row("카페A", "", "02-10", 전표상태="미추천")])
+    run_pipeline(inbox, out)
+
+    import sqlite3
+    con = sqlite3.connect(out / "kafa.db")
+    codes = [c for (c,) in con.execute(
+        "SELECT 차변계정코드 FROM vouchers WHERE client_id='고객002'")]
+    con.close()
+    assert codes == [None]         # 다른 고객 이력은 미사용 → 미해소

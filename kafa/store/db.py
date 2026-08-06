@@ -154,6 +154,29 @@ class VoucherStore:
         return [r[0] for r in self._conn.execute(
             "SELECT client_id FROM clients ORDER BY client_id")]
 
+    def seed_records(self, client_id: str | None = None,
+                     *, exclude_source: str | None = None) -> list[tuple]:
+        """누적 이력 → 시드 레코드 [(거래처, 사업자번호, 차변계정코드), ...].
+
+        추천(자가 시딩)의 재료. 같은 고객이 지난 달들에 어떤 가맹점을 어떤 계정으로
+        처리했는지가 이번 달 미추천 해소의 가장 강한 근거다. 스킵·계정 미정 행은 제외.
+        exclude_source: 지금 처리 중인 파일을 제외(재처리 시 자기 자신 참조 방지).
+
+        주의: 반환값에 거래처·사업자번호(PII)가 포함된다. **로컬 처리 전용**이며
+        모델·리포트로 내보내지 않는다(시드는 코드가 계정코드만 뽑아 쓴다).
+        """
+        sql = ("SELECT 거래처, 사업자번호, 차변계정코드 FROM vouchers "
+               "WHERE 차변계정코드 IS NOT NULL AND skipped=0")
+        params: list = []
+        if client_id is not None:
+            sql += " AND client_id=?"
+            params.append(client_id)
+        if exclude_source:
+            sql += " AND COALESCE(source_file,'') <> ?"
+            params.append(exclude_source)
+        return [(r[0] or "", r[1] or "", int(r[2]))
+                for r in self._conn.execute(sql, params)]
+
     def board_rows(self) -> list[dict]:
         """고객별 집계(진행 현황 보드용). 값은 모두 비-PII 수치/기간."""
         sql = (

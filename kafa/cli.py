@@ -41,7 +41,7 @@ def classify_rows(rows: list[InputRow], *,
             continue
         if dup is not None:                 # 2차 중복 가드
             key = make_key(f"{row.연도}-{row.일자}", row.거래처,
-                           row.사업자등록번호, row.합계)
+                           row.사업자등록번호, row.합계, row.품명)
             if dup.is_duplicate(key):
                 c.skipped = True
                 c.skip_reason = "dup_guard(2차)"
