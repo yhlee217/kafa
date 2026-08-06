@@ -57,6 +57,18 @@ def load_account_codes(config_dir: str | None = None) -> dict[str, int]:
 
 
 @lru_cache(maxsize=None)
+def load_credit_side_codes(config_dir: str | None = None) -> frozenset[int]:
+    """대변 계정 코드 집합(차대구분='대변'). 차변계정 추천 후보 제외에 쓴다.
+
+    account_codes.yaml 의 `credit_side_codes` (위하고 계정과목 추출본의 차대구분 유래).
+    키가 없으면 빈 집합 — 그 경우 호출측이 보수적으로 동작해야 한다.
+    """
+    base = Path(config_dir) if config_dir else _DEFAULT_CONFIG_DIR
+    data = _load_yaml(base / "account_codes.yaml")
+    return frozenset(int(c) for c in (data.get("credit_side_codes") or []))
+
+
+@lru_cache(maxsize=None)
 def load_agent(config_dir: str | None = None) -> dict[str, Any]:
     """config/agent.yaml 로드 — 세무대리인 보조 업무(kafa/agent) 설정(율·목록)."""
     base = Path(config_dir) if config_dir else _DEFAULT_CONFIG_DIR
