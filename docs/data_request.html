@@ -145,192 +145,112 @@
   </header>
 
   <div class="split">
-    <div class="self"><span class="n">10</span><span class="l">내가 직접 받거나 확인</span></div>
-    <div class="done"><span class="n">3</span><span class="l">아버지 답변 완료 (8/3 통화)</span></div>
-    <div class="ask"><span class="n">1</span><span class="l">남은 확인 — 간이과세 구분</span></div>
+    <div class="done"><span class="n">완료</span><span class="l">계정과목 388종 · 양식 · 샘플 확보</span></div>
+    <div class="self"><span class="n">5</span><span class="l">위하고에서 확인할 것</span></div>
+    <div class="ask"><span class="n">2</span><span class="l">아버지께 여쭐 것</span></div>
   </div>
 
   <div class="have-box">
-    <b>이미 확보된 것</b> — 처음 사양서로 입력 19개 · 출력 13개 컬럼 구조,
-    유형 코드(3·57·58·59·63), 계정코드 11개는 반영을 마쳤습니다.
-    자세한 목록은 맨 아래 <b>부록</b>에 있습니다.
+    <b>확보 완료 (8/6)</b> — 업로드 양식 · 다운로드 샘플(82건) · <b>계정과목 388종</b>
+    (SmartA 추출본, 차대구분 포함) · 적요 2,599건. 계정 이름→코드 변환은 이제 완전 자동입니다.
+    아래는 <b>아직 남은 것</b>만 추렸습니다.
   </div>
 
   <section>
     <div class="shead">
-      <h2><span class="k self">직접</span>위하고에서 받거나 확인할 것</h2>
-      <p>로그인해서 내려받거나 화면에서 눈으로 확인하면 되는 항목입니다.
-         아래 경로는 고객센터 안내 기준이라 실제 화면과 다를 수 있습니다.</p>
+      <h2><span class="k self">직접</span>위하고에서 확인할 것</h2>
+      <p>화면에서 보거나 내려받으면 되는 것들입니다. 급한 두 가지(거래구분·파일형식)는
+         업로드 화면에서 바로 보입니다.</p>
     </div>
-
     <label class="item">
       <input type="checkbox" class="box">
       <div class="body">
-        <div class="row1"><span class="t">① 계정과목 코드 목록</span>
+        <div class="row1"><span class="t">① ‘거래구분’ 칸에 넣을 수 있는 값</span>
           <span class="badge b-req">가장 급함</span></div>
-        <div class="d">기본 세팅된 계정과목 전체가 나오는 화면. 여기서 목록을 뽑으면 됩니다.
-          (담당자 확인: 제조원가 500번대 · 공사(도급)원가 600번대 · 판관비 800번대 —
-          예를 들어 복리후생비는 511 / 611 / 811)</div>
-        <div class="where">기초데이터 › 계정과목(변경)</div>
-        <div class="now"><span class="lab">지금</span>계정코드를 11개만 알고 있어
-          실제 전표의 계정 대부분을 코드로 못 바꿉니다.</div>
-        <input class="note" placeholder="확인 결과 / 파일 위치" aria-label="① 메모">
+        <div class="d">받은 양식은 머리글 한 줄뿐이라 선택 목록을 볼 수 없었습니다. 업로드 화면이나 실제 입력 시 나오는 목록을 확인해 주세요.</div>
+        <div class="now"><span class="lab">지금</span>값을 몰라 <b>빈칸으로 두고</b> 업로드본을 만들고 있습니다.</div>
+        <input class="note" placeholder="값 목록" aria-label="① ‘거래구분’ 칸에 넣을 수 있는 값 메모">
       </div>
     </label>
-
     <label class="item">
       <input type="checkbox" class="box">
       <div class="body">
-        <div class="row1"><span class="t">② 다운로드 결과 파일 샘플 1개</span>
-          <span class="badge b-req">가장 급함</span></div>
-        <div class="d">한 고객 한 달치면 충분합니다. 이 파일은 내 PC에만 두고 씁니다.</div>
-        <div class="where">전표관리 › 자동전표처리 › 신용카드 › 매입 › 엑셀 다운로드</div>
-        <div class="now"><span class="lab">지금</span>컬럼 이름만 알고, 실제 날짜 표기와
-          값의 형태는 확인하지 못했습니다.</div>
-        <input class="note" placeholder="확인 결과 / 파일 위치" aria-label="② 메모">
-      </div>
-    </label>
-
-    <label class="item">
-      <input type="checkbox" class="box">
-      <div class="body">
-        <div class="row1"><span class="t">③ ‘거래구분’ 칸에 넣을 수 있는 값</span>
-          <span class="badge b-req">가장 급함</span></div>
-        <div class="d">①에서 받은 서식을 열어 거래구분 열의 선택 목록(드롭다운)을 확인.</div>
-        <div class="now"><span class="lab">지금</span>값을 몰라 빈칸으로 두고 만들고 있습니다.</div>
-        <input class="note" placeholder="값 목록" aria-label="③ 메모">
-      </div>
-    </label>
-
-    <label class="item">
-      <input type="checkbox" class="box">
-      <div class="body">
-        <div class="row1"><span class="t">④ 카드사(대변 거래처)를 적는 칸이 있는지</span>
-          <span class="badge b-req">가장 급함</span></div>
-        <div class="d">①의 서식에서 대변 거래처를 적는 열이 있는지 확인.</div>
-        <div class="now"><span class="lab">지금</span>칸이 없다고 보고 내부 기록만 남기는 중입니다.</div>
-        <input class="note" placeholder="칸 이름 또는 ‘없음’" aria-label="④ 메모">
-      </div>
-    </label>
-
-    <label class="item">
-      <input type="checkbox" class="box">
-      <div class="body">
-        <div class="row1"><span class="t">⑤ 업로드가 .xls만 되는지, .xlsx도 되는지</span>
+        <div class="row1"><span class="t">② 업로드가 .xls만 되는지, .xlsx도 되는지</span>
           <span class="badge b-req">가장 급함</span></div>
         <div class="d">업로드 화면의 파일 선택 안내에 적혀 있습니다.</div>
-        <div class="now"><span class="lab">지금</span>구형 .xls로만 만들고 있습니다.</div>
-        <input class="note" placeholder="확인 결과" aria-label="⑤ 메모">
+        <div class="now"><span class="lab">지금</span>구형 .xls로만 만들고 있습니다(2MB 넘으면 자동 분할).</div>
+        <input class="note" placeholder="확인 결과" aria-label="② 업로드가 .xls만 되는지, .xlsx도 되는지 메모">
       </div>
     </label>
-
     <label class="item">
       <input type="checkbox" class="box">
       <div class="body">
-        <div class="row1"><span class="t">⑥ 자동수집을 쓰고 있는지</span>
+        <div class="row1"><span class="t">③ 면세(카면) 거래가 있는 달의 샘플</span>
+          <span class="badge b-rec">필요</span></div>
+        <div class="d">이번 샘플 82건에는 면세 거래가 <b>한 건도 없었습니다</b>. 음식점 식자재처럼 면세 매입이 있는 달이 있으면 그 파일이 필요합니다.</div>
+        <div class="now"><span class="lab">지금</span>면세·의제매입 처리를 검증할 근거가 없습니다.</div>
+        <input class="note" placeholder="해당 월 / 없으면 ‘없음’" aria-label="③ 면세(카면) 거래가 있는 달의 샘플 메모">
+      </div>
+    </label>
+    <label class="item">
+      <input type="checkbox" class="box">
+      <div class="body">
+        <div class="row1"><span class="t">④ 개인사업자 고객의 샘플 (있으면)</span>
+          <span class="badge b-rec">필요</span></div>
+        <div class="d">이번 샘플은 법인 고객이라 대변이 전부 미지급비용이었습니다.</div>
+        <div class="now"><span class="lab">지금</span>개인은 미지급금(253)으로 처리 중 — <b>인출금 코드</b>를 확인하면 정확해집니다.</div>
+        <input class="note" placeholder="인출금 코드 / 샘플 유무" aria-label="④ 개인사업자 고객의 샘플 (있으면) 메모">
+      </div>
+    </label>
+    <label class="item">
+      <input type="checkbox" class="box">
+      <div class="body">
+        <div class="row1"><span class="t">⑤ 자동수집·일괄 내보내기·외부 연동</span>
           <span class="badge b-rec">확인</span></div>
-        <div class="d">카드사·홈택스 자료가 매일 자동으로 들어오게 설정돼 있는지.</div>
-        <div class="where">수집정보등록 / 스크래핑보드</div>
-        <div class="now"><span class="lab">뜻</span>쓰고 있으면 카드사에서 따로 받을 필요가 없습니다.</div>
-        <input class="note" placeholder="예 / 아니오" aria-label="⑥ 메모">
-      </div>
-    </label>
-
-    <label class="item">
-      <input type="checkbox" class="box">
-      <div class="body">
-        <div class="row1"><span class="t">⑦ 여러 거래처를 한 번에 내려받을 수 있는지</span>
-          <span class="badge b-rec">확인</span></div>
-        <div class="d">거래처를 하나씩 골라야 하는지, ‘전체’ 같은 선택이 있는지.</div>
-        <div class="now"><span class="lab">뜻</span>매달 100곳을 하나씩 받는 수고를 줄일 수 있는지 판가름.</div>
-        <input class="note" placeholder="예 / 아니오" aria-label="⑦ 메모">
-      </div>
-    </label>
-
-    <label class="item">
-      <input type="checkbox" class="box">
-      <div class="body">
-        <div class="row1"><span class="t">⑧ 외부 프로그램과 연동(API)이 되는지</span>
-          <span class="badge b-rec">확인</span></div>
-        <div class="d">설정이나 고객센터에 ‘연동 · API’ 안내가 있는지.</div>
-        <div class="now"><span class="lab">뜻</span>있으면 내려받기·올리기까지 자동화할 수 있습니다.</div>
-        <input class="note" placeholder="예 / 아니오" aria-label="⑧ 메모">
-      </div>
-    </label>
-
-    <label class="item">
-      <input type="checkbox" class="box">
-      <div class="body">
-        <div class="row1"><span class="t">⑨ 매출 업로드 양식</span>
-          <span class="badge b-rec">나중에</span></div>
-        <div class="d">세금계산서 · 계산서 · 현금영수증 서식 중 있는 것.</div>
-        <div class="now"><span class="lab">지금</span>매입만 처리하고 매출은 손대지 않았습니다.</div>
-        <input class="note" placeholder="확인 결과" aria-label="⑨ 메모">
-      </div>
-    </label>
-
-    <label class="item">
-      <input type="checkbox" class="box">
-      <div class="body">
-        <div class="row1"><span class="t">⑩ 원천세 지급명세서 서식</span>
-          <span class="badge b-rec">나중에</span></div>
-        <div class="d">사업소득 · 기타소득. 위하고 또는 국세청 홈택스에서.</div>
-        <div class="now"><span class="lab">지금</span>세액 계산은 되지만 제출용 서식 출력이 없습니다.</div>
-        <input class="note" placeholder="확인 결과" aria-label="⑩ 메모">
+        <div class="d">① 자동수집(수집정보등록)을 쓰고 있는지 ② 여러 거래처를 한 번에 내려받을 수 있는지 ③ 외부 연동(API) 안내가 있는지.</div>
+        <div class="why">→ 매달 100곳을 하나씩 받는 수고를 줄일 수 있는지 판가름합니다.</div>
+        <input class="note" placeholder="각각 예/아니오" aria-label="⑤ 자동수집·일괄 내보내기·외부 연동 메모">
       </div>
     </label>
   </section>
 
   <section>
     <div class="shead">
-      <h2><span class="k askc">확인됨</span>아버지 답변 — 2026-08-03 통화</h2>
-      <p>세 가지 중 둘은 확정해 코드에 반영했고, 하나는 “규정을 따른다”로 정리됐습니다.
-         남은 확인거리는 아래 마지막 항목뿐입니다.</p>
+      <h2><span class="k askc">여쭐 것</span>아버지께 — 2가지</h2>
+      <p>8/3 통화로 상대계정·봉사료·의제매입은 정리됐습니다. 실제 자료를 돌려보니
+         새로 걸린 것이 하나 있습니다.</p>
     </div>
-
-    <label class="item q done-ans">
-      <input type="checkbox" class="box" checked>
-      <div class="body">
-        <div class="row1"><span class="t">개인사업자 상대계정 — 인출금 또는 미지급금</span>
-          <span class="badge b-ok">반영됨</span></div>
-        <div class="now"><span class="lab">반영</span>인출금 코드를 아직 몰라서,
-          코드가 있는 <b>미지급금(253)</b>으로 처리하고 ‘확인 필요’ 표시를 남깁니다.
-          ①번 계정과목 목록이 오면 인출금으로 바꿉니다.</div>
-      </div>
-    </label>
-
-    <label class="item q done-ans">
-      <input type="checkbox" class="box" checked>
-      <div class="body">
-        <div class="row1"><span class="t">봉사료 — 접대성 경비라 전부 불공제</span>
-          <span class="badge b-ok">반영됨</span></div>
-        <div class="now"><span class="lab">반영</span>봉사료가 붙은 거래는 국세청 값과 무관하게
-          <b>불공제</b>로 처리합니다. 다만 다운로드본의 ‘비과세’ 칸이 곧 봉사료인지는
-          아직 확인 전이라 검토 표시를 함께 남깁니다.</div>
-      </div>
-    </label>
-
-    <label class="item q done-ans">
-      <input type="checkbox" class="box" checked>
-      <div class="body">
-        <div class="row1"><span class="t">의제매입 — 업종·법인격·매출 규모에 따라 율이 다름</span>
-          <span class="badge b-ok">설계 확인</span></div>
-        <div class="now"><span class="lab">반영</span>율이 매출 규모에 따라 갈리므로
-          <b>전표 단계에서 계산하지 않는 현재 설계가 맞습니다</b> — 대상만 표시하고
-          율·한도는 신고 단계에서 처리합니다.</div>
-      </div>
-    </label>
-
     <label class="item q">
       <input type="checkbox" class="box">
       <div class="body">
-        <div class="row1"><span class="t">남은 것 — 간이과세자는 어떻게 구분하세요?</span></div>
-        <div class="d">통화에서 다루지 못한 부분입니다.</div>
-        <div class="now"><span class="lab">지금</span>다운로드본 ‘구분’ 칸에 간이 표시가 있는지
-          이력 분석(<b>kafa-learn</b>)으로 확인 중입니다. 샘플이 오면 자동으로 판별됩니다.</div>
-        <input class="note" placeholder="답변" aria-label="간이과세 답변">
+        <div class="row1"><span class="t">음식점에서 쓴 카드는 접대비인가요, 복리후생비인가요?</span>
+          <span class="badge b-req">새로 생김</span></div>
+        <div class="d">이번 샘플에서 <b>미추천 10건 중 9건이 전부 이 유형</b>이었습니다(음식점업·불공제).</div>
+        <div class="now"><span class="lab">지금</span>회사 이력이 복리후생비 1건 · 접대비 1건으로 갈려 데이터만으론 정할 수 없습니다. 구분 기준(예: 직원 식대는 복리후생비, 거래처 접대는 접대비)을 알려주시면 매달 자동 처리됩니다.</div>
+        <input class="note" placeholder="답변" aria-label="음식점에서 쓴 카드는 접대비인가요, 복리후생비인가요? 메모">
       </div>
     </label>
+    <label class="item q">
+      <input type="checkbox" class="box">
+      <div class="body">
+        <div class="row1"><span class="t">간이과세자는 어떻게 구분하세요?</span>
+          <span class="badge b-rec">남은 것</span></div>
+        <div class="d">다운로드본의 ‘구분’ 칸은 <b>법인/일반</b>뿐이라 간이과세자를 알아낼 수 없었습니다(실샘플로 확인).</div>
+        <div class="now"><span class="lab">지금</span>간이과세자 자동 불공제는 적용하지 못하고 있습니다.</div>
+        <input class="note" placeholder="답변" aria-label="간이과세자는 어떻게 구분하세요? 메모">
+      </div>
+    </label>
+
+    <div class="kakao">
+      <h3>그대로 보내도 되는 메시지</h3>
+      <pre>아버지, 실제 자료로 돌려보다가 두 가지만 더 여쭤요.
+
+1. 음식점에서 결제한 건은 접대비로 잡아요, 복리후생비로 잡아요?
+   (구분하는 기준이 있으면 알려주세요)
+2. 간이과세자는 어떻게 구분하세요? 받은 자료에는 표시가 없더라고요.
+
+계정과목 목록 덕분에 이름→코드 변환은 이제 완전히 자동으로 됩니다. 고마워요!</pre>
+    </div>
   </section>
 
   <section>
@@ -340,14 +260,12 @@
     </div>
     <div class="tw">
       <table>
-        <thead><tr><th>계정 이름</th><th>코드</th><th>계정 이름</th><th>코드</th></tr></thead>
+        <thead><tr><th>확보한 것</th><th>내용</th></tr></thead>
         <tbody>
-          <tr><td>미지급비용</td><td class="code">262</td><td>(제)복리후생비</td><td class="code">511</td></tr>
-          <tr><td>미지급금</td><td class="code">253</td><td>(판)복리후생비</td><td class="code">811</td></tr>
-          <tr><td>외상매입금</td><td class="code">251</td><td>(제)원재료비</td><td class="code">501</td></tr>
-          <tr><td>선급금</td><td class="code">131</td><td>재료비</td><td class="code">501</td></tr>
-          <tr><td>현금</td><td class="code">101</td><td>(판)차량유지비</td><td class="code">822</td></tr>
-          <tr><td>가지급금</td><td class="code">134</td><td></td><td class="code"></td></tr>
+          <tr><td>계정과목 코드표</td><td>388종 (SmartA 추출본 · 차대구분 포함) — 이름→코드 변환 완전 자동</td></tr>
+          <tr><td>업로드 양식</td><td>13열 확정 · 카드사(대변 거래처) 칸 없음 확인</td></tr>
+          <tr><td>다운로드 샘플</td><td>82건 · 컬럼 19개 일치 · 날짜/상태/유형 표기 확인</td></tr>
+          <tr><td>적요</td><td>2,599건 (계정별 적요문구 — 추천 보강에 활용 가능)</td></tr>
         </tbody>
       </table>
     </div>
