@@ -49,6 +49,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--dry-run", action="store_true", help="받을 목록만 출력")
     ap.add_argument("--inspect", action="store_true",
                     help="현재 화면의 후보 요소를 출력(selector 보정용)")
+    ap.add_argument("--inspect-out", help="보정용 출력 저장 경로(기본 kafa-inspect.txt)")
     args = ap.parse_args(argv)
 
     from kafa.fetch.plan import build_plan, months_between, recent_months
@@ -65,8 +66,13 @@ def main(argv: list[str] | None = None) -> int:
                           attach_port=args.attach_port) as page:
             wait_for_human("브라우저에서 로그인하고, 보정할 화면을 열어 두세요.\n"
                            + str(cfg.get("start_hint", "")))
-            for line in inspect_page(page):
-                print(line)
+            lines = inspect_page(page)
+        for line in lines:
+            print(line)
+        # 붙여넣기/전달이 쉽도록 파일로도 남긴다(화면 구조만 — 입력값·거래처명 없음).
+        out = Path(args.inspect_out or "kafa-inspect.txt")
+        out.write_text("\n".join(lines), encoding="utf-8")
+        print(f"\n[저장] {out.resolve()}  ← 이 파일을 보내주시면 selector 를 채워 드립니다.")
         return 0
 
     if not args.inbox or not args.clients:

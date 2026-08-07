@@ -25,7 +25,8 @@ selector 를 추측해 넣으면 엉뚱한 곳을 클릭하므로, 실제 화면
 kafa-fetch --inspect
 ```
 브라우저가 열리면 **직접 로그인**하고 신용카드 매입 화면까지 이동한 뒤 엔터.
-화면의 후보 요소가 출력되면 `config/fetch/wehago.yaml` 의 `selectors` 를 채운다.
+화면의 후보 요소가 출력되고 **`kafa-inspect.txt`** 로도 저장된다(화면 구조만 — 입력값·
+거래처명은 담기지 않는다). 그 파일을 보고 `config/fetch/wehago.yaml` 의 `selectors` 를 채운다.
 
 ```yaml
 selectors:
