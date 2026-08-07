@@ -61,7 +61,7 @@ def test_negative_reverses_direction():
 
 def test_individual_client_uses_configured_account_with_review():
     c = classify_row(_row(), client_type="individual")
-    # [확정 2026-08 담당자] 개인은 인출금/미지급금. 인출금 코드 미확보 →
-    # 코드가 있는 미지급금(253) 적용 + 확인 플래그 유지.
-    assert c.대변계정코드 == 253
+    # [확정 2026-08 담당자] 개인은 인출금/미지급금. 계정과목표에서 인출금(338) 확보 →
+    # 인출금 기본 적용, 최종 확인 전까지 플래그 유지.
+    assert c.대변계정코드 == 338
     assert c.needs_review is True
