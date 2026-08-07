@@ -19,6 +19,7 @@ dependencies = [
 dev = ["pytest>=7.4"]
 mcp = ["mcp>=1.0"]
 win = ["win10toast>=0.9"]   # Windows 토스트 알림(선택; 비-Windows에선 콘솔 폴백)
+fetch = ["playwright>=1.40"]  # 감독형 수집(사람이 로그인한 브라우저 이어받기)
 
 [project.scripts]
 kafa = "kafa.cli:main"
@@ -27,6 +28,7 @@ kafa-pipeline = "kafa.pipeline.cli:main"
 kafa-watch = "kafa.pipeline.watch_cli:main"
 kafa-board = "kafa.pipeline.board_cli:main"
 kafa-learn = "kafa.learn.cli:main"
+kafa-fetch = "kafa.fetch.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["kafa*"]

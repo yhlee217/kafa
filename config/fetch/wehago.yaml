@@ -1,0 +1,31 @@
+# 위하고 다운로드 화면 조작 설정 (감독형 수집)
+#
+# ⚠️ **보정(calibration) 필요** — 아래 selector 는 실제 화면을 보고 채워야 동작한다.
+#    화면 구조를 모른 채 추측해 넣지 않는다(잘못된 selector 는 엉뚱한 클릭을 유발).
+#    보정 방법: `kafa-fetch --inspect` 로 현재 화면의 후보 요소를 뽑아 확인 후 여기에 적는다.
+#
+# ⚠️ **이용약관 확인은 사용자 책임.** 서비스가 자동화 접근을 금지하면 사용하지 말 것.
+
+# 사람이 로그인한 뒤 도달해 있어야 하는 화면(안내 문구에만 쓰임)
+start_hint: "전표관리 › 자동전표처리 › 신용카드 › 구분=매입 화면까지 열어 두세요."
+
+# 서버 부담을 줄이기 위한 요청 간 대기(초). 너무 짧게 두지 말 것.
+delay_seconds: 3.0
+# 요소를 기다리는 최대 시간(밀리초)
+timeout_ms: 20000
+
+selectors:
+  # 거래처(고객) 선택 — 목록에서 이름으로 고르는 방식
+  client_search_input: TODO      # 거래처 검색 입력창
+  client_result_item: TODO       # 검색 결과 항목(이름으로 매칭)
+  # 기간 설정
+  period_from_input: TODO        # 조회 시작월 입력
+  period_to_input: TODO          # 조회 종료월 입력
+  search_button: TODO            # 조회 버튼
+  # 다운로드
+  excel_download_button: TODO    # '엑셀 다운로드' 버튼
+  # (선택) 결과가 없을 때 나타나는 요소 — 있으면 빈 달을 빨리 건너뛴다
+  empty_result_marker: null
+
+# 기간 입력 형식. 화면이 'YYYY-MM' 이 아니면 바꾼다(예: "%Y%m", "%Y.%m").
+period_format: "%Y-%m"
