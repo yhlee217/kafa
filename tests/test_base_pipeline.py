@@ -167,3 +167,41 @@ def test_industry_rule_is_learned_per_client(tmp_path):
     con.close()
     assert got["고객A"] == 813      # 이 수임처는 접대비로 처리해왔음
     assert got["고객B"] == 811      # 이 수임처는 복리후생비로 처리해왔음
+
+
+def test_client_profile_drives_type_and_welfare_flag(tmp_path):
+    """수임처 속성: 고객마다 개인/법인이 다르고, 직원 없으면 복리후생비에 검토 플래그."""
+    cfgdir = tmp_path / "config"
+    cfgdir.mkdir()
+    import shutil, pathlib
+    src = pathlib.Path("config")
+    for f in ("rules.yaml", "account_codes.yaml"):
+        shutil.copy(src / f, cfgdir / f)
+    (cfgdir / "clients.yaml").write_text(
+        "defaults:\n  client_type: corporate\n  has_employees: true\n"
+        "clients:\n  1인사업자:\n    client_type: individual\n    has_employees: false\n",
+        encoding="utf-8")
+    from kafa.config_loader import client_profile, load_clients
+    load_clients.cache_clear()
+
+    inbox, out = tmp_path / "inbox", tmp_path / "out"
+    # 이력: 카페A 를 복리후생비로 처리 → 다음 달 미추천이 그 계정으로 추천됨
+    _xlsx(inbox / "1인사업자" / "1월.xlsx", [_row("카페A", "(판)복리후생비", "01-10")])
+    run_pipeline(inbox, out, config_dir=str(cfgdir))
+    _xlsx(inbox / "1인사업자" / "2월.xlsx", [_row("카페A", "", "02-10", 전표상태="미추천")])
+    run_pipeline(inbox, out, config_dir=str(cfgdir))
+
+    prof = client_profile("1인사업자", str(cfgdir))
+    assert prof["client_type"] == "individual" and prof["has_employees"] is False
+
+    import sqlite3
+    con = sqlite3.connect(out / "kafa.db")
+    code, 대변 = con.execute(
+        "SELECT 차변계정코드, 대변계정코드 FROM vouchers WHERE period='2026-02'").fetchone()
+    con.close()
+    assert code == 811            # 이력대로 추천은 되지만
+    assert 대변 == 338            # 개인 → 인출금(프로필에서 client_type 적용)
+    # 복리후생비 추천에 검토 사유가 붙었는지(리포트에서 확인)
+    txt = (out / "1인사업자" / "2026-02" / "2월_upload_review.txt").read_text(encoding="utf-8")
+    assert "복리후생비" in txt
+    load_clients.cache_clear()

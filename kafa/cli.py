@@ -18,15 +18,23 @@ from kafa.rules.engine import classify_row, finalize_reversal
 from kafa.rules.models import InputRow, Verdict
 
 
+# 복리후생비 계열(원가구분별). 직원이 없는 수임처에서는 성립하지 않는다(담당자 확인).
+_WELFARE_CODES = frozenset({511, 611, 711, 811})
+
+
 def classify_rows(rows: list[InputRow], *,
                   client_type: str | None = None,
                   seed: SeedIndex | None = None,
                   recommender: Recommender | None = None,
                   dup: DupGuard | None = None,
+                  profile: dict | None = None,
                   config_dir: str | None = None) -> tuple[list, int]:
     """행 목록 → (ClassifiedRow 목록, 스킵 수). 파일은 쓰지 않는다.
 
     미추천 행은 recommender 로 해소(없으면 시드 기반). 스킵 행도 집계용으로 포함.
+    profile: 수임처 속성(config_loader.client_profile). 직원이 없는 곳이면 복리후생비
+    추천에 검토 플래그를 남긴다 — 담당자 확인: "직원이 없으면 복리후생비가 없다".
+    **자동으로 계정을 바꾸지는 않는다**(틀린 자동 확정보다 확인이 안전).
     """
     if recommender is None:
         recommender = SeedRecommender(seed, config_dir=config_dir)
@@ -58,6 +66,11 @@ def classify_rows(rows: list[InputRow], *,
                 c.신뢰도 = rec.confidence
                 c.추천근거 = rec.basis
                 c.add_rule("RECO-001")
+                if (profile is not None and not profile.get("has_employees", True)
+                        and rec.account_code in _WELFARE_CODES):
+                    c.needs_review = True
+                    c.review_reasons.append(
+                        "직원이 없는 수임처인데 복리후생비로 추천됨 → 접대비 등 확인 필요")
         finalize_reversal(c)
         classified.append(c)
 
@@ -72,6 +85,7 @@ def process_rows(rows: list[InputRow], out_path: Path, *,
                  recommender: Recommender | None = None,
                  dup: DupGuard | None = None,
                  recon: VendorBaseline | None = None,
+                 profile: dict | None = None,
                  client_report: bool | None = None,
                  config_dir: str | None = None) -> dict:
     from kafa.agent.bizno_batch import check_biznos, render_bizno_summary
@@ -94,7 +108,7 @@ def process_rows(rows: list[InputRow], out_path: Path, *,
 
     classified, skipped = classify_rows(
         rows, client_type=client_type, seed=seed, recommender=recommender,
-        dup=dup, config_dir=config_dir)
+        dup=dup, profile=profile, config_dir=config_dir)
 
     rep = build_review(classified, config_dir=config_dir)
     out_rows = [to_output_row(c, config_dir=config_dir)

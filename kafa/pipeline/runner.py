@@ -85,6 +85,7 @@ def run_pipeline(inbox, output_dir, *, client_type: Optional[str] = None,
     """inbox 의 .xlsx 들을 고객별로 일괄 처리 → DB 누적 + 업로드 산출물."""
     from kafa.agent.recon import VendorBaseline
     from kafa.cli import process_rows
+    from kafa.config_loader import client_profile
     from kafa.dup_guard import DupGuard
     from kafa.io_wehago.reader import read_download_xlsx
     from kafa.recommend.recommender import build_recommender
@@ -117,11 +118,16 @@ def run_pipeline(inbox, output_dir, *, client_type: Optional[str] = None,
                     db.seed_records(client, exclude_source=f.name)))
                 recommender = build_recommender(seed, config_dir=config_dir)
 
+                # 수임처 속성(개인/법인·직원 유무) — 고객마다 다르므로 배치 단일값이 아니라
+                # clients.yaml 에서 읽는다. 명령행 --client-type 이 있으면 그것이 우선.
+                profile = client_profile(client, config_dir)
+                ctype = client_type or profile.get("client_type")
+
                 outp = out_dir / client / period / (f.stem + "_upload.xls")
                 outp.parent.mkdir(parents=True, exist_ok=True)
-                res = process_rows(rows, outp, client_type=client_type, seed=seed,
+                res = process_rows(rows, outp, client_type=ctype, seed=seed,
                                    recommender=recommender, dup=dup, recon=recon,
-                                   config_dir=config_dir)
+                                   profile=profile, config_dir=config_dir)
 
                 db.upsert_client(client)
                 ing = db.upsert_vouchers(client, period, res["classified"],
