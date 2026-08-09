@@ -29,6 +29,7 @@ kafa-watch = "kafa.pipeline.watch_cli:main"
 kafa-board = "kafa.pipeline.board_cli:main"
 kafa-learn = "kafa.learn.cli:main"
 kafa-fetch = "kafa.fetch.cli:main"
+kafa-clients = "kafa.clients_cli:main"
 
 [tool.setuptools.packages.find]
 include = ["kafa*"]

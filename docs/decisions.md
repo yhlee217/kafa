@@ -412,6 +412,13 @@ PII 로컬 원칙상 외부 웹서비스화는 의도적으로 배제하고, 세
   selector 는 `config/fetch/wehago.yaml` 외부화 + **보정 전에는 실행을 막는다**(추측 클릭 방지,
   테스트로 검증). 문서 `docs/fetch_guide.md`. 단위테스트 +12(총 228).
 
+- 2026-08-07: [도메인 지식 외부화 + 수임처 조사표] ① 규칙을 코드에 박지 않는다는 원칙을
+  어긴 부분 수정 — 복리후생비 계정코드를 `config/rules.yaml`(`client_profile_checks`)로 빼고,
+  긴 실무 설명은 독스트링이 아니라 `docs/domain_notes.md` 로 옮긴 뒤 코드는 문서를 가리키기만
+  하게 정리(CLAUDE.md 에 원칙 명시). ② 수임처 속성은 담당자만 아는 사실이라 YAML 직접 편집
+  대신 **엑셀 조사표**로 받는다 — `kafa/clients.py` + CLI `kafa-clients template|import`
+  (드롭다운·작성방법 시트 포함, `--from-db` 로 기존 수임처 미리 채움). 단위테스트 +4(총 233).
+
 ## 사용 형태 (사용자 관점)
 - **Claude Desktop(MCP)**: `convert`/`preview` 도구. 변환은 결정론적 코드가 수행, 출력은
   고정 .xls 스키마, 결과는 마스킹 요약만 → "정해진 템플릿으로 항상 오차없이". 설정/사용 docs/usage.md.

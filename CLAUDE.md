@@ -51,6 +51,7 @@ kafa/
     vat_summary.py    부가세 신고 보조 집계(과세공제/불공제/면세/의제/검토 합산)
   agent/              세무대리인 보조(신고전점검·사업자번호검증·원천징수·자료수취·대사)
   fetch/              감독형 수집(RPA) — 사람이 로그인, 반복 클릭만 자동화(plan/session/wehago) + CLI(kafa-fetch)
+  clients.py          수임처 속성 조사표(엑셀) ↔ config/clients.yaml + CLI(kafa-clients)
   learn/              처리 이력 → 보류 규칙 추정(infer, 자동적용 금지·근거 제시) + CLI(kafa-learn)
   store/              베이스 데이터 SQLite 누적(VoucherStore, 멱등 upsert) — 로컬 단일 원본
   pipeline/           inbox 일괄 처리(runner)·폴더 감시(watch)·알림(notify)·진행 보드(summary) + CLI(kafa-pipeline/kafa-watch/kafa-board)
@@ -64,12 +65,15 @@ config/
   rules.yaml          모든 규칙·코드·키워드 외부화
   account_codes.yaml  검증된 계정명→코드(시트 파싱분과 머지 예정)
   loops/example.yaml  루프 스펙 예시(비-PII 근거 문장 다듬기)
+  clients.yaml        수임처 속성(개인/법인·직원 유무) — 사람이 채움(kafa-clients)
   fetch/wehago.yaml   감독형 수집 화면 selector(실화면 보고 보정 필요 — 추측 금지)
 tests/                Phase 1 표 기반 단위테스트
 ```
 
 ## 규칙/코드표는 코드에 하드코딩하지 않는다
 모두 `config/*.yaml` 로 외부화. 변경은 YAML에서. 결정 이력은 `docs/decisions.md`.
+**실무 도메인 지식(담당자 확인 내용)은 코드 주석/독스트링이 아니라 `docs/domain_notes.md`** 에
+적고, 코드는 config 를 읽고 문서를 가리키기만 한다.
 
 ## 자율 개발 (개발→검수→재개발 루프)
 무인 자동(`.github/workflows/claude-autonomous.yml`, cron)·대화형(`@claude`, `claude.yml`)으로

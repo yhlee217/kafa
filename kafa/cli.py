@@ -18,8 +18,13 @@ from kafa.rules.engine import classify_row, finalize_reversal
 from kafa.rules.models import InputRow, Verdict
 
 
-# 복리후생비 계열(원가구분별). 직원이 없는 수임처에서는 성립하지 않는다(담당자 확인).
-_WELFARE_CODES = frozenset({511, 611, 711, 811})
+def _needs_welfare_review(profile: dict | None, code, config_dir) -> bool:
+    """직원 없는 수임처에 복리후생비가 추천됐는가. 대상 계정은 config 에서 읽는다."""
+    if profile is None or profile.get("has_employees", True) or code is None:
+        return False
+    from kafa.config_loader import load_rules
+    cfg = (load_rules(config_dir).get("client_profile_checks", {}) or {})
+    return int(code) in set(cfg.get("welfare_account_codes", []) or [])
 
 
 def classify_rows(rows: list[InputRow], *,
@@ -32,9 +37,8 @@ def classify_rows(rows: list[InputRow], *,
     """행 목록 → (ClassifiedRow 목록, 스킵 수). 파일은 쓰지 않는다.
 
     미추천 행은 recommender 로 해소(없으면 시드 기반). 스킵 행도 집계용으로 포함.
-    profile: 수임처 속성(config_loader.client_profile). 직원이 없는 곳이면 복리후생비
-    추천에 검토 플래그를 남긴다 — 담당자 확인: "직원이 없으면 복리후생비가 없다".
-    **자동으로 계정을 바꾸지는 않는다**(틀린 자동 확정보다 확인이 안전).
+    profile: 수임처 속성(config_loader.client_profile) — 해당 시 검토 플래그만 남긴다.
+    판정 배경·실무 근거는 docs/domain_notes.md, 대상 계정은 config rules.yaml 참고.
     """
     if recommender is None:
         recommender = SeedRecommender(seed, config_dir=config_dir)
@@ -66,11 +70,11 @@ def classify_rows(rows: list[InputRow], *,
                 c.신뢰도 = rec.confidence
                 c.추천근거 = rec.basis
                 c.add_rule("RECO-001")
-                if (profile is not None and not profile.get("has_employees", True)
-                        and rec.account_code in _WELFARE_CODES):
+                if _needs_welfare_review(profile, rec.account_code, config_dir):
                     c.needs_review = True
                     c.review_reasons.append(
-                        "직원이 없는 수임처인데 복리후생비로 추천됨 → 접대비 등 확인 필요")
+                        "직원이 없는 수임처인데 복리후생비로 추천됨 → 확인 필요"
+                        " (docs/domain_notes.md)")
         finalize_reversal(c)
         classified.append(c)
 
