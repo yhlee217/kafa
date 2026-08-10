@@ -1,7 +1,12 @@
 """고객 진행 현황 보드 — 집계·렌더·파일 생성."""
 from decimal import Decimal
 
-from kafa.pipeline.summary import build_board, render_board_text, write_board
+from kafa.pipeline.summary import (
+    build_board,
+    render_board_html,
+    render_board_text,
+    write_board,
+)
 from kafa.rules.models import ClassifiedRow, Deduct, InputRow, Verdict
 from kafa.store.db import VoucherStore
 
@@ -40,3 +45,13 @@ def test_write_board_files(tmp_path):
 
 def test_write_board_no_db(tmp_path):
     assert write_board(tmp_path) is None     # kafa.db 없으면 None
+
+
+def test_board_html_escapes_client_id(tmp_path):
+    # client_id 는 로컬 폴더명이라 '&'/'<'/'>' 를 포함할 수 있음 → 깨진/삽입 HTML 방지 확인
+    with VoucherStore(tmp_path / "kafa.db") as db:
+        db.upsert_vouchers("A&B<상사>", "2026-03", [_c("A")])
+        rows = build_board(db)
+    html = render_board_html(rows)
+    assert "A&amp;B&lt;상사&gt;" in html
+    assert "<상사>" not in html
