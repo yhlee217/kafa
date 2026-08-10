@@ -86,6 +86,74 @@ def _norm(v) -> str:
     return "" if v is None else str(v).strip()
 
 
+# 이름 컬럼 탐지 키워드(구체적인 것 우선). 값을 추측하지 않고 **구조**로 찾는다.
+NAME_HEADER_KEYS = ("거래처명", "수임처명", "사업장명", "업체명", "회사명",
+                    "상호", "거래처", "수임처", "성명", "이름")
+_SKIP_VALUES = {"합계", "소계", "총계", "계"}
+
+
+def names_from_excel(path, *, max_header_scan: int = 20) -> list[str]:
+    """거래처 목록 엑셀(위하고 '거래처 내보내기' 등)에서 이름만 뽑는다.
+
+    헤더 위치·컬럼 순서를 모르므로 상단을 훑어 이름 컬럼을 **구조로** 찾는다.
+    중복·합계행은 제외하고 등장 순서를 유지한다. 이름 외 다른 값은 읽지 않는다.
+    """
+    import openpyxl
+
+    wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
+    out: list[str] = []
+    seen: set[str] = set()
+    for ws in wb.worksheets:
+        rows = []
+        for i, row in enumerate(ws.iter_rows(values_only=True)):
+            rows.append(row)
+            if i > 5000:                      # 아주 큰 파일 방어
+                break
+        col = None
+        header_i = 0
+        for i, row in enumerate(rows[:max_header_scan]):
+            best = (0, None)
+            for j, cell in enumerate(row or []):
+                text = _norm(cell).replace(" ", "")
+                if not text or len(text) > 10:
+                    continue          # 긴 문장은 헤더가 아니라 제목/안내문
+                if text in NAME_HEADER_KEYS:
+                    score = 3         # 정확히 '거래처명' 등
+                elif any(k in text for k in NAME_HEADER_KEYS):
+                    score = 2         # '거래처명(상호)' 같은 변형
+                else:
+                    continue
+                if score > best[0]:
+                    best = (score, j)
+            if best[1] is not None:
+                col, header_i = best[1], i
+                break
+        if col is None:
+            continue
+        for row in rows[header_i + 1:]:
+            name = _norm(row[col] if row and len(row) > col else "")
+            if not name or name in _SKIP_VALUES or name in seen:
+                continue
+            seen.add(name)
+            out.append(name)
+    return out
+
+
+def names_from_inbox(inbox) -> list[str]:
+    """inbox 하위 폴더명 = 고객 ID(파이프라인 규칙)."""
+    p = Path(inbox)
+    if not p.exists():
+        return []
+    return sorted(d.name for d in p.iterdir()
+                  if d.is_dir() and not d.name.startswith("_"))
+
+
+def names_from_text(path) -> list[str]:
+    """한 줄에 하나씩 적은 목록 파일."""
+    lines = Path(path).read_text(encoding="utf-8").splitlines()
+    return [ln.strip() for ln in lines if ln.strip() and not ln.startswith("#")]
+
+
 def parse_template(path) -> dict[str, dict]:
     """채워진 조사표 → {수임처: {client_type, has_employees, note}}."""
     import openpyxl
