@@ -19,6 +19,18 @@ pip install -e ".[fetch]"
 playwright install chromium      # 최초 1회
 ```
 
+## 0) 수임처 마스터가 있으면 훨씬 쉽다 (권장)
+
+수임처별 **접속 URL** 목록이 있으면 화면에서 거래처를 검색·클릭할 필요가 없다.
+주소로 바로 이동하므로 **보정할 selector 가 6개 → 4개**로 줄고, 이름 검색 실패도 없다.
+
+```bash
+kafa-fetch --inbox C:\kafa\inbox --master 수임처마스터.xlsx --months 6
+```
+`--clients` 를 생략하면 마스터의 전체 수임처가 대상이 된다.
+URL 은 **로그인한 세션에서만** 열리므로, 사람이 먼저 로그인하는 절차는 그대로다.
+세션이 중간에 끊기면 로그인 화면을 감지해(`login_marker`) 재로그인을 요청하고 이어서 진행한다.
+
 ## 1) 화면 보정 (최초 1회, 필수)
 selector 를 추측해 넣으면 엉뚱한 곳을 클릭하므로, 실제 화면을 보고 채운다.
 ```bash
@@ -30,12 +42,15 @@ kafa-fetch --inspect
 
 ```yaml
 selectors:
-  client_search_input: "#custSearch"          # 예시 — 실제 값으로
-  client_result_item: "text={client}"         # {client} 는 거래처명으로 치환됨
+  # --master 를 쓰면 아래 둘은 비워 둬도 된다
+  client_search_input: "#custSearch"
+  client_result_item: "text={client}"
+  # 이 넷은 반드시 필요
   period_from_input: "#dateFrom"
   period_to_input: "#dateTo"
   search_button: "button:has-text('조회')"
   excel_download_button: "button:has-text('엑셀')"
+  login_marker: "input[type=password]"        # (선택) 세션 만료 감지
 ```
 
 ## 2) 받을 목록 확인 (브라우저 없이)

@@ -50,8 +50,9 @@ def recent_months(n: int, *, today: date | None = None) -> list[str]:
 
 @dataclass(frozen=True)
 class DownloadTask:
-    client: str      # 거래처(고객) 이름 — 화면에서 선택할 대상
-    period: str      # 'YYYY-MM'
+    client: str            # 수임처 이름
+    period: str            # 'YYYY-MM'
+    url: str = ""          # 있으면 화면 검색 없이 이 주소로 바로 이동(로그인 세션 필요)
 
     @property
     def filename(self) -> str:
@@ -74,16 +75,18 @@ def target_path(inbox, task: DownloadTask) -> Path:
 
 
 def build_plan(inbox, clients: list[str], periods: list[str], *,
-               archive=None) -> DownloadPlan:
+               archive=None, urls: dict | None = None) -> DownloadPlan:
     """받을 목록 생성. inbox 나 archive 에 이미 있으면 건너뛴다(재개 가능).
 
     archive: 파이프라인이 처리 후 원본을 옮겨두는 폴더(out/_archive). 여기에 있으면
     이미 수집·처리된 것이므로 다시 받지 않는다.
+    urls: {수임처: 접속 URL} — 주면 화면 검색 대신 주소로 바로 이동한다.
     """
+    urls = urls or {}
     plan = DownloadPlan()
     for c in clients:
         for p in periods:
-            t = DownloadTask(c, p)
+            t = DownloadTask(c, p, urls.get(c, ""))
             done = target_path(inbox, t).exists()
             if not done and archive:
                 done = (Path(archive) / safe_name(c) / t.filename).exists()

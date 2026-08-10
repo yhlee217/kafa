@@ -15,7 +15,7 @@ delay_seconds: 3.0
 timeout_ms: 20000
 
 selectors:
-  # 거래처(고객) 선택 — 목록에서 이름으로 고르는 방식
+  # 수임처 선택 — **--master 로 접속 URL 을 주면 아래 둘은 필요 없다**(주소로 바로 이동).
   client_search_input: TODO      # 거래처 검색 입력창
   client_result_item: TODO       # 검색 결과 항목(이름으로 매칭)
   # 기간 설정
@@ -26,6 +26,9 @@ selectors:
   excel_download_button: TODO    # '엑셀 다운로드' 버튼
   # (선택) 결과가 없을 때 나타나는 요소 — 있으면 빈 달을 빨리 건너뛴다
   empty_result_marker: null
+  # (선택) 로그인 화면에만 있는 요소. 지정하면 세션 만료를 감지해 사람에게 재로그인을
+  # 요청하고 그 건부터 이어서 진행한다(자동 로그인은 하지 않음). 예: "input[type=password]"
+  login_marker: null
 
 # 기간 입력 형식. 화면이 'YYYY-MM' 이 아니면 바꾼다(예: "%Y%m", "%Y.%m").
 period_format: "%Y-%m"

@@ -18,9 +18,16 @@ from kafa.fetch.plan import DownloadPlan, DownloadTask, target_path
 
 _DEFAULT_CFG = Path(__file__).resolve().parent.parent.parent / "config" / "fetch" / "wehago.yaml"
 
+# URL 로 바로 이동할 때는 거래처 검색·선택이 필요 없어 보정 부담이 준다.
 REQUIRED_SELECTORS = ("client_search_input", "client_result_item",
                       "period_from_input", "period_to_input",
                       "search_button", "excel_download_button")
+REQUIRED_SELECTORS_URL_MODE = ("period_from_input", "period_to_input",
+                               "search_button", "excel_download_button")
+
+
+class SessionExpired(RuntimeError):
+    """로그인 세션이 끊김 — 사람이 다시 로그인해야 한다(자동 로그인 하지 않음)."""
 
 
 class NotCalibrated(RuntimeError):
@@ -34,11 +41,11 @@ def load_fetch_config(path=None) -> dict:
     return cfg
 
 
-def missing_selectors(cfg: dict) -> list[str]:
-    """아직 TODO/빈값인 필수 selector 목록."""
+def missing_selectors(cfg: dict, *, url_mode: bool = False) -> list[str]:
+    """아직 TODO/빈값인 필수 selector 목록. url_mode 면 검색 관련은 제외."""
     sel = cfg.get("selectors", {}) or {}
     out = []
-    for k in REQUIRED_SELECTORS:
+    for k in (REQUIRED_SELECTORS_URL_MODE if url_mode else REQUIRED_SELECTORS):
         v = sel.get(k)
         if v is None or is_todo(v) or not str(v).strip():
             out.append(k)
@@ -68,10 +75,16 @@ def fetch_one(page, cfg: dict, task: DownloadTask, dest: Path) -> Path:
     timeout = int(cfg.get("timeout_ms", 20000))
     fmt = cfg.get("period_format", "%Y-%m")
 
-    # 1) 거래처 선택
-    page.fill(sel["client_search_input"], task.client, timeout=timeout)
-    page.click(sel["client_result_item"].replace("{client}", task.client),
-               timeout=timeout)
+    # 1) 수임처로 이동 — URL 이 있으면 주소로 바로(로그인 세션 필요), 없으면 화면 검색
+    if task.url:
+        page.goto(task.url, timeout=timeout)
+        marker = (cfg.get("selectors", {}) or {}).get("login_marker")
+        if marker and page.query_selector(marker):
+            raise SessionExpired("로그인 화면이 나타났습니다(세션 만료).")
+    else:
+        page.fill(sel["client_search_input"], task.client, timeout=timeout)
+        page.click(sel["client_result_item"].replace("{client}", task.client),
+                   timeout=timeout)
 
     # 2) 기간 설정 후 조회
     p = format_period(task.period, fmt)
@@ -89,13 +102,19 @@ def fetch_one(page, cfg: dict, task: DownloadTask, dest: Path) -> Path:
 
 def run_fetch(page, plan: DownloadPlan, inbox, *, cfg: Optional[dict] = None,
               sleep: Callable[[float], None] = None,
-              on_progress: Optional[Callable[[DownloadTask, str], None]] = None
+              on_progress: Optional[Callable[[DownloadTask, str], None]] = None,
+              on_session_expired: Optional[Callable[[], None]] = None
               ) -> FetchResult:
-    """계획대로 순회 수집. 한 건 실패해도 계속 진행한다."""
+    """계획대로 순회 수집. 한 건 실패해도 계속 진행한다.
+
+    on_session_expired: 세션이 끊겼을 때 호출(사람에게 재로그인 요청). 지정하면 그 건을
+    한 번 다시 시도한다. 자동 로그인은 하지 않는다.
+    """
     import time
 
     cfg = cfg or load_fetch_config()
-    miss = missing_selectors(cfg)
+    url_mode = all(t.url for t in plan.tasks) and bool(plan.tasks)
+    miss = missing_selectors(cfg, url_mode=url_mode)
     if miss:
         raise NotCalibrated(
             "화면 selector 가 아직 보정되지 않았습니다: " + ", ".join(miss)
@@ -108,7 +127,13 @@ def run_fetch(page, plan: DownloadPlan, inbox, *, cfg: Optional[dict] = None,
     for i, task in enumerate(plan.tasks):
         label = f"{task.client}/{task.period}"
         try:
-            dest = fetch_one(page, cfg, task, target_path(inbox, task))
+            try:
+                dest = fetch_one(page, cfg, task, target_path(inbox, task))
+            except SessionExpired:
+                if on_session_expired is None:
+                    raise
+                on_session_expired()          # 사람이 다시 로그인
+                dest = fetch_one(page, cfg, task, target_path(inbox, task))
             res.saved.append(dest)
             if on_progress:
                 on_progress(task, "저장")

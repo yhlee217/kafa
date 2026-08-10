@@ -98,6 +98,7 @@ NAME_HEADER_KEYS = ("거래처명", "수임처명", "사업장명", "업체명",
                     "상호", "거래처", "수임처", "성명", "이름")
 _SKIP_VALUES = {"합계", "소계", "총계", "계"}
 TYPE_HEADER_KEYS = ("구분", "개인법인", "법인구분", "사업자구분", "유형")
+URL_HEADER_KEYS = ("접속URL", "URL", "링크", "주소", "접속주소")
 
 
 def _scan_rows(ws, limit: int = 5000) -> list:
@@ -109,14 +110,14 @@ def _scan_rows(ws, limit: int = 5000) -> list:
     return rows
 
 
-def _header_in(rows, max_header_scan: int) -> tuple[int, int, int | None, int]:
+def _header_in(rows, max_header_scan: int):
     """(점수, 이름컬럼, 구분컬럼, 헤더행) — 못 찾으면 점수 0.
 
     긴 문장(제목·안내문)은 헤더로 보지 않고, '회사명' 같은 정확 일치를 부분 일치보다
     우선한다. 이렇게 해야 '총수임처' 같은 요약 문구에 낚이지 않는다.
     """
     for i, row in enumerate(rows[:max_header_scan]):
-        best_score, best_col, tcol = 0, None, None
+        best_score, best_col, tcol, ucol = 0, None, None, None
         for j, cell in enumerate(row or []):
             text = _norm(cell).replace(" ", "")
             if not text or len(text) > 10:
@@ -128,12 +129,14 @@ def _header_in(rows, max_header_scan: int) -> tuple[int, int, int | None, int]:
             else:
                 if text in TYPE_HEADER_KEYS and tcol is None:
                     tcol = j
+                elif text.upper() in URL_HEADER_KEYS and ucol is None:
+                    ucol = j
                 continue
             if score > best_score:
                 best_score, best_col = score, j
         if best_col is not None:
-            return best_score, best_col, tcol, i
-    return 0, -1, None, 0
+            return best_score, best_col, tcol, ucol, i
+    return 0, -1, None, None, 0
 
 
 def _best_table(path, *, max_header_scan: int = 20):
@@ -148,7 +151,7 @@ def _best_table(path, *, max_header_scan: int = 20):
     best = None
     for ws in wb.worksheets:
         rows = _scan_rows(ws)
-        score, ncol, tcol, hi = _header_in(rows, max_header_scan)
+        score, ncol, tcol, ucol, hi = _header_in(rows, max_header_scan)
         if not score:
             continue
         n = sum(1 for r in rows[hi + 1:]
@@ -156,7 +159,7 @@ def _best_table(path, *, max_header_scan: int = 20):
                 and _norm(r[ncol]) not in _SKIP_VALUES)
         key = (score, n)
         if best is None or key > best[0]:
-            best = (key, rows, ncol, tcol, hi)
+            best = (key, rows, ncol, tcol, ucol, hi)
     return best
 
 
@@ -169,7 +172,7 @@ def profiles_from_excel(path, *, max_header_scan: int = 20) -> list[dict]:
     best = _best_table(path, max_header_scan=max_header_scan)
     if best is None:
         return []
-    _key, rows, ncol, tcol, hi = best
+    _key, rows, ncol, tcol, ucol, hi = best
     out: list[dict] = []
     seen: set[str] = set()
     for row in rows[hi + 1:]:
@@ -184,8 +187,21 @@ def profiles_from_excel(path, *, max_header_scan: int = 20) -> list[dict]:
                 rec["client_type"] = "개인"
             elif t in _CORPORATE:
                 rec["client_type"] = "법인"
+        if ucol is not None and row and len(row) > ucol:
+            url = _norm(row[ucol])
+            if url.startswith("http"):
+                rec["url"] = url
         out.append(rec)
     return out
+
+
+def client_urls_from_excel(path) -> dict[str, str]:
+    """수임처 마스터 → {회사명: 접속 URL}. URL 컬럼이 없으면 빈 dict.
+
+    로그인은 사람이 하고, **이미 로그인된 세션**에서 이 URL로 바로 이동해 화면 탐색
+    단계를 줄인다(거래처 검색·선택 클릭 불필요).
+    """
+    return {r["name"]: r["url"] for r in profiles_from_excel(path) if r.get("url")}
 
 
 def names_from_excel(path, *, max_header_scan: int = 20) -> list[str]:

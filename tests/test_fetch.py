@@ -135,3 +135,58 @@ def test_run_fetch_reports_skipped(tmp_path):
     plan = build_plan(tmp_path, ["A"], ["2026-01"])
     res = run_fetch(_FakePage(), plan, tmp_path, cfg=_CFG, sleep=lambda _: None)
     assert res.skipped == 1 and res.saved == []
+
+
+# ── URL 이동 모드(수임처 마스터) ──
+
+_CFG_URL = {"selectors": {"period_from_input": "#f", "period_to_input": "#t",
+                          "search_button": "#go", "excel_download_button": "#xls",
+                          "login_marker": "#login"},
+            "delay_seconds": 0, "timeout_ms": 100, "period_format": "%Y-%m"}
+
+
+class _UrlPage(_FakePage):
+    """goto 를 기록하고, login_hits 만큼 로그인 화면을 흉내낸다."""
+    def __init__(self, login_hits=0):
+        super().__init__()
+        self.goto_urls = []
+        self.login_hits = login_hits
+    def goto(self, url, **kw):
+        self.goto_urls.append(url)
+    def query_selector(self, sel):
+        if sel == "#login" and self.login_hits > 0:
+            self.login_hits -= 1
+            return object()          # 로그인 화면 감지
+        return None
+
+
+def test_url_mode_navigates_directly_and_skips_search_selectors(tmp_path):
+    from kafa.fetch.wehago import missing_selectors
+    # 검색 관련 selector 가 없어도 URL 모드면 실행 가능해야 한다
+    assert missing_selectors(_CFG_URL, url_mode=True) == []
+    assert "client_search_input" in missing_selectors(_CFG_URL, url_mode=False)
+
+    page = _UrlPage()
+    plan = build_plan(tmp_path, ["행복상사"], ["2026-01"],
+                      urls={"행복상사": "https://x/acct?cno=1"})
+    res = run_fetch(page, plan, tmp_path, cfg=_CFG_URL, sleep=lambda _: None)
+    assert res.ok and page.goto_urls == ["https://x/acct?cno=1"]
+    assert ("fill", "#s", "행복상사") not in page.log      # 검색창 안 씀
+
+
+def test_session_expiry_asks_human_then_retries(tmp_path):
+    page = _UrlPage(login_hits=1)          # 첫 시도에 로그인 화면
+    asked = []
+    plan = build_plan(tmp_path, ["행복상사"], ["2026-01"],
+                      urls={"행복상사": "https://x/1"})
+    res = run_fetch(page, plan, tmp_path, cfg=_CFG_URL, sleep=lambda _: None,
+                    on_session_expired=lambda: asked.append(True))
+    assert asked == [True] and res.ok       # 사람이 재로그인 후 성공
+    assert len(page.goto_urls) == 2         # 재시도
+
+
+def test_session_expiry_without_handler_is_a_failure(tmp_path):
+    page = _UrlPage(login_hits=5)
+    plan = build_plan(tmp_path, ["행복상사"], ["2026-01"], urls={"행복상사": "https://x/1"})
+    res = run_fetch(page, plan, tmp_path, cfg=_CFG_URL, sleep=lambda _: None)
+    assert not res.ok and "SessionExpired" in str(res.failures)

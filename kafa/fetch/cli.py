@@ -37,7 +37,10 @@ def main(argv: list[str] | None = None) -> int:
         prog="kafa-fetch",
         description="감독형 수집 — 로그인은 사람이, 반복 다운로드는 자동으로")
     ap.add_argument("--inbox", required=False, help="받은 파일을 둘 폴더(파이프라인 inbox)")
-    ap.add_argument("--clients", help="거래처 목록: 쉼표 구분 또는 파일 경로")
+    ap.add_argument("--clients", help="수임처 목록: 쉼표 구분 또는 파일 경로")
+    ap.add_argument("--master",
+                    help="수임처 마스터 엑셀(회사명+접속 URL). 주면 화면 검색 없이 "
+                         "주소로 바로 이동하고, --clients 를 생략하면 전체를 대상으로 함")
     ap.add_argument("--months", type=int, help="최근 N개월")
     ap.add_argument("--from", dest="frm", help="시작 기간 YYYY-MM")
     ap.add_argument("--to", dest="to", help="종료 기간 YYYY-MM")
@@ -75,10 +78,16 @@ def main(argv: list[str] | None = None) -> int:
         print(f"\n[저장] {out.resolve()}  ← 이 파일을 보내주시면 selector 를 채워 드립니다.")
         return 0
 
-    if not args.inbox or not args.clients:
-        ap.error("--inbox 와 --clients 가 필요합니다(또는 --inspect 사용).")
+    urls: dict = {}
+    if args.master:
+        from kafa.clients import client_urls_from_excel
+        urls = client_urls_from_excel(args.master)
+        print(f"수임처 마스터: URL {len(urls)}곳 (주소로 바로 이동 — 화면 검색 생략)")
 
-    clients = _clients_from(args.clients)
+    if not args.inbox or not (args.clients or urls):
+        ap.error("--inbox 와 --clients(또는 --master) 가 필요합니다(또는 --inspect).")
+
+    clients = _clients_from(args.clients) if args.clients else list(urls)
     if args.frm and args.to:
         periods = months_between(args.frm, args.to)
     elif args.months:
@@ -86,7 +95,7 @@ def main(argv: list[str] | None = None) -> int:
     else:
         ap.error("--months 또는 --from/--to 로 기간을 지정하세요.")
 
-    plan = build_plan(args.inbox, clients, periods, archive=args.archive)
+    plan = build_plan(args.inbox, clients, periods, archive=args.archive, urls=urls)
     print(f"거래처 {len(clients)}곳 × 기간 {len(periods)}개월 = {plan.total}건")
     print(f"  받을 것 {len(plan.tasks)}건 / 이미 있음 {len(plan.skipped)}건")
 
@@ -97,7 +106,8 @@ def main(argv: list[str] | None = None) -> int:
             print(f"   … 외 {len(plan.tasks) - 40}건")
         return 0
 
-    miss = missing_selectors(cfg)
+    url_mode = bool(plan.tasks) and all(t.url for t in plan.tasks)
+    miss = missing_selectors(cfg, url_mode=url_mode)
     if miss:
         print("\n[중단] 화면 selector 가 아직 보정되지 않았습니다: " + ", ".join(miss),
               file=sys.stderr)
@@ -115,8 +125,11 @@ def main(argv: list[str] | None = None) -> int:
                       downloads_dir=args.inbox) as page:
         wait_for_human("브라우저에서 로그인해 주세요.\n" + str(cfg.get("start_hint", "")))
         try:
-            res = run_fetch(page, plan, args.inbox, cfg=cfg,
-                            on_progress=lambda t, s: print(f"  [{s}] {t.client}/{t.period}"))
+            res = run_fetch(
+                page, plan, args.inbox, cfg=cfg,
+                on_progress=lambda t, s: print(f"  [{s}] {t.client}/{t.period}"),
+                on_session_expired=lambda: wait_for_human(
+                    "로그인이 풀렸습니다. 브라우저에서 다시 로그인해 주세요."))
         except NotCalibrated as e:
             print(f"\n[중단] {e}", file=sys.stderr)
             return 2
