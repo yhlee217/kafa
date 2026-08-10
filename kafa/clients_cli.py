@@ -33,19 +33,29 @@ def main(argv: list[str] | None = None) -> int:
     from kafa.clients import parse_template, to_yaml, write_template
 
     if args.cmd == "template":
-        from kafa.clients import names_from_excel, names_from_inbox, names_from_text
-        names: list[str] = []
+        from kafa.clients import (names_from_inbox, names_from_text,
+                                  profiles_from_excel)
+        names: list = []
         seen: set[str] = set()
 
         def add(items, src):
-            new = [n for n in items if n not in seen]
-            seen.update(new)
+            new = []
+            for it in items:
+                nm = it["name"] if isinstance(it, dict) else it
+                if nm in seen:
+                    continue
+                seen.add(nm)
+                new.append(it)
             names.extend(new)
             if items:
                 print(f"  {src}: {len(items)}곳 (신규 {len(new)})")
 
         if args.from_excel:
-            add(names_from_excel(args.from_excel), "엑셀")
+            recs = profiles_from_excel(args.from_excel)
+            add(recs, "엑셀")
+            known = sum(1 for r in recs if r.get("client_type"))
+            if known:
+                print(f"    └ 개인/법인까지 확인됨: {known}곳 (담당자는 직원 유무만 고르면 됨)")
         if args.from_inbox:
             add(names_from_inbox(args.from_inbox), "inbox 폴더")
         if args.from_list:

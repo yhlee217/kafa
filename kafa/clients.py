@@ -39,8 +39,12 @@ _HOWTO = [
 ]
 
 
-def write_template(path, clients: list[str] | None = None) -> Path:
-    """빈 조사표(.xlsx) 생성. clients 를 주면 이름 칸을 미리 채운다."""
+def write_template(path, clients=None) -> Path:
+    """조사표(.xlsx) 생성.
+
+    clients: 이름 문자열 목록, 또는 {"name":…, "client_type": "개인"|"법인"} 목록.
+    알고 있는 값은 미리 채워 담당자가 고를 칸을 최소화한다.
+    """
     import openpyxl
     from openpyxl.styles import Alignment, Font, PatternFill
     from openpyxl.worksheet.datavalidation import DataValidation
@@ -55,8 +59,11 @@ def write_template(path, clients: list[str] | None = None) -> Path:
         cell.font = Font(bold=True)
         cell.fill = head
         cell.alignment = Alignment(horizontal="center")
-    for name in (clients or []):
-        ws.append([name, "", "", "", ""])
+    for c in (clients or []):
+        if isinstance(c, dict):
+            ws.append([c.get("name", ""), c.get("client_type", ""), "", "", ""])
+        else:
+            ws.append([c, "", "", "", ""])
 
     rows = max(len(clients or []) + 1, 200)
     dv_type = DataValidation(type="list", formula1='"개인,법인"', allow_blank=True)
@@ -90,53 +97,101 @@ def _norm(v) -> str:
 NAME_HEADER_KEYS = ("거래처명", "수임처명", "사업장명", "업체명", "회사명",
                     "상호", "거래처", "수임처", "성명", "이름")
 _SKIP_VALUES = {"합계", "소계", "총계", "계"}
+TYPE_HEADER_KEYS = ("구분", "개인법인", "법인구분", "사업자구분", "유형")
 
 
-def names_from_excel(path, *, max_header_scan: int = 20) -> list[str]:
-    """거래처 목록 엑셀(위하고 '거래처 내보내기' 등)에서 이름만 뽑는다.
+def _scan_rows(ws, limit: int = 5000) -> list:
+    rows = []
+    for i, row in enumerate(ws.iter_rows(values_only=True)):
+        rows.append(row)
+        if i > limit:
+            break
+    return rows
 
-    헤더 위치·컬럼 순서를 모르므로 상단을 훑어 이름 컬럼을 **구조로** 찾는다.
-    중복·합계행은 제외하고 등장 순서를 유지한다. 이름 외 다른 값은 읽지 않는다.
+
+def _header_in(rows, max_header_scan: int) -> tuple[int, int, int | None, int]:
+    """(점수, 이름컬럼, 구분컬럼, 헤더행) — 못 찾으면 점수 0.
+
+    긴 문장(제목·안내문)은 헤더로 보지 않고, '회사명' 같은 정확 일치를 부분 일치보다
+    우선한다. 이렇게 해야 '총수임처' 같은 요약 문구에 낚이지 않는다.
+    """
+    for i, row in enumerate(rows[:max_header_scan]):
+        best_score, best_col, tcol = 0, None, None
+        for j, cell in enumerate(row or []):
+            text = _norm(cell).replace(" ", "")
+            if not text or len(text) > 10:
+                continue
+            if text in NAME_HEADER_KEYS:
+                score = 3
+            elif any(k in text for k in NAME_HEADER_KEYS):
+                score = 2
+            else:
+                if text in TYPE_HEADER_KEYS and tcol is None:
+                    tcol = j
+                continue
+            if score > best_score:
+                best_score, best_col = score, j
+        if best_col is not None:
+            return best_score, best_col, tcol, i
+    return 0, -1, None, 0
+
+
+def _best_table(path, *, max_header_scan: int = 20):
+    """여러 시트 중 **가장 그럴듯한 표 하나**를 고른다.
+
+    정확 일치 헤더(점수 3)를 우선하고, 같은 점수면 데이터 행이 많은 시트를 쓴다.
+    요약·점검 같은 보조 시트를 함께 긁어 이름이 뒤섞이는 것을 막는다.
     """
     import openpyxl
 
     wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
-    out: list[str] = []
-    seen: set[str] = set()
+    best = None
     for ws in wb.worksheets:
-        rows = []
-        for i, row in enumerate(ws.iter_rows(values_only=True)):
-            rows.append(row)
-            if i > 5000:                      # 아주 큰 파일 방어
-                break
-        col = None
-        header_i = 0
-        for i, row in enumerate(rows[:max_header_scan]):
-            best = (0, None)
-            for j, cell in enumerate(row or []):
-                text = _norm(cell).replace(" ", "")
-                if not text or len(text) > 10:
-                    continue          # 긴 문장은 헤더가 아니라 제목/안내문
-                if text in NAME_HEADER_KEYS:
-                    score = 3         # 정확히 '거래처명' 등
-                elif any(k in text for k in NAME_HEADER_KEYS):
-                    score = 2         # '거래처명(상호)' 같은 변형
-                else:
-                    continue
-                if score > best[0]:
-                    best = (score, j)
-            if best[1] is not None:
-                col, header_i = best[1], i
-                break
-        if col is None:
+        rows = _scan_rows(ws)
+        score, ncol, tcol, hi = _header_in(rows, max_header_scan)
+        if not score:
             continue
-        for row in rows[header_i + 1:]:
-            name = _norm(row[col] if row and len(row) > col else "")
-            if not name or name in _SKIP_VALUES or name in seen:
-                continue
-            seen.add(name)
-            out.append(name)
+        n = sum(1 for r in rows[hi + 1:]
+                if r and len(r) > ncol and _norm(r[ncol])
+                and _norm(r[ncol]) not in _SKIP_VALUES)
+        key = (score, n)
+        if best is None or key > best[0]:
+            best = (key, rows, ncol, tcol, hi)
+    return best
+
+
+def profiles_from_excel(path, *, max_header_scan: int = 20) -> list[dict]:
+    """수임처 목록 엑셀 → [{"name":…, "client_type":…}].
+
+    이름 컬럼은 헤더를 보고 **구조로** 찾고, 같은 표에 '구분' 컬럼이 있으면 개인/법인도
+    함께 읽는다(담당자가 고를 칸이 줄어든다). 중복·합계행은 제외하고 순서를 유지한다.
+    """
+    best = _best_table(path, max_header_scan=max_header_scan)
+    if best is None:
+        return []
+    _key, rows, ncol, tcol, hi = best
+    out: list[dict] = []
+    seen: set[str] = set()
+    for row in rows[hi + 1:]:
+        name = _norm(row[ncol] if row and len(row) > ncol else "")
+        if not name or name in _SKIP_VALUES or name in seen:
+            continue
+        seen.add(name)
+        rec = {"name": name}
+        if tcol is not None and row and len(row) > tcol:
+            t = _norm(row[tcol])
+            if t in _INDIVIDUAL:
+                rec["client_type"] = "개인"
+            elif t in _CORPORATE:
+                rec["client_type"] = "법인"
+        out.append(rec)
     return out
+
+
+def names_from_excel(path, *, max_header_scan: int = 20) -> list[str]:
+    """거래처/수임처 목록 엑셀에서 이름만 뽑는다."""
+    return [r["name"] for r in
+            profiles_from_excel(path, max_header_scan=max_header_scan)]
 
 
 def names_from_inbox(inbox) -> list[str]:

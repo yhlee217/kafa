@@ -105,3 +105,33 @@ def test_template_prefills_names(tmp_path):
     assert [ws.cell(row=r, column=1).value for r in (2, 3)] == ["행복상사", "대박유통"]
     # 이름만 채우고 나머지는 비워 둔다(담당자가 고르도록)
     assert ws.cell(row=2, column=2).value in (None, "")
+
+
+def test_picks_best_sheet_not_all(tmp_path):
+    """요약·점검 같은 보조 시트를 함께 긁어 이름이 뒤섞이면 안 된다."""
+    p = tmp_path / "master.xlsx"
+    wb = openpyxl.Workbook()
+    s0 = wb.active; s0.title = "00_요약"
+    s0.append(["수임처 마스터"]); s0.append([])
+    s0.append(["항목", "값"]); s0.append(["총수임처", 3]); s0.append(["법인", 1])
+    s1 = wb.create_sheet("10_마스터")
+    s1.append(["No", "회사명", "구분"])
+    for i, (n, t) in enumerate([("가상상사", "법인"), ("나린유통", "개인"),
+                                ("다온물산", "개인")], 1):
+        s1.append([i, n, t])
+    s2 = wb.create_sheet("20_점검필요")
+    s2.append(["회사명", "유형"]); s2.append(["나린유통", "사업자번호 없음"])
+    wb.save(p)
+
+    from kafa.clients import profiles_from_excel
+    got = profiles_from_excel(p)
+    assert [g["name"] for g in got] == ["가상상사", "나린유통", "다온물산"]
+    assert got[0]["client_type"] == "법인" and got[1]["client_type"] == "개인"
+
+
+def test_template_prefills_client_type(tmp_path):
+    p = write_template(tmp_path / "t.xlsx",
+                       [{"name": "가상상사", "client_type": "법인"}, {"name": "나린유통"}])
+    ws = openpyxl.load_workbook(p)[SHEET]
+    assert [ws.cell(row=2, column=c).value for c in (1, 2, 3)] == ["가상상사", "법인", None]
+    assert ws.cell(row=3, column=2).value in (None, "")   # 모르면 비워 둔다
