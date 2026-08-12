@@ -17,7 +17,11 @@ import os
 from pathlib import Path
 from typing import Optional, Protocol
 
-from kafa.config_loader import load_account_codes, load_rules
+from kafa.config_loader import (
+    load_account_codes,
+    load_credit_side_codes,
+    load_rules,
+)
 from kafa.recommend.features import feature_signature
 from kafa.recommend.recommender import Recommendation
 
@@ -139,9 +143,16 @@ def llm_available() -> bool:
 
 
 def allowed_accounts(config_dir: str | None = None) -> dict[str, int]:
-    """추정에 허용할 계정명→코드. 상대계정(미지급비용 등)은 차변 후보에서 제외."""
+    """추정에 허용할 계정명→코드. **차대구분이 '대변'인 계정은 제외**한다.
+
+    상대계정(미지급비용 등)은 차변 후보가 아니므로 혼동을 막는다. 제외 목록은
+    위하고 계정과목 추출본의 차대구분에서 온다(config `credit_side_codes`).
+    해당 키가 없는 설정이면 최소한의 상대계정 이름만 보수적으로 제외한다.
+    """
     mapping = dict(load_account_codes(config_dir))
-    # 대변/자산성 상대계정은 차변 비용계정 후보가 아니므로 제외(혼동 방지).
+    credit = load_credit_side_codes(config_dir)
+    if credit:
+        return {n: c for n, c in mapping.items() if c not in credit}
     for exclude in ("미지급비용", "미지급금", "외상매입금", "선급금", "현금", "가지급금"):
         mapping.pop(exclude, None)
     return mapping

@@ -81,3 +81,16 @@ def test_cp949_sanitize(tmp_path):
     assert files[0].exists()
     bk = xlrd.open_workbook(files[0])
     assert bk.sheet_by_index(0).nrows == 2
+
+
+def test_header_matches_real_template():
+    """생성 헤더는 실제 양식 문구와 정확히 같아야 업로드가 인식된다."""
+    import xlrd
+    from kafa.io_wehago.schema import OUTPUT_HEADERS
+    import tempfile, pathlib
+    with tempfile.TemporaryDirectory() as d:
+        p = pathlib.Path(d) / "o.xls"
+        write_upload_xls([OutputRow(거래일자="2026-01-02", 합계=1100)], p, strict=False)
+        head = xlrd.open_workbook(p).sheet_by_index(0).row_values(0)
+    assert head == OUTPUT_HEADERS
+    assert head[1] == "거래처(가맹점명)"      # 양식 문구(필드명 '거래처'와 다름)

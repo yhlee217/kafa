@@ -88,3 +88,120 @@ def test_pipeline_multi_client(tmp_path):
     assert res.total_in_db == 4               # 고객별 별도 누적
     assert (out / "고객001" / "2026-03" / "3월_upload.xls").exists()
     assert (out / "고객002" / "2026-03" / "3월_upload.xls").exists()
+
+
+def _row(거래처, 차변계정, 일자="03-15", 전표상태="확정가능"):
+    return ["2026", 일자, "A", 거래처, "법인", "커피", 5000, 500, 0, 5500,
+            "공제", "음식점", "카페", "카과", 차변계정, "미지급비용", "", 전표상태,
+            "111-11-11119"]
+
+
+def test_db_history_resolves_next_month(tmp_path):
+    """지난 달 DB 이력으로 이번 달 같은 가맹점의 미추천이 자동 해소된다."""
+    inbox, out = tmp_path / "inbox", tmp_path / "out"
+    # 1월: 카페A 를 (판)복리후생비로 처리한 이력이 DB에 쌓임
+    _xlsx(inbox / "고객001" / "1월.xlsx",
+          [_row("카페A", "(판)복리후생비", "01-10")])
+    r1 = run_pipeline(inbox, out)
+    assert r1.ok and r1.total_in_db == 1
+
+    # 2월: 같은 카페A 인데 미추천(차변계정 비어있음)
+    _xlsx(inbox / "고객001" / "2월.xlsx",
+          [_row("카페A", "", "02-10", 전표상태="미추천")])
+    r2 = run_pipeline(inbox, out)
+    assert r2.ok
+
+    import sqlite3
+    con = sqlite3.connect(out / "kafa.db")
+    codes = [c for (c,) in con.execute(
+        "SELECT 차변계정코드 FROM vouchers WHERE period='2026-02'")]
+    con.close()
+    assert codes == [811]          # 이력에서 복리후생비(811)로 해소
+
+
+def test_db_history_is_per_client(tmp_path):
+    """다른 고객의 이력은 섞이지 않는다."""
+    inbox, out = tmp_path / "inbox", tmp_path / "out"
+    _xlsx(inbox / "고객001" / "1월.xlsx", [_row("카페A", "(판)복리후생비", "01-10")])
+    run_pipeline(inbox, out)
+    # 고객002 에 같은 가맹점이 미추천으로 등장 → 고객001 이력을 쓰면 안 됨
+    _xlsx(inbox / "고객002" / "2월.xlsx", [_row("카페A", "", "02-10", 전표상태="미추천")])
+    run_pipeline(inbox, out)
+
+    import sqlite3
+    con = sqlite3.connect(out / "kafa.db")
+    codes = [c for (c,) in con.execute(
+        "SELECT 차변계정코드 FROM vouchers WHERE client_id='고객002'")]
+    con.close()
+    assert codes == [None]         # 다른 고객 이력은 미사용 → 미해소
+
+
+def test_industry_rule_is_learned_per_client(tmp_path):
+    """음식점 기준이 수임처마다 달라도, 각 고객 이력에서 각자 학습한다.
+
+    고객A: 음식점 → 접대비(813) / 고객B: 음식점 → 복리후생비(811) 로 처리해온 경우,
+    처음 보는 식당이 미추천으로 와도 각자 자기 기준으로 해소되어야 한다.
+    """
+    def 식당(거래처, 계정, 일자, 상태="확정가능"):
+        return ["2026", 일자, "A", 거래처, "법인", "", 9000, 900, 0, 9900,
+                "불공제", "음식점업", "한식", "일반", 계정, "미지급비용", "", 상태,
+                "111-11-11119"]
+
+    inbox, out = tmp_path / "inbox", tmp_path / "out"
+    # 1월: 두 고객이 서로 다른 기준으로 음식점을 처리(각 3건 = min_support 충족)
+    _xlsx(inbox / "고객A" / "1월.xlsx",
+          [식당(f"식당A{i}", "(판)접대비(기업업무추진비)", f"01-1{i}") for i in range(3)])
+    _xlsx(inbox / "고객B" / "1월.xlsx",
+          [식당(f"식당B{i}", "(판)복리후생비", f"01-1{i}") for i in range(3)])
+    assert run_pipeline(inbox, out).ok
+
+    # 2월: 양쪽 모두 '처음 보는' 식당이 미추천으로 등장 → 가맹점 시드로는 못 푼다
+    _xlsx(inbox / "고객A" / "2월.xlsx", [식당("새로운맛집", "", "02-10", "미추천")])
+    _xlsx(inbox / "고객B" / "2월.xlsx", [식당("낯선식당", "", "02-10", "미추천")])
+    assert run_pipeline(inbox, out).ok
+
+    import sqlite3
+    con = sqlite3.connect(out / "kafa.db")
+    got = dict(con.execute(
+        "SELECT client_id, 차변계정코드 FROM vouchers WHERE period='2026-02'"))
+    con.close()
+    assert got["고객A"] == 813      # 이 수임처는 접대비로 처리해왔음
+    assert got["고객B"] == 811      # 이 수임처는 복리후생비로 처리해왔음
+
+
+def test_client_profile_drives_type_and_welfare_flag(tmp_path):
+    """수임처 속성: 고객마다 개인/법인이 다르고, 직원 없으면 복리후생비에 검토 플래그."""
+    cfgdir = tmp_path / "config"
+    cfgdir.mkdir()
+    import shutil, pathlib
+    src = pathlib.Path("config")
+    for f in ("rules.yaml", "account_codes.yaml"):
+        shutil.copy(src / f, cfgdir / f)
+    (cfgdir / "clients.yaml").write_text(
+        "defaults:\n  client_type: corporate\n  has_employees: true\n"
+        "clients:\n  1인사업자:\n    client_type: individual\n    has_employees: false\n",
+        encoding="utf-8")
+    from kafa.config_loader import client_profile, load_clients
+    load_clients.cache_clear()
+
+    inbox, out = tmp_path / "inbox", tmp_path / "out"
+    # 이력: 카페A 를 복리후생비로 처리 → 다음 달 미추천이 그 계정으로 추천됨
+    _xlsx(inbox / "1인사업자" / "1월.xlsx", [_row("카페A", "(판)복리후생비", "01-10")])
+    run_pipeline(inbox, out, config_dir=str(cfgdir))
+    _xlsx(inbox / "1인사업자" / "2월.xlsx", [_row("카페A", "", "02-10", 전표상태="미추천")])
+    run_pipeline(inbox, out, config_dir=str(cfgdir))
+
+    prof = client_profile("1인사업자", str(cfgdir))
+    assert prof["client_type"] == "individual" and prof["has_employees"] is False
+
+    import sqlite3
+    con = sqlite3.connect(out / "kafa.db")
+    code, 대변 = con.execute(
+        "SELECT 차변계정코드, 대변계정코드 FROM vouchers WHERE period='2026-02'").fetchone()
+    con.close()
+    assert code == 811            # 이력대로 추천은 되지만
+    assert 대변 == 338            # 개인 → 인출금(프로필에서 client_type 적용)
+    # 복리후생비 추천에 검토 사유가 붙었는지(리포트에서 확인)
+    txt = (out / "1인사업자" / "2026-02" / "2월_upload_review.txt").read_text(encoding="utf-8")
+    assert "복리후생비" in txt
+    load_clients.cache_clear()

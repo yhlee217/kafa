@@ -57,6 +57,44 @@ def load_account_codes(config_dir: str | None = None) -> dict[str, int]:
 
 
 @lru_cache(maxsize=None)
+def load_clients(config_dir: str | None = None) -> dict[str, Any]:
+    """config/clients.yaml — 수임처 속성(개인/법인·직원 유무). 파일 없으면 기본값만."""
+    base = Path(config_dir) if config_dir else _DEFAULT_CONFIG_DIR
+    path = base / "clients.yaml"
+    if not path.exists():
+        return {"defaults": {}, "clients": {}}
+    data = _load_yaml(path)
+    return {"defaults": data.get("defaults") or {},
+            "clients": data.get("clients") or {}}
+
+
+def client_profile(client_id: str | None, config_dir: str | None = None) -> dict:
+    """수임처 속성 조회(기본값 위에 개별 설정을 덮어씀).
+
+    자료로는 알 수 없는 사실(직원 유무 등)이라 사람이 clients.yaml 에 적어야 한다.
+    미등록 수임처는 기본값을 쓴다.
+    """
+    cfg = load_clients(config_dir)
+    prof = {"client_type": "corporate", "has_employees": True}
+    prof.update(cfg.get("defaults") or {})
+    if client_id:
+        prof.update((cfg.get("clients") or {}).get(client_id) or {})
+    return prof
+
+
+@lru_cache(maxsize=None)
+def load_credit_side_codes(config_dir: str | None = None) -> frozenset[int]:
+    """대변 계정 코드 집합(차대구분='대변'). 차변계정 추천 후보 제외에 쓴다.
+
+    account_codes.yaml 의 `credit_side_codes` (위하고 계정과목 추출본의 차대구분 유래).
+    키가 없으면 빈 집합 — 그 경우 호출측이 보수적으로 동작해야 한다.
+    """
+    base = Path(config_dir) if config_dir else _DEFAULT_CONFIG_DIR
+    data = _load_yaml(base / "account_codes.yaml")
+    return frozenset(int(c) for c in (data.get("credit_side_codes") or []))
+
+
+@lru_cache(maxsize=None)
 def load_agent(config_dir: str | None = None) -> dict[str, Any]:
     """config/agent.yaml 로드 — 세무대리인 보조 업무(kafa/agent) 설정(율·목록)."""
     base = Path(config_dir) if config_dir else _DEFAULT_CONFIG_DIR

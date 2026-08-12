@@ -1,0 +1,329 @@
+<title>kafa 자료 준비 체크리스트</title>
+<style>
+  :root{
+    --paper:#F5F6F8; --surface:#FFFFFF; --ink:#16202B; --muted:#5C6675;
+    --rule:#DDE1E7; --rule-soft:#EBEEF2; --accent:#0B6B62; --accent-soft:#E4F0EE;
+    --have:#2E7D5B; --have-soft:#EAF4EE;
+    --req:#B3352C; --rec:#B26B00; --ask:#7B4FA8; --ask-soft:#F1EBF8;
+    --stripe:#FAFBFC;
+    --sans:"Pretendard","Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR",
+           system-ui,-apple-system,sans-serif;
+    --mono:ui-monospace,"SFMono-Regular","Consolas","D2Coding","Menlo",monospace;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --paper:#12151A; --surface:#191D24; --ink:#E7EBF0; --muted:#98A2B0;
+      --rule:#2B323C; --rule-soft:#232932; --accent:#5AC7B8; --accent-soft:#16302E;
+      --have:#5DBF8E; --have-soft:#16261F;
+      --req:#E0776C; --rec:#D99A3C; --ask:#B692DC; --ask-soft:#251E31;
+      --stripe:#1C212A;
+    }
+  }
+  :root[data-theme="dark"]{
+    --paper:#12151A; --surface:#191D24; --ink:#E7EBF0; --muted:#98A2B0;
+    --rule:#2B323C; --rule-soft:#232932; --accent:#5AC7B8; --accent-soft:#16302E;
+    --have:#5DBF8E; --have-soft:#16261F;
+    --req:#E0776C; --rec:#D99A3C; --ask:#B692DC; --ask-soft:#251E31;
+    --stripe:#1C212A;
+  }
+  :root[data-theme="light"]{
+    --paper:#F5F6F8; --surface:#FFFFFF; --ink:#16202B; --muted:#5C6675;
+    --rule:#DDE1E7; --rule-soft:#EBEEF2; --accent:#0B6B62; --accent-soft:#E4F0EE;
+    --have:#2E7D5B; --have-soft:#EAF4EE;
+    --req:#B3352C; --rec:#B26B00; --ask:#7B4FA8; --ask-soft:#F1EBF8;
+    --stripe:#FAFBFC;
+  }
+
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);
+       line-height:1.6;-webkit-text-size-adjust:100%}
+  .page{max-width:880px;margin:0 auto;padding:38px 20px 70px}
+
+  .masthead{border-bottom:2px solid var(--ink);padding-bottom:16px}
+  .eyebrow{font-family:var(--mono);font-size:11.5px;letter-spacing:.14em;
+           text-transform:uppercase;color:var(--accent);margin:0 0 9px}
+  h1{font-size:clamp(24px,4.6vw,31px);line-height:1.22;margin:0 0 8px;
+     letter-spacing:-.02em;text-wrap:balance}
+  .dek{margin:0;color:var(--muted);font-size:15px;max-width:62ch}
+
+  .split{display:grid;gap:1px;background:var(--rule);border:1px solid var(--rule);
+         grid-template-columns:repeat(auto-fit,minmax(190px,1fr));margin:22px 0 0}
+  .split div{background:var(--surface);padding:13px 15px}
+  .split .n{font-family:var(--mono);font-size:23px;font-weight:600;
+            font-variant-numeric:tabular-nums;display:block;letter-spacing:-.02em}
+  .split .l{font-size:12.5px;color:var(--muted);display:block;margin-top:2px}
+  .split .self .n{color:var(--accent)}
+  .split .ask .n{color:var(--ask)}
+  .split .done .n{color:var(--have)}
+
+  .have-box{margin:20px 0 0;padding:13px 16px;background:var(--have-soft);
+            border:1px solid var(--have);border-left-width:3px;font-size:13.6px}
+  .have-box b{color:var(--have)}
+
+  section{margin-top:36px}
+  .shead{border-bottom:1px solid var(--rule);padding-bottom:9px;margin-bottom:14px}
+  h2{font-size:18px;margin:0;letter-spacing:-.01em}
+  h2 .k{font-family:var(--mono);font-size:11.5px;padding:2px 8px;border-radius:2px;
+        margin-right:10px;vertical-align:2px;border:1px solid currentColor}
+  h2 .self{color:var(--accent)} h2 .askc{color:var(--ask)}
+  .shead p{margin:7px 0 0;font-size:13.5px;color:var(--muted);max-width:64ch}
+
+  .item{display:flex;gap:13px;padding:14px 15px;background:var(--surface);
+        border:1px solid var(--rule);margin-bottom:9px;align-items:flex-start;
+        cursor:pointer;transition:background .12s,border-color .12s}
+  .item:hover{border-color:var(--accent)}
+  .item.done{background:var(--have-soft);border-color:var(--have)}
+  .item:focus-within{outline:2px solid var(--accent);outline-offset:2px}
+  .item.q{border-left:3px solid var(--ask)}
+  .box{margin-top:3px;width:17px;height:17px;flex:none;accent-color:var(--accent)}
+  .body{flex:1;min-width:0}
+  .row1{display:flex;align-items:baseline;gap:9px;flex-wrap:wrap}
+  .t{font-weight:700;font-size:14.8px;letter-spacing:-.01em}
+  .badge{font-family:var(--mono);font-size:10.5px;letter-spacing:.05em;
+         padding:2px 7px;border:1px solid currentColor;border-radius:2px;
+         white-space:nowrap}
+  .b-req{color:var(--req)} .b-rec{color:var(--rec)} .b-ok{color:var(--have)}
+  .item.done-ans{background:var(--have-soft);border-color:var(--have)}
+  .item.done-ans .now .lab{color:var(--have)}
+  .d{color:var(--muted);font-size:13.4px;margin-top:4px}
+  .where{font-family:var(--mono);font-size:12.2px;margin-top:7px;padding:6px 10px;
+         background:var(--stripe);border-left:2px solid var(--accent);
+         color:var(--ink);overflow-x:auto;white-space:nowrap}
+  .now{font-size:12.9px;margin-top:6px;color:var(--muted)}
+  .now .lab{font-family:var(--mono);font-size:10.5px;letter-spacing:.08em;
+            color:var(--rec);margin-right:6px}
+  .note{width:100%;margin-top:9px;padding:6px 9px;font:inherit;font-size:13px;
+        color:var(--ink);background:var(--paper);border:1px solid var(--rule);
+        border-radius:3px}
+  .note:focus{outline:2px solid var(--accent);outline-offset:1px}
+
+  .kakao{margin-top:14px;background:var(--ask-soft);border:1px solid var(--ask);
+         border-left-width:3px;padding:14px 16px}
+  .kakao h3{margin:0 0 8px;font-size:13.5px;color:var(--ask);
+            font-family:var(--mono);letter-spacing:.04em}
+  .kakao pre{margin:0;background:transparent;border:none;padding:0;
+             font-family:var(--sans);font-size:13.6px;line-height:1.75;
+             white-space:pre-wrap;color:var(--ink)}
+
+  .tw{overflow-x:auto;border:1px solid var(--rule);background:var(--surface)}
+  table{border-collapse:collapse;width:100%;min-width:400px;font-size:13.4px}
+  th,td{text-align:left;padding:8px 12px;border-bottom:1px solid var(--rule-soft)}
+  thead th{font-family:var(--mono);font-size:10.5px;letter-spacing:.08em;
+           text-transform:uppercase;color:var(--muted);background:var(--stripe);
+           border-bottom:1px solid var(--rule)}
+  tbody tr:last-child td{border-bottom:none}
+  td.code{font-family:var(--mono);font-variant-numeric:tabular-nums;text-align:right}
+  .cols{font-family:var(--mono);font-size:12.3px;color:var(--muted);
+        line-height:1.9;margin:10px 0 0;word-break:keep-all}
+
+  .tools{margin:26px 0 0;display:flex;gap:9px;flex-wrap:wrap}
+  button{font:inherit;font-size:13.5px;padding:8px 14px;border:1px solid var(--rule);
+         background:var(--surface);color:var(--ink);border-radius:4px;cursor:pointer}
+  button:hover{border-color:var(--accent);color:var(--accent)}
+  button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+  footer{margin-top:34px;padding-top:13px;border-top:1px solid var(--rule);
+         font-size:12.5px;color:var(--muted)}
+
+  @media print{
+    body{background:#fff}
+    .page{padding:0;max-width:none}
+    .tools{display:none}
+    .item,.tw,.have-box,.kakao{break-inside:avoid}
+    .item{border-color:#bbb}
+  }
+  @media (prefers-reduced-motion: reduce){*{transition:none!important}}
+</style>
+
+<div class="page">
+
+  <header class="masthead">
+    <p class="eyebrow">자료 준비 · 신용카드 매입 자동화(kafa)</p>
+    <h1>남은 자료, 누가 무엇을 하면 되나</h1>
+    <p class="dek">위하고 계정으로 직접 받을 수 있는 것과, 실무 판단이라 아버지께
+       여쭤야 하는 것을 나눴습니다. 대부분은 직접 해결됩니다.</p>
+  </header>
+
+  <div class="split">
+    <div class="done"><span class="n">완료</span><span class="l">계정과목 388종 · 양식 · 샘플 확보</span></div>
+    <div class="self"><span class="n">5</span><span class="l">위하고에서 확인할 것</span></div>
+    <div class="ask"><span class="n">2</span><span class="l">아버지께 여쭐 것</span></div>
+  </div>
+
+  <div class="have-box">
+    <b>확보 완료 (8/6)</b> — 업로드 양식 · 다운로드 샘플(82건) · <b>계정과목 388종</b>
+    (SmartA 추출본, 차대구분 포함) · 적요 2,599건. 계정 이름→코드 변환은 이제 완전 자동입니다.
+    아래는 <b>아직 남은 것</b>만 추렸습니다.
+  </div>
+
+  <section>
+    <div class="shead">
+      <h2><span class="k self">직접</span>위하고에서 확인할 것</h2>
+      <p>화면에서 보거나 내려받으면 되는 것들입니다. 급한 두 가지(거래구분·파일형식)는
+         업로드 화면에서 바로 보입니다.</p>
+    </div>
+    <label class="item">
+      <input type="checkbox" class="box">
+      <div class="body">
+        <div class="row1"><span class="t">① ‘거래구분’ 칸에 넣을 수 있는 값</span>
+          <span class="badge b-req">가장 급함</span></div>
+        <div class="d">받은 양식은 머리글 한 줄뿐이라 선택 목록을 볼 수 없었습니다. 업로드 화면이나 실제 입력 시 나오는 목록을 확인해 주세요.</div>
+        <div class="now"><span class="lab">지금</span>값을 몰라 <b>빈칸으로 두고</b> 업로드본을 만들고 있습니다.</div>
+        <input class="note" placeholder="값 목록" aria-label="① ‘거래구분’ 칸에 넣을 수 있는 값 메모">
+      </div>
+    </label>
+    <label class="item">
+      <input type="checkbox" class="box">
+      <div class="body">
+        <div class="row1"><span class="t">② 업로드가 .xls만 되는지, .xlsx도 되는지</span>
+          <span class="badge b-req">가장 급함</span></div>
+        <div class="d">업로드 화면의 파일 선택 안내에 적혀 있습니다.</div>
+        <div class="now"><span class="lab">지금</span>구형 .xls로만 만들고 있습니다(2MB 넘으면 자동 분할).</div>
+        <input class="note" placeholder="확인 결과" aria-label="② 업로드가 .xls만 되는지, .xlsx도 되는지 메모">
+      </div>
+    </label>
+    <label class="item">
+      <input type="checkbox" class="box">
+      <div class="body">
+        <div class="row1"><span class="t">③ 면세(카면) 거래가 있는 달의 샘플</span>
+          <span class="badge b-rec">필요</span></div>
+        <div class="d">이번 샘플 82건에는 면세 거래가 <b>한 건도 없었습니다</b>. 음식점 식자재처럼 면세 매입이 있는 달이 있으면 그 파일이 필요합니다.</div>
+        <div class="now"><span class="lab">지금</span>면세·의제매입 처리를 검증할 근거가 없습니다.</div>
+        <input class="note" placeholder="해당 월 / 없으면 ‘없음’" aria-label="③ 면세(카면) 거래가 있는 달의 샘플 메모">
+      </div>
+    </label>
+    <label class="item">
+      <input type="checkbox" class="box">
+      <div class="body">
+        <div class="row1"><span class="t">④ 개인사업자 고객의 샘플 (있으면)</span>
+          <span class="badge b-rec">필요</span></div>
+        <div class="d">이번 샘플은 법인 고객이라 대변이 전부 미지급비용이었습니다.</div>
+        <div class="now"><span class="lab">지금</span>개인은 미지급금(253)으로 처리 중 — <b>인출금 코드</b>를 확인하면 정확해집니다.</div>
+        <input class="note" placeholder="인출금 코드 / 샘플 유무" aria-label="④ 개인사업자 고객의 샘플 (있으면) 메모">
+      </div>
+    </label>
+    <label class="item">
+      <input type="checkbox" class="box">
+      <div class="body">
+        <div class="row1"><span class="t">⑤ 자동수집·일괄 내보내기·외부 연동</span>
+          <span class="badge b-rec">확인</span></div>
+        <div class="d">① 자동수집(수집정보등록)을 쓰고 있는지 ② 여러 거래처를 한 번에 내려받을 수 있는지 ③ 외부 연동(API) 안내가 있는지.</div>
+        <div class="why">→ 매달 100곳을 하나씩 받는 수고를 줄일 수 있는지 판가름합니다.</div>
+        <input class="note" placeholder="각각 예/아니오" aria-label="⑤ 자동수집·일괄 내보내기·외부 연동 메모">
+      </div>
+    </label>
+  </section>
+
+  <section>
+    <div class="shead">
+      <h2><span class="k askc">여쭐 것</span>아버지께 — 2가지</h2>
+      <p>8/3 통화로 상대계정·봉사료·의제매입은 정리됐습니다. 실제 자료를 돌려보니
+         새로 걸린 것이 하나 있습니다.</p>
+    </div>
+    <label class="item q">
+      <input type="checkbox" class="box">
+      <div class="body">
+        <div class="row1"><span class="t">음식점에서 쓴 카드는 접대비인가요, 복리후생비인가요?</span>
+          <span class="badge b-req">새로 생김</span></div>
+        <div class="d">이번 샘플에서 <b>미추천 10건 중 9건이 전부 이 유형</b>이었습니다(음식점업·불공제).</div>
+        <div class="now"><span class="lab">지금</span>회사 이력이 복리후생비 1건 · 접대비 1건으로 갈려 데이터만으론 정할 수 없습니다. 구분 기준(예: 직원 식대는 복리후생비, 거래처 접대는 접대비)을 알려주시면 매달 자동 처리됩니다.</div>
+        <input class="note" placeholder="답변" aria-label="음식점에서 쓴 카드는 접대비인가요, 복리후생비인가요? 메모">
+      </div>
+    </label>
+    <label class="item q">
+      <input type="checkbox" class="box">
+      <div class="body">
+        <div class="row1"><span class="t">간이과세자는 어떻게 구분하세요?</span>
+          <span class="badge b-rec">남은 것</span></div>
+        <div class="d">다운로드본의 ‘구분’ 칸은 <b>법인/일반</b>뿐이라 간이과세자를 알아낼 수 없었습니다(실샘플로 확인).</div>
+        <div class="now"><span class="lab">지금</span>간이과세자 자동 불공제는 적용하지 못하고 있습니다.</div>
+        <input class="note" placeholder="답변" aria-label="간이과세자는 어떻게 구분하세요? 메모">
+      </div>
+    </label>
+
+    <div class="kakao">
+      <h3>그대로 보내도 되는 메시지</h3>
+      <pre>아버지, 실제 자료로 돌려보다가 두 가지만 더 여쭤요.
+
+1. 음식점에서 결제한 건은 접대비로 잡아요, 복리후생비로 잡아요?
+   (구분하는 기준이 있으면 알려주세요)
+2. 간이과세자는 어떻게 구분하세요? 받은 자료에는 표시가 없더라고요.
+
+계정과목 목록 덕분에 이름→코드 변환은 이제 완전히 자동으로 됩니다. 고마워요!</pre>
+    </div>
+  </section>
+
+  <section>
+    <div class="shead">
+      <h2><span class="k self">부록</span>이미 확보한 내용</h2>
+      <p>계정코드는 아래 11개만 있습니다. ①번 계정과목 시트가 오면 나머지가 한 번에 채워집니다.</p>
+    </div>
+    <div class="tw">
+      <table>
+        <thead><tr><th>확보한 것</th><th>내용</th></tr></thead>
+        <tbody>
+          <tr><td>계정과목 코드표</td><td>388종 (SmartA 추출본 · 차대구분 포함) — 이름→코드 변환 완전 자동</td></tr>
+          <tr><td>업로드 양식</td><td>13열 확정 · 카드사(대변 거래처) 칸 없음 확인</td></tr>
+          <tr><td>다운로드 샘플</td><td>82건 · 컬럼 19개 일치 · 날짜/상태/유형 표기 확인</td></tr>
+          <tr><td>적요</td><td>2,599건 (계정별 적요문구 — 추천 보강에 활용 가능)</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="cols">내려받는 파일(19) — 연도 · 일자 · Code · 거래처 · 구분 · 품명 · 공급가액 ·
+      세액 · 비과세 · 합계 · 국세청 · 업태 · 종목 · 유형 · 차변계정 · 대변계정 · 관리 ·
+      전표상태 · 사업자등록번호</p>
+    <p class="cols">올리는 파일(13) — 거래일자 · 거래처 · 사업자번호 · 품명 · 유형 · 공급가액 ·
+      세액 · 봉사료 · 합계 · 차변계정코드 · 대변계정코드 · 공제여부 · 거래구분</p>
+  </section>
+
+  <div class="tools">
+    <button type="button" onclick="window.print()">인쇄 / PDF 저장</button>
+    <button type="button" id="reset">체크·메모 지우기</button>
+  </div>
+
+  <footer>
+    실제 고객 자료는 내 PC 안에서만 다루고, 메신저로 원본을 주고받지 않습니다.
+    체크와 메모는 이 브라우저에만 저장되며 어디로도 전송되지 않습니다.
+  </footer>
+</div>
+
+<script>
+  const KEY = 'kafa-data-checklist-v3';
+  const items = Array.from(document.querySelectorAll('.item'));
+
+  function save(){
+    const data = items.map(it => ({
+      c: it.querySelector('.box').checked,
+      n: it.querySelector('.note').value
+    }));
+    try { localStorage.setItem(KEY, JSON.stringify(data)); } catch (e) {}
+  }
+
+  function load(){
+    let data;
+    try { data = JSON.parse(localStorage.getItem(KEY) || '[]'); } catch (e) { data = []; }
+    items.forEach((it, i) => {
+      const d = data[i];
+      if (!d) return;
+      it.querySelector('.box').checked = !!d.c;
+      it.querySelector('.note').value = d.n || '';
+      it.classList.toggle('done', !!d.c);
+    });
+  }
+
+  items.forEach(it => {
+    const box = it.querySelector('.box');
+    box.addEventListener('change', () => { it.classList.toggle('done', box.checked); save(); });
+    const note = it.querySelector('.note');
+    note.addEventListener('input', save);
+    note.addEventListener('click', e => e.preventDefault());
+  });
+
+  document.getElementById('reset').addEventListener('click', () => {
+    if (!confirm('체크와 메모를 모두 지울까요?')) return;
+    try { localStorage.removeItem(KEY); } catch (e) {}
+    location.reload();
+  });
+
+  load();
+</script>

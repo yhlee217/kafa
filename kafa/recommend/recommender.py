@@ -4,7 +4,10 @@
   1) 시드 사업자번호 정확 — 같은 사업자번호의 최빈 계정(가장 신뢰).
   2) 시드 거래처명 정확 — 정규화 거래처명 최빈 계정.
   3) (정확 없음) 거래처명 문자열 유사도 폴백 — 보수적 상한(config).
-점유율(빈도 비율)을 신뢰도로 쓰되 유사도 폴백은 상한 적용.
+  4) 업종 최빈 — **이 수임처가 그 업종을 처리해온 방식**(처음 보는 가맹점의 마지막 단서).
+     기준이 수임처마다 다른 항목을 고객별 이력으로 흡수한다. 건수·편중이 모자라면
+     추천하지 않고 담당자 확인으로 넘긴다.
+점유율(빈도 비율)을 신뢰도로 쓰되 유사도·업종 폴백은 상한 적용.
 외부 LLM 호출 없음. 원천 데이터는 로컬 처리.
 """
 from __future__ import annotations
@@ -67,6 +70,21 @@ def recommend_account(
             code, _ = top
             return Recommendation(code, round(min(best_score, cap), 3),
                                   f"유사 거래처({best_score:.0%}) 폴백", resolved=True)
+
+    # 4) 업종 최빈 — **이 수임처가 그 업종을 처리해온 방식**.
+    #    처음 보는 가맹점의 마지막 단서. 기준이 수임처마다 다른 항목(음식점=접대비/복리후생비)을
+    #    고객별 이력으로 흡수한다. 근거가 약하므로 신뢰도 상한을 따로 둔다.
+    ind_cap = float(cfg.get("industry_confidence_cap", 0.55))
+    ind_min = int(cfg.get("industry_min_support", 3))
+    ind_ratio = float(cfg.get("industry_min_ratio", 0.65))
+    hit = seed.top_by_industry(row.업태, row.종목,
+                               min_support=ind_min, min_ratio=ind_ratio)
+    if hit is not None:
+        code, share, key, total = hit
+        return Recommendation(
+            code, round(min(share, ind_cap), 3),
+            f"업종 최빈({key} {total}건 중 {share:.0%}) — 이 수임처 이력 기준",
+            resolved=True)
 
     return Recommendation(None, 0.0, "근거 없음 → 담당자 확인", resolved=False)
 

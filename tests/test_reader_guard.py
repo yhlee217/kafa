@@ -32,3 +32,59 @@ def test_valid_header_ok(tmp_path):
     rows = read_download_xlsx(p)
     assert len(rows) == 1
     assert rows[0].거래처 == "가맹점"
+
+
+# ── 실제 파일(2026-08 샘플)에서 발견된 회귀 ──
+
+def test_summary_rows_in_date_column_are_excluded(tmp_path):
+    """요약 문구가 '일자' 칸에 오는 실제 형식을 걸러낸다(거래처는 비어 있음)."""
+    import openpyxl
+    from kafa.io_wehago.schema import INPUT_COLUMNS
+    p = tmp_path / "sum.xlsx"
+    wb = openpyxl.Workbook(); ws = wb.active
+    ws.append(INPUT_COLUMNS)
+    row = ["2026", "01-02", "A", "가맹점", "법인", "품명", 1000, 100, 0, 1100,
+           "공제", "도매", "문구", "카과", "(판)소모품비", "미지급비용", "", "확정가능",
+           "111-11-11119"]
+    ws.append(row)
+    for label, total in [("카드사별  매입 : 11건", "341,900"),
+                         ("카드사별  일반 : 65건", "5,554,945"),
+                         ("합계(카드사:2) : 82건", "6057533")]:
+        s = [""] * len(INPUT_COLUMNS)
+        s[1] = label; s[9] = total
+        ws.append(s)
+    wb.save(p)
+    rows = read_download_xlsx(p)
+    assert len(rows) == 1                    # 요약 3행 제외
+
+
+def test_pending_account_literal_becomes_blank(tmp_path):
+    """차변계정 칸의 '미추천' 문구는 계정명이 아니므로 공란으로 정규화."""
+    import openpyxl
+    from kafa.io_wehago.schema import INPUT_COLUMNS
+    p = tmp_path / "pend.xlsx"
+    wb = openpyxl.Workbook(); ws = wb.active
+    ws.append(INPUT_COLUMNS)
+    ws.append(["2026", "01-02", "A", "가맹점", "법인", "", 1000, 100, 0, 1100,
+               "불공제", "음식점업", "한식", "일반", "미추천", "미지급비용", "",
+               "미추천", "111-11-11119"])
+    wb.save(p)
+    r = read_download_xlsx(p)[0]
+    assert r.차변계정 == "" and r.전표상태 == "미추천"
+
+
+def test_blank_amount_cell_is_zero_not_nan(tmp_path):
+    """빈 금액 셀이 Decimal('NaN')이 되면 이후 모든 비교가 터진다 → 0 으로."""
+    import openpyxl
+    from decimal import Decimal
+    from kafa.io_wehago.schema import INPUT_COLUMNS
+    p = tmp_path / "nan.xlsx"
+    wb = openpyxl.Workbook(); ws = wb.active
+    ws.append(INPUT_COLUMNS)
+    ws.append(["2026", "01-02", "A", "가맹점", "법인", "품명", 1000, 100, None, 1100,
+               "공제", "도매", "문구", "카과", "(판)소모품비", "미지급비용", "",
+               "확정가능", "111-11-11119"])
+    wb.save(p)
+    r = read_download_xlsx(p)[0]
+    assert r.비과세 == Decimal(0) and r.비과세.is_finite()
+    assert (r.비과세 > 0) is False           # 비교가 예외 없이 동작

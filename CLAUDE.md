@@ -50,6 +50,9 @@ kafa/
     review.py         요약·부가율 이상·미등록 의심·추천내역 + 중간산출물 CSV(근거 포함)
     vat_summary.py    부가세 신고 보조 집계(과세공제/불공제/면세/의제/검토 합산)
   agent/              세무대리인 보조(신고전점검·사업자번호검증·원천징수·자료수취·대사)
+  fetch/              감독형 수집(RPA) — 사람이 로그인, 반복 클릭만 자동화(plan/session/wehago) + CLI(kafa-fetch)
+  clients.py          수임처 속성 조사표(엑셀) ↔ config/clients.yaml + CLI(kafa-clients)
+  learn/              처리 이력 → 보류 규칙 추정(infer, 자동적용 금지·근거 제시) + CLI(kafa-learn)
   store/              베이스 데이터 SQLite 누적(VoucherStore, 멱등 upsert) — 로컬 단일 원본
   pipeline/           inbox 일괄 처리(runner)·폴더 감시(watch)·알림(notify)·진행 보드(summary) + CLI(kafa-pipeline/kafa-watch/kafa-board)
   loop/               루프 엔지니어링(Actor↔Evaluator 생성→평가→재생성)
@@ -62,11 +65,15 @@ config/
   rules.yaml          모든 규칙·코드·키워드 외부화
   account_codes.yaml  검증된 계정명→코드(시트 파싱분과 머지 예정)
   loops/example.yaml  루프 스펙 예시(비-PII 근거 문장 다듬기)
+  clients.yaml        수임처 속성(개인/법인·직원 유무) — 사람이 채움(kafa-clients)
+  fetch/wehago.yaml   감독형 수집 화면 selector(실화면 보고 보정 필요 — 추측 금지)
 tests/                Phase 1 표 기반 단위테스트
 ```
 
 ## 규칙/코드표는 코드에 하드코딩하지 않는다
 모두 `config/*.yaml` 로 외부화. 변경은 YAML에서. 결정 이력은 `docs/decisions.md`.
+**실무 도메인 지식(담당자 확인 내용)은 코드 주석/독스트링이 아니라 `docs/domain_notes.md`** 에
+적고, 코드는 config 를 읽고 문서를 가리키기만 한다.
 
 ## 자율 개발 (개발→검수→재개발 루프)
 무인 자동(`.github/workflows/claude-autonomous.yml`, cron)·대화형(`@claude`, `claude.yml`)으로
@@ -105,8 +112,14 @@ Claude Desktop: `claude_desktop_config.json` 에 `{"mcpServers":{"kafa":{"comman
   중간 산출물 CSV(담당자 전용, 수작업 대조용). 외부 노출 요약은 마스킹
 
 ## 보류 항목 (데이터 확보 시 확정)
-1. 개인사업자 상대계정(인출금 등) — 현재 법인(262) 폴백 + 검토 플래그
-2. 카면(58) 실제 처리·식당 의제 검증
-3. 간이과세자 자동 불공제 식별자
-4. 봉사료=비과세 동일성 / 거래구분 허용값 / .xlsx 업로드 허용 / 대변거래처 양식 위치
+1. ✅ 개인사업자 상대계정 — 담당자 확인(2026-08): 인출금/미지급금. 계정과목표에서
+   **인출금(338)** 확보해 기본 적용(최종 확인 전까지 플래그 유지).
+2. ✅ 봉사료 — 담당자 확인: 접대성 경비 → 불공제(DED-005). 단 '비과세=봉사료' 동일성은
+   미확인이라 검토 플래그 유지(`service_charge.confirmed_identity`).
+3. ⏸️ 간이과세자 자동 불공제 식별자 — 실샘플 확인 결과 '구분'은 법인/일반뿐이라 **식별 불가**
+4. ⏸️ 카면(58) 실제 처리·식당 의제 검증 — 실샘플에 면세 행 없음. 의제 율은 매출 규모별이라
+   신고 단계 이관(설계 확인됨)
+5. ✅ 계정과목 코드표 — 위하고 SmartA 추출본(정본)에서 **388종 + 차대구분** 확보
+6. ✅ 대변거래처 양식 위치 — 양식은 13열이며 **카드사 칸 없음**(내부 산출로만 보관)
+7. ⏸️ 거래구분 허용값 / .xlsx 업로드 허용 여부
 자세한 내용·근거는 `docs/decisions.md`.

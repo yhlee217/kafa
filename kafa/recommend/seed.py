@@ -27,19 +27,62 @@ def bizno_key(bizno: str) -> str:
     return _DIGITS.sub("", bizno or "")
 
 
+def industry_keys(업태: str, 종목: str) -> list[str]:
+    """업종 시드 키(구체적인 것부터). '업태|종목' → '업태'."""
+    u = _NON_ALNUM.sub("", (업태 or "")).lower()
+    j = _NON_ALNUM.sub("", (종목 or "")).lower()
+    keys = []
+    if u and j:
+        keys.append(f"{u}|{j}")
+    if u:
+        keys.append(u)
+    return keys
+
+
 @dataclass
 class SeedIndex:
-    """거래처(정규화)/사업자번호 → 계정코드 빈도."""
+    """거래처(정규화)/사업자번호/업종 → 계정코드 빈도.
+
+    by_industry 는 **이 수임처가 그 업종을 어떤 계정으로 처리해왔는지**를 담는다.
+    처음 보는 가맹점(가맹점 시드로는 못 푸는 건)의 마지막 단서이며, 기준이
+    수임처마다 다른 항목(예: 음식점 = 접대비냐 복리후생비냐)을 고객별로 흡수한다.
+    """
     by_vendor: dict[str, Counter] = field(default_factory=dict)
     by_bizno: dict[str, Counter] = field(default_factory=dict)
+    by_industry: dict[str, Counter] = field(default_factory=dict)
 
-    def add(self, vendor: str, bizno: str, account_code: int) -> None:
+    def add(self, vendor: str, bizno: str, account_code: int,
+            업태: str = "", 종목: str = "") -> None:
         vk = vendor_key(vendor)
         if vk:
             self.by_vendor.setdefault(vk, Counter())[account_code] += 1
         bk = bizno_key(bizno)
         if bk:
             self.by_bizno.setdefault(bk, Counter())[account_code] += 1
+        for ik in industry_keys(업태, 종목):
+            self.by_industry.setdefault(ik, Counter())[account_code] += 1
+
+    def top_by_industry(self, 업태: str, 종목: str, *, min_support: int = 3,
+                        min_ratio: float = 0.65):
+        """업종 최빈 계정 → (코드, 점유율, 키, 건수). 근거 부족하면 None.
+
+        건수(min_support)와 편중(min_ratio)을 모두 넘겨야 한다. 반반으로 갈리는 업종은
+        추천하지 않고 담당자 확인으로 넘기는 게 맞다(틀린 자동 확정보다 안전).
+        구체적인 키(업태|종목)를 먼저 보고, 근거가 모자라면 상위 키(업태)로 내려간다.
+        """
+        for ik in industry_keys(업태, 종목):
+            c = self.by_industry.get(ik)
+            if not c:
+                continue
+            total = sum(c.values())
+            if total < min_support:
+                continue
+            code, n = c.most_common(1)[0]
+            share = n / total
+            if share < min_ratio:
+                continue
+            return code, share, ik, total
+        return None
 
     @staticmethod
     def _top(counter: Counter | None) -> tuple[int, float] | None:
@@ -56,18 +99,23 @@ class SeedIndex:
 
     @property
     def empty(self) -> bool:
-        return not self.by_vendor and not self.by_bizno
+        return not self.by_vendor and not self.by_bizno and not self.by_industry
 
 
-def build_seed_index(records: Iterable[tuple[str, str, int]]) -> SeedIndex:
-    """과거 처리분 레코드[(거래처, 사업자번호, 계정코드), ...] → SeedIndex.
+def build_seed_index(records: Iterable[tuple]) -> SeedIndex:
+    """과거 처리분 레코드 → SeedIndex.
 
-    TODO: 위하고 과거 전표 엑셀 리더와 연결. 최근성 가중 추가.
+    레코드는 (거래처, 사업자번호, 계정코드) 또는 업종까지 포함한
+    (거래처, 사업자번호, 계정코드, 업태, 종목) 둘 다 받는다.
+    TODO: 최근성 가중 추가.
     """
     idx = SeedIndex()
-    for vendor, bizno, code in records or []:
+    for rec in records or []:
+        vendor, bizno, code = rec[0], rec[1], rec[2]
+        업태 = rec[3] if len(rec) > 3 else ""
+        종목 = rec[4] if len(rec) > 4 else ""
         if code is not None:
-            idx.add(vendor, bizno, int(code))
+            idx.add(vendor, bizno, int(code), 업태 or "", 종목 or "")
     return idx
 
 
@@ -84,5 +132,6 @@ def build_seed_from_inputrows(rows, *, config_dir: str | None = None) -> SeedInd
             continue
         res = map_account_name_to_code(name, config_dir=config_dir)
         if res.value is not None:
-            idx.add(row.거래처, row.사업자등록번호, int(res.value))
+            idx.add(row.거래처, row.사업자등록번호, int(res.value),
+                    row.업태, row.종목)
     return idx

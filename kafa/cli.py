@@ -18,15 +18,27 @@ from kafa.rules.engine import classify_row, finalize_reversal
 from kafa.rules.models import InputRow, Verdict
 
 
+def _needs_welfare_review(profile: dict | None, code, config_dir) -> bool:
+    """직원 없는 수임처에 복리후생비가 추천됐는가. 대상 계정은 config 에서 읽는다."""
+    if profile is None or profile.get("has_employees", True) or code is None:
+        return False
+    from kafa.config_loader import load_rules
+    cfg = (load_rules(config_dir).get("client_profile_checks", {}) or {})
+    return int(code) in set(cfg.get("welfare_account_codes", []) or [])
+
+
 def classify_rows(rows: list[InputRow], *,
                   client_type: str | None = None,
                   seed: SeedIndex | None = None,
                   recommender: Recommender | None = None,
                   dup: DupGuard | None = None,
+                  profile: dict | None = None,
                   config_dir: str | None = None) -> tuple[list, int]:
     """행 목록 → (ClassifiedRow 목록, 스킵 수). 파일은 쓰지 않는다.
 
     미추천 행은 recommender 로 해소(없으면 시드 기반). 스킵 행도 집계용으로 포함.
+    profile: 수임처 속성(config_loader.client_profile) — 해당 시 검토 플래그만 남긴다.
+    판정 배경·실무 근거는 docs/domain_notes.md, 대상 계정은 config rules.yaml 참고.
     """
     if recommender is None:
         recommender = SeedRecommender(seed, config_dir=config_dir)
@@ -41,7 +53,7 @@ def classify_rows(rows: list[InputRow], *,
             continue
         if dup is not None:                 # 2차 중복 가드
             key = make_key(f"{row.연도}-{row.일자}", row.거래처,
-                           row.사업자등록번호, row.합계)
+                           row.사업자등록번호, row.합계, row.품명)
             if dup.is_duplicate(key):
                 c.skipped = True
                 c.skip_reason = "dup_guard(2차)"
@@ -58,6 +70,11 @@ def classify_rows(rows: list[InputRow], *,
                 c.신뢰도 = rec.confidence
                 c.추천근거 = rec.basis
                 c.add_rule("RECO-001")
+                if _needs_welfare_review(profile, rec.account_code, config_dir):
+                    c.needs_review = True
+                    c.review_reasons.append(
+                        "직원이 없는 수임처인데 복리후생비로 추천됨 → 확인 필요"
+                        " (docs/domain_notes.md)")
         finalize_reversal(c)
         classified.append(c)
 
@@ -72,6 +89,7 @@ def process_rows(rows: list[InputRow], out_path: Path, *,
                  recommender: Recommender | None = None,
                  dup: DupGuard | None = None,
                  recon: VendorBaseline | None = None,
+                 profile: dict | None = None,
                  client_report: bool | None = None,
                  config_dir: str | None = None) -> dict:
     from kafa.agent.bizno_batch import check_biznos, render_bizno_summary
@@ -94,7 +112,7 @@ def process_rows(rows: list[InputRow], out_path: Path, *,
 
     classified, skipped = classify_rows(
         rows, client_type=client_type, seed=seed, recommender=recommender,
-        dup=dup, config_dir=config_dir)
+        dup=dup, profile=profile, config_dir=config_dir)
 
     rep = build_review(classified, config_dir=config_dir)
     out_rows = [to_output_row(c, config_dir=config_dir)

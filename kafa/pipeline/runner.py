@@ -61,6 +61,15 @@ def _period_of(rows) -> str:
     return cnt.most_common(1)[0][0] if cnt else "기타"
 
 
+def _merge_seed(base, extra) -> None:
+    """extra 의 빈도를 base 에 합친다(누적 이력 + 이번 배치)."""
+    from collections import Counter
+    for k, c in extra.by_vendor.items():
+        base.by_vendor.setdefault(k, Counter()).update(c)
+    for k, c in extra.by_bizno.items():
+        base.by_bizno.setdefault(k, Counter()).update(c)
+
+
 def _uniq(dest: Path) -> Path:
     i = 2
     while True:
@@ -76,10 +85,11 @@ def run_pipeline(inbox, output_dir, *, client_type: Optional[str] = None,
     """inbox 의 .xlsx 들을 고객별로 일괄 처리 → DB 누적 + 업로드 산출물."""
     from kafa.agent.recon import VendorBaseline
     from kafa.cli import process_rows
+    from kafa.config_loader import client_profile
     from kafa.dup_guard import DupGuard
     from kafa.io_wehago.reader import read_download_xlsx
     from kafa.recommend.recommender import build_recommender
-    from kafa.recommend.seed import build_seed_from_inputrows
+    from kafa.recommend.seed import build_seed_from_inputrows, build_seed_index
     from kafa.store.db import VoucherStore
 
     inbox = Path(inbox)
@@ -101,14 +111,23 @@ def run_pipeline(inbox, output_dir, *, client_type: Optional[str] = None,
                 state = out_dir / client / "_state"
                 dup = DupGuard(state / "dup.json")
                 recon = VendorBaseline(state / "recon.json")
+                # 자가 시딩: 이번 파일 + **이 고객의 누적 이력(DB)**.
+                # 지난 달에 처리한 가맹점이 이번 달에도 나오면 그대로 해소된다.
                 seed = build_seed_from_inputrows(rows, config_dir=config_dir)
+                _merge_seed(seed, build_seed_index(
+                    db.seed_records(client, exclude_source=f.name)))
                 recommender = build_recommender(seed, config_dir=config_dir)
+
+                # 수임처 속성(개인/법인·직원 유무) — 고객마다 다르므로 배치 단일값이 아니라
+                # clients.yaml 에서 읽는다. 명령행 --client-type 이 있으면 그것이 우선.
+                profile = client_profile(client, config_dir)
+                ctype = client_type or profile.get("client_type")
 
                 outp = out_dir / client / period / (f.stem + "_upload.xls")
                 outp.parent.mkdir(parents=True, exist_ok=True)
-                res = process_rows(rows, outp, client_type=client_type, seed=seed,
+                res = process_rows(rows, outp, client_type=ctype, seed=seed,
                                    recommender=recommender, dup=dup, recon=recon,
-                                   config_dir=config_dir)
+                                   profile=profile, config_dir=config_dir)
 
                 db.upsert_client(client)
                 ing = db.upsert_vouchers(client, period, res["classified"],

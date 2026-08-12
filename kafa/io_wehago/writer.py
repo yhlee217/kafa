@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from kafa.config_loader import load_rules
-from kafa.io_wehago.schema import OUTPUT_COLUMNS, REQUIRED_OUTPUT
+from kafa.io_wehago.schema import OUTPUT_COLUMNS, OUTPUT_HEADERS, REQUIRED_OUTPUT
 from kafa.rules.models import ClassifiedRow, Deduct
 
 DEFAULT_MAX_BYTES = 2 * 1024 * 1024  # 2MB
@@ -90,7 +90,7 @@ def _render_xls(rows: list[OutputRow]) -> bytes:
 
     wb = xlwt.Workbook(encoding="cp949")
     ws = wb.add_sheet("신용카드매입")
-    for c, name in enumerate(OUTPUT_COLUMNS):
+    for c, name in enumerate(OUTPUT_HEADERS):   # 실제 양식 헤더 문구 그대로
         ws.write(0, c, name)
     for i, r in enumerate(rows, start=1):
         for c, val in enumerate(r.as_list()):
