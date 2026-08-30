@@ -42,6 +42,11 @@ def main(argv: list[str] | None = None, *, input_fn=input) -> int:
                     help="수임처 마스터 엑셀(회사명+접속 URL). 주면 화면 검색 없이 "
                          "주소로 바로 이동하고, --clients 를 생략하면 전체를 대상으로 함")
     ap.add_argument("--months", type=int, help="최근 N개월")
+    ap.add_argument("--discover", action="store_true",
+                    help="수임처 목록과 접속 URL 을 화면에서 직접 모아 파일로 저장"
+                         "(수임처 마스터 엑셀 없이 --master 로 쓸 목록을 만든다)")
+    ap.add_argument("--discover-out", default="clients_urls.csv",
+                    help="--discover 결과 저장 경로(기본 clients_urls.csv)")
     ap.add_argument("--fail-dump", help="실패 시 화면 덤프 저장 경로(기본 kafa-fail.txt)")
     ap.add_argument("--here", action="store_true",
                     help="이동하지 않고 **지금 열어 둔 화면** 그대로 한 건만 받는다"
@@ -83,6 +88,42 @@ def main(argv: list[str] | None = None, *, input_fn=input) -> int:
                                    missing_selectors, run_fetch)
 
     cfg = load_fetch_config(args.config)
+
+    if args.discover:
+        from kafa.fetch.discover import (collect_clients, find_url_template,
+                                         merge, write_csv)
+        from kafa.fetch.session import browser_page, wait_for_human
+        print(TOS_NOTICE)
+        with browser_page(profile_dir=args.profile,
+                          attach_port=args.attach_port) as page:
+            wait_for_human(
+                "① 브라우저에서 로그인하고, **아무 수임처 하나의 신용카드 화면**을\n"
+                "   한 번 열어 주세요(주소 틀을 배웁니다). 그다음 엔터.")
+            template = find_url_template(page)
+            if not template:
+                print("\n[중단] 열린 탭에서 'cno=' 가 들어간 주소를 찾지 못했습니다.\n"
+                      "       수임처 하나의 신용카드 화면을 연 상태에서 다시 해 주세요.",
+                      file=sys.stderr)
+                return 2
+            print(f"\n주소 틀: {template}")
+
+            known: dict = {}
+            wait_for_human("② 이제 **수임처 목록 화면**으로 돌아가 주세요. 그다음 엔터.")
+            while True:
+                added = merge(known, collect_clients(page))
+                print(f"   모은 수임처 {len(known)}곳 (이번에 +{added})")
+                ans = input_fn("   다음 페이지로 넘긴 뒤 엔터, 끝내려면 q + 엔터: ")
+                if (ans or "").strip().lower() in ("q", "quit", "끝", "ㅂ"):
+                    break
+            out = write_csv(args.discover_out, known, template)
+        if not known:
+            print("\n[중단] 수임처를 하나도 모으지 못했습니다(목록 화면이 맞나요?).",
+                  file=sys.stderr)
+            return 2
+        print(f"\n[저장] {out.resolve()}  — 수임처 {len(known)}곳")
+        print("   이 파일은 수임처 실명이 들어 있어 **로컬에만** 두세요.")
+        print(f"\n다음: kafa-fetch --inbox <폴더> --master {out} --whole")
+        return 0
 
     if args.inspect:
         from kafa.fetch.inspect import inspect_page, screen_hint, watch_screens
@@ -141,8 +182,8 @@ def main(argv: list[str] | None = None, *, input_fn=input) -> int:
 
     urls: dict = {}
     if args.master:
-        from kafa.clients import client_urls_from_excel
-        urls = client_urls_from_excel(args.master)
+        from kafa.clients import client_urls
+        urls = client_urls(args.master)
         print(f"수임처 마스터: URL {len(urls)}곳 (주소로 바로 이동 — 화면 검색 생략)")
 
     if not args.inbox or not (args.clients or urls):

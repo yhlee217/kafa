@@ -195,6 +195,25 @@ def profiles_from_excel(path, *, max_header_scan: int = 20) -> list[dict]:
     return out
 
 
+def client_urls_from_csv(path) -> dict[str, str]:
+    """kafa-fetch --discover 가 만든 목록(CSV) → {회사명: 접속 URL}."""
+    import csv as _csv
+    out: dict[str, str] = {}
+    with Path(path).open("r", encoding="utf-8-sig", newline="") as fh:
+        for row in _csv.DictReader(fh):
+            name = _norm(row.get("회사명"))
+            url = _norm(row.get("접속 URL"))
+            if name and url.startswith("http"):
+                out[name] = url
+    return out
+
+
+def client_urls(path) -> dict[str, str]:
+    """수임처 목록 파일 → {회사명: 접속 URL}. .csv 와 엑셀 둘 다 받는다."""
+    return (client_urls_from_csv(path) if str(path).lower().endswith(".csv")
+            else client_urls_from_excel(path))
+
+
 def client_urls_from_excel(path) -> dict[str, str]:
     """수임처 마스터 → {회사명: 접속 URL}. URL 컬럼이 없으면 빈 dict.
 
