@@ -135,3 +135,25 @@ def test_template_prefills_client_type(tmp_path):
     ws = openpyxl.load_workbook(p)[SHEET]
     assert [ws.cell(row=2, column=c).value for c in (1, 2, 3)] == ["가상상사", "법인", None]
     assert ws.cell(row=3, column=2).value in (None, "")   # 모르면 비워 둔다
+
+
+# ── 수임처 마스터 엑셀에서 수임처코드 뽑기 ──
+
+def test_client_codes_extracted_from_master_urls(tmp_path):
+    """접속 URL 안의 cno 가 목록에서 수임처를 여는 데 쓰는 코드다."""
+    import openpyxl
+
+    from kafa.clients import client_cnos, client_cnos_from_excel
+
+    path = tmp_path / "master.xlsx"
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.append(["회사명", "구분", "접속 URL"])
+    ws.append(["행복상사", "법인",
+               "https://smarta.wehago.com/#/smarta/account/SAAC0105"
+               "?sao&cno=10049328&cd_com=biz1&gisu=15"])
+    ws.append(["코드없는곳", "법인", "https://smarta.wehago.com/#/main"])
+    wb.save(path)
+
+    assert client_cnos_from_excel(path) == {"행복상사": "10049328"}
+    assert client_cnos(path) == {"행복상사": "10049328"}

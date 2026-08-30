@@ -165,3 +165,48 @@ def test_auto_collect_reports_counts_only():
     events = []
     auto_collect(pg, _CFG_D, on_event=events.append, sleep=lambda _s: None)
     assert not any("비밀상사" in e for e in events)
+
+
+def test_switches_strategy_when_page_button_does_nothing():
+    """쪽번호를 눌러도 목록이 그대로면 다른 방법으로 바꾼다."""
+    from kafa.fetch.discover import auto_collect
+
+    class _FakePager(_Paged):
+        """쪽번호 클릭은 '성공'하지만 목록은 그대로. 스크롤에서만 늘어난다."""
+        def __init__(self):
+            super().__init__([[{"cno": "1", "name": "가"}]], total_text="담당 수임처2")
+            self.scrolled = False
+
+        def evaluate(self, js, arg=None):
+            if "innerText" in js:
+                return self.total_text
+            if "scrollTop" in js:
+                self.scrolled = True
+                self.pages = [[{"cno": "1", "name": "가"},
+                               {"cno": "2", "name": "나"}]]
+                return True
+            return self.pages[0]
+
+        def click(self, sel, **kw):
+            self.clicks.append(sel)      # 눌리기는 하지만 아무 일도 안 일어남
+
+    pg = _FakePager()
+    pg.context = _Ctx([pg])
+    known = auto_collect(pg, _CFG_D, sleep=lambda _s: None)
+    assert pg.scrolled and len(known) == 2
+
+
+def test_pagination_report_lists_candidates():
+    from kafa.fetch.discover import pagination_report
+
+    class _T(_Tab):
+        def evaluate(self, js, _arg=None):
+            if "words" in js:
+                return [{"tag": "button", "text": "2", "attrs": 'class="pg"',
+                         "vis": True, "box": "10,20"}]
+            return []
+
+    tab = _T("https://x/")
+    tab.context = _Ctx([tab])
+    out = "\n".join(pagination_report(tab))
+    assert "<button> '2'" in out and 'class="pg"' in out

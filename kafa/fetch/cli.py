@@ -93,7 +93,8 @@ def main(argv: list[str] | None = None, *, input_fn=input) -> int:
 
     if args.discover:
         from kafa.fetch.discover import (auto_collect, collect_clients,
-                                         expected_total, merge, write_csv)
+                                         expected_total, merge,
+                                         pagination_report, write_csv)
         from kafa.fetch.session import browser_page, wait_for_human
         print(TOS_NOTICE)
         with browser_page(profile_dir=args.profile,
@@ -124,8 +125,19 @@ def main(argv: list[str] | None = None, *, input_fn=input) -> int:
                              known=known)
             total = expected_total(page)
             if total and len(known) < total:
-                print(f"   [주의] {total}곳 중 {len(known)}곳만 모았습니다. "
-                      "--discover-manual 로 다시 해 보세요.", file=sys.stderr)
+                print(f"   [주의] {total}곳 중 {len(known)}곳만 모았습니다.",
+                      file=sys.stderr)
+                # 어떤 컨트롤로 넘겨야 하는지 보정할 수 있게 후보를 남긴다.
+                rep = Path("kafa-discover.txt")
+                try:
+                    rep.write_text("\n".join(pagination_report(page)),
+                                   encoding="utf-8")
+                    print(f"   넘기기 후보를 저장했습니다: {rep.resolve()}",
+                          file=sys.stderr)
+                except Exception as e:  # noqa: BLE001
+                    print(f"   후보 저장 실패: {e}", file=sys.stderr)
+                print("   --discover-manual 로 직접 넘기며 모을 수도 있습니다.",
+                      file=sys.stderr)
             out = write_csv(args.discover_out, known)
         if not known:
             print("\n[중단] 수임처를 하나도 모으지 못했습니다(목록 화면이 맞나요?).",
@@ -198,8 +210,8 @@ def main(argv: list[str] | None = None, *, input_fn=input) -> int:
         from kafa.clients import client_cnos, client_urls
         urls = client_urls(args.master)
         cnos = client_cnos(args.master)
-        if urls:
-            print(f"수임처 마스터: URL {len(urls)}곳 (주소로 바로 이동)")
+        # 주소 전체는 수임처마다 다른 값이 섞여 있어 쓰지 않는다 — 코드만 쓴다.
+        urls = {}
         if cnos:
             print(f"수임처 마스터: 수임처코드 {len(cnos)}곳 "
                   "(목록에서 코드로 정확히 열기)")

@@ -115,14 +115,78 @@ def write_csv(path, known: dict, template: str = "") -> Path:
 
 _SCROLL_JS = r"""
 (sel) => {
-  const el = sel ? document.querySelector(sel) : null;
+  // 목록이 들어 있는 **스크롤 가능한 상자**를 찾아 끝까지 내린다(창 스크롤이 아니라).
+  let el = sel ? document.querySelector(sel) : null;
+  if (!el) {
+    const a = document.querySelector('a[id^="tooltip_"]');
+    let cur = a && a.parentElement;
+    while (cur) {
+      const st = getComputedStyle(cur);
+      if ((st.overflowY === 'auto' || st.overflowY === 'scroll') &&
+          cur.scrollHeight > cur.clientHeight + 4) { el = cur; break; }
+      cur = cur.parentElement;
+    }
+  }
   const target = el || document.scrollingElement || document.body;
   const before = target.scrollTop;
   target.scrollTop = target.scrollHeight;
-  window.scrollTo(0, document.body.scrollHeight);
   return target.scrollTop !== before;
 }
 """
+
+# 넘기기 방법을 못 찾았을 때, 쪽번호·'다음' 후보를 그대로 보여 준다(구조만).
+_PAGER_JS = r"""
+() => {
+  const out = [];
+  const words = ['다음', '더보기', '더 보기', '이전', 'next', 'more'];
+  for (const el of document.querySelectorAll('button, a, li, span, div')) {
+    if (el.children.length > 1) continue;
+    const t = (el.textContent || '').trim().replace(/\s+/g, ' ');
+    if (!t || t.length > 12) continue;
+    const isNum = /^[0-9]{1,3}$/.test(t);
+    const isWord = words.some(w => t.toLowerCase().includes(w));
+    if (!isNum && !isWord) continue;
+    let attrs = '';
+    for (const a of el.attributes) {
+      if (a.name === 'style') continue;
+      attrs += ' ' + a.name + '="' + String(a.value).slice(0, 50) + '"';
+    }
+    let vis = false, box = '';
+    try {
+      const r = el.getBoundingClientRect();
+      vis = r.width > 0 && r.height > 0;
+      box = Math.round(r.x) + ',' + Math.round(r.y);
+    } catch (e) {}
+    out.push({tag: el.tagName.toLowerCase(), text: t,
+              attrs: attrs.trim().slice(0, 140), vis: vis, box: box});
+    if (out.length >= 60) break;
+  }
+  return out;
+}
+"""
+
+
+def pagination_report(page) -> list[str]:
+    """쪽번호·'다음' 후보를 뽑아 둔다 — 자동 넘기기가 안 될 때 보정용."""
+    out = ["", "── 목록 넘기기 후보 (discover 보정용) ──", ""]
+    found = False
+    for i, pg in enumerate(pages_of(page)):
+        try:
+            hits = pg.evaluate(_PAGER_JS)
+        except Exception:  # noqa: BLE001
+            continue
+        if not hits:
+            continue
+        found = True
+        out.append(f"[탭#{i}] 후보 {len(hits)}개")
+        for h in hits:
+            mark = "보임" if h.get("vis") else "숨음"
+            out.append(f"   [{mark}] <{h.get('tag')}> {h.get('text')!r}  "
+                       f"{h.get('attrs')}  ({h.get('box')})")
+        out.append("")
+    if not found:
+        out.append("(후보를 찾지 못했습니다 — 목록 화면이 맞나요?)")
+    return out
 
 
 def _try_click(pg, selector: str, timeout_ms: int) -> bool:
@@ -140,32 +204,39 @@ def _scroll(pg, container) -> bool:
         return False
 
 
-def advance(page, cfg: dict, next_no: int) -> str:
-    """다음 페이지로 넘긴다. 넘긴 방법을 돌려주고, 못 넘기면 빈 문자열.
+def _do_strategy(page, cfg: dict, kind: str, next_no: int) -> str:
+    """한 가지 방법으로 다음 페이지를 시도. 성공하면 설명, 실패하면 빈 문자열.
 
-    화면마다 방식이 달라 ① 쪽번호 버튼 ② '다음' 버튼 ③ 스크롤 순서로 시도한다.
+    '눌렀다'가 곧 '넘어갔다'는 아니다 — 실제로 새 항목이 나왔는지는 부르는 쪽에서
+    확인하고, 안 늘면 다음 방법으로 넘어간다.
     """
     from kafa.fetch.wehago import _as_list
 
     d = (cfg or {}).get("discover", {}) or {}
     t = int(d.get("click_timeout_ms", 2500))
     for pg in pages_of(page):
-        for tmpl in _as_list(d.get("page_number_button")):
-            if _try_click(pg, tmpl.replace("{n}", str(next_no)), t):
-                return f"쪽번호 {next_no}"
-        for cand in _as_list(d.get("next_buttons")):
-            if _try_click(pg, cand, t):
-                return "다음 버튼"
-        if d.get("scroll", True) and _scroll(pg, d.get("scroll_container")):
-            return "스크롤"
+        if kind == "number":
+            for tmpl in _as_list(d.get("page_number_button")):
+                if _try_click(pg, tmpl.replace("{n}", str(next_no)), t):
+                    return f"쪽번호 {next_no}"
+        elif kind == "next":
+            for cand in _as_list(d.get("next_buttons")):
+                if _try_click(pg, cand, t):
+                    return "다음 버튼"
+        elif kind == "scroll" and d.get("scroll", True):
+            if _scroll(pg, d.get("scroll_container")):
+                return "스크롤"
     return ""
+
+
+_STRATEGIES = ("number", "next", "scroll")
 
 
 def auto_collect(page, cfg: dict, *, on_event=None, sleep=None,
                  known: dict | None = None) -> dict:
     """페이지를 스스로 넘기며 전체 수임처를 모은다.
 
-    화면이 알려주는 담당 수임처 수에 도달하거나, 더 이상 늘지 않으면 멈춘다.
+    한 방법이 항목을 늘리지 못하면 **다음 방법으로 바꾼다**(쪽번호 → '다음' → 스크롤).
     이름은 돌려주는 dict 에만 담기고 화면에는 건수만 출력한다(보안 제0원칙).
     """
     import time as _time
@@ -180,7 +251,7 @@ def auto_collect(page, cfg: dict, *, on_event=None, sleep=None,
     total = expected_total(page)
     if total:
         say(f"화면 표시: 담당 수임처 {total}곳")
-    next_no, stale = 2, 0
+    si, next_no, first = 0, 2, True
     for _ in range(max_pages):
         added = merge(known, collect_clients(page))
         left = f" / 남은 것 약 {max(0, total - len(known))}곳" if total else ""
@@ -188,13 +259,19 @@ def auto_collect(page, cfg: dict, *, on_event=None, sleep=None,
         if total and len(known) >= total:
             say("전부 모았습니다.")
             return known
-        stale = stale + 1 if added == 0 else 0
-        if stale >= 2:
-            say("더 이상 새로 나오지 않아 멈춥니다.")
-            return known
-        how = advance(page, cfg, next_no)
+        if added == 0 and not first:
+            si += 1                      # 눌렸어도 안 늘었다 → 다른 방법으로
+            if si < len(_STRATEGIES):
+                say(f"방법을 바꿉니다 → {_STRATEGIES[si]}")
+        first = False
+        # 실행되는 방법을 찾을 때까지 넘어간다(없는 버튼이면 바로 다음 방법).
+        how = ""
+        while si < len(_STRATEGIES) and not how:
+            how = _do_strategy(page, cfg, _STRATEGIES[si], next_no)
+            if not how:
+                si += 1
         if not how:
-            say("더 넘길 방법이 없어 멈춥니다.")
+            say("넘기는 방법을 못 찾아 멈춥니다.")
             return known
         if how.startswith("쪽번호"):
             next_no += 1

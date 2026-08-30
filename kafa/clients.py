@@ -7,6 +7,7 @@ YAML 을 직접 편집하게 하는 대신, **엑셀 양식**을 채워 오면 �
 """
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 SHEET = "수임처"
@@ -220,9 +221,28 @@ def client_cnos_from_csv(path) -> dict[str, str]:
     return out
 
 
+_CNO_IN_URL = re.compile(r"[?&]cno=(\d+)")
+
+
+def client_cnos_from_excel(path) -> dict[str, str]:
+    """수임처 마스터 엑셀 → {회사명: 수임처코드}.
+
+    접속 URL 안에 `cno=<코드>` 가 들어 있다. 주소 전체는 수임처마다 다른 값
+    (cd_com·gisu·companyID·taxNum)이 섞여 있어 쓸 수 없지만, **코드만은** 그대로
+    쓸 수 있다 — 목록에서 `a#tooltip_<코드>` 를 눌러 여는 데 필요한 값이다.
+    """
+    out: dict[str, str] = {}
+    for name, url in client_urls_from_excel(path).items():
+        m = _CNO_IN_URL.search(url)
+        if m:
+            out[name] = m.group(1)
+    return out
+
+
 def client_cnos(path) -> dict[str, str]:
-    """수임처 목록 파일 → {회사명: 수임처코드}. CSV 만 지원(엑셀엔 코드가 없다)."""
-    return client_cnos_from_csv(path) if str(path).lower().endswith(".csv") else {}
+    """수임처 목록 파일 → {회사명: 수임처코드}. CSV 는 코드 칸, 엑셀은 URL 에서 추출."""
+    return (client_cnos_from_csv(path) if str(path).lower().endswith(".csv")
+            else client_cnos_from_excel(path))
 
 
 def client_urls(path) -> dict[str, str]:
