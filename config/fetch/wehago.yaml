@@ -32,6 +32,10 @@ period_mode: screen
 
 # 조회 구분 — 신용카드 화면은 매입/매출을 목록에서 고른다.
 kind_value: "2. 매입"
+# 후보 selector 하나를 시도하는 시간(짧게 — 안 되면 다음 후보로)
+kind_try_timeout_ms: 4000
+# 받은 파일 이름에 이 말이 있어야 매입 자료다(구분을 잘못 잡았을 때의 마지막 안전장치)
+expect_filename_contains: "매입"
 
 selectors:
   # 수임처 선택 — **--master 로 접속 URL 을 주면 아래 둘은 필요 없다**(주소로 바로 이동).
@@ -39,8 +43,12 @@ selectors:
   client_search_input: TODO      # 거래처 검색 입력창
   client_result_item: TODO       # 검색 결과 항목(이름으로 매칭)
 
-  # 구분(매입/매출) 선택 — 목록을 열고 항목을 고른다
-  kind_select_open: "div.LS_saoinput div.LS_ngh_select2 div.fake_inputbox div.fakebutton"
+  # 구분(매입/매출) — 이미 매입이면 건드리지 않는다(화면에 현재 값이 글자로 보인다).
+  kind_current: "text=\"{kind}\""
+  # 비슷한 드롭다운이 여러 개라 후보를 차례로 시도한다(보이는 것만).
+  kind_select_open:
+    - "div.LS_saoinput div.LS_ngh_select2 div.fake_inputbox div.fakebutton:visible"
+    - "div.LS_ngh_select2 div.fake_inputbox div.fakebutton:visible"
   kind_option: "li.LSnghSelectResult_listitem a:has-text(\"{kind}\")"
 
   # 조회 — '휴폐업조회' 와 구분하려고 조회 영역 안의 버튼으로 한정한다

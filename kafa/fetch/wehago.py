@@ -208,9 +208,17 @@ def fetch_one(page, cfg: dict, task: DownloadTask, dest: Path,
     say("엑셀 변환·다운로드")
     dest.parent.mkdir(parents=True, exist_ok=True)
 
+    expect = str(cfg.get("expect_filename_contains", "")).strip()
+
     def _download():
         with page.expect_download(timeout=timeout) as dl:
             page.click(sel["excel_download_button"], timeout=timeout)
+        name = getattr(dl.value, "suggested_filename", "") or ""
+        # 구분을 못 맞췄을 수 있으니 **받은 파일 이름**으로 매입 자료인지 확인한다.
+        if expect and name and expect not in name:
+            raise StepFailed(
+                f"받은 파일이 '{expect}' 자료가 아닙니다: {name!r}. "
+                f"화면의 구분을 '{cfg.get('kind_value')}' 으로 맞춘 뒤 다시 실행하세요.")
         dl.value.save_as(str(dest))
 
     _step("엑셀 다운로드", sel["excel_download_button"], _download)
@@ -225,19 +233,51 @@ def fetch_one(page, cfg: dict, task: DownloadTask, dest: Path,
     return dest
 
 
+def _as_list(value) -> list[str]:
+    """selector 는 하나 또는 후보 여러 개(먼저 눌리는 것 사용)."""
+    if value is None:
+        return []
+    if isinstance(value, (list, tuple)):
+        return [str(v) for v in value if v and not is_todo(v)]
+    return [] if is_todo(value) else [str(value)]
+
+
 def _select_kind(page, cfg: dict, timeout: int, say=None) -> None:
-    """조회 구분을 '매입' 으로 맞춘다. 설정이 없으면 아무것도 하지 않는다."""
+    """조회 구분을 '매입' 으로 맞춘다.
+
+    화면에 비슷한 드롭다운이 여럿이라 selector 하나로 콕 집기 어렵다. 그래서
+    ① 이미 매입이면 건드리지 않고 ② 아니면 후보를 차례로 시도하고 ③ 그래도 안 되면
+    막지 않고 넘어간다 — 잘못된 자료를 받는 사고는 **파일 이름 검증**이 막는다.
+    """
     say = say or (lambda _m: None)
     sel = cfg.get("selectors", {}) or {}
-    opener, option = sel.get("kind_select_open"), sel.get("kind_option")
     kind = str(cfg.get("kind_value", "")).strip()
-    if not opener or not option or not kind or is_todo(opener) or is_todo(option):
+    option = sel.get("kind_option")
+    openers = _as_list(sel.get("kind_select_open"))
+    if not kind or not option or is_todo(option) or not openers:
         say("구분 선택 생략(설정 없음)")
         return
-    say(f"구분 선택 {kind}")
-    _step("구분 목록 열기", opener, lambda: page.click(opener, timeout=timeout))
+
+    current = sel.get("kind_current")
+    if current and not is_todo(current):
+        try:
+            if page.query_selector(current.replace("{kind}", kind)):
+                say(f"구분 확인 — 이미 '{kind}'")
+                return
+        except Exception:  # noqa: BLE001 — 확인 실패는 치명적이지 않다
+            pass
+
     target = option.replace("{kind}", kind)
-    _step("구분 항목 선택", target, lambda: page.click(target, timeout=timeout))
+    tries = int(cfg.get("kind_try_timeout_ms", 4000))
+    for cand in openers:
+        try:
+            page.click(cand, timeout=tries)
+            page.click(target, timeout=tries)
+            say(f"구분 선택 '{kind}'")
+            return
+        except Exception:  # noqa: BLE001 — 다음 후보로
+            continue
+    say(f"구분을 자동으로 못 맞췄습니다 — 받은 파일 이름으로 확인합니다")
 
 
 def run_fetch(page, plan: DownloadPlan, inbox, *, cfg: Optional[dict] = None,

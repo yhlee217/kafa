@@ -97,6 +97,8 @@ _CFG = {"selectors": {"client_search_input": "#s", "client_result_item": "#r-{cl
 
 
 class _FakeDownload:
+    suggested_filename = "신용카드(매입)_20260831.xlsx"
+
     def __init__(self, log): self.log = log
     def save_as(self, path):
         Path(path).parent.mkdir(parents=True, exist_ok=True)
@@ -158,17 +160,18 @@ _CFG_URL = {"selectors": {"period_from_input": "#f", "period_to_input": "#t",
 
 class _UrlPage(_FakePage):
     """goto 를 기록하고, login_hits 만큼 로그인 화면을 흉내낸다."""
-    def __init__(self, login_hits=0):
+    def __init__(self, login_hits=0, present=()):
         super().__init__()
         self.goto_urls = []
         self.login_hits = login_hits
+        self.present = set(present)   # query_selector 로 '있다' 고 답할 selector
     def goto(self, url, **kw):
         self.goto_urls.append(url)
     def query_selector(self, sel):
         if sel == "#login" and self.login_hits > 0:
             self.login_hits -= 1
             return object()          # 로그인 화면 감지
-        return None
+        return object() if sel in self.present else None
 
 
 def test_url_mode_navigates_directly_and_skips_search_selectors(tmp_path):
@@ -218,7 +221,7 @@ _CFG_SCREEN = {"period_mode": "screen",
 
 def test_screen_mode_skips_calendar_and_picks_purchase(tmp_path):
     from kafa.fetch.wehago import fetch_one
-    page = _UrlPage()
+    page = _UrlPage()      # 현재 구분이 매입이 아님 → 목록을 열어 고른다
     task = DownloadTask("행복상사", "2026", url="https://x/1")
     fetch_one(page, _CFG_SCREEN, task, tmp_path / "행복상사" / "2026.xlsx")
     kinds = [e for e in page.log if e[0] == "click"]
@@ -288,17 +291,17 @@ def test_here_mode_passes_calibration_guard_in_run_fetch(tmp_path):
 def test_failure_names_the_step_and_selector(tmp_path):
     from kafa.fetch.wehago import StepFailed, fetch_one
 
-    class _NoKind(_UrlPage):
+    class _NoSearch(_UrlPage):
         def click(self, sel, **kw):
-            if sel == "#kindopen":
+            if sel == "#go":
                 raise TimeoutError("Timeout 100ms exceeded")
             super().click(sel, **kw)
 
     try:
-        fetch_one(_NoKind(), _CFG_SCREEN, DownloadTask("A", "2026", here=True),
+        fetch_one(_NoSearch(), _CFG_SCREEN, DownloadTask("A", "2026", here=True),
                   tmp_path / "A" / "2026.xlsx")
     except StepFailed as e:
-        assert "구분 목록 열기" in str(e) and "#kindopen" in str(e)
+        assert "[조회]" in str(e) and "#go" in str(e)
     else:
         raise AssertionError("StepFailed 가 나와야 한다")
 
@@ -378,3 +381,62 @@ def test_pick_page_keeps_current_tab_before_navigation():
     cur = _Tab("https://www.wehago.com/#/main")
     cur.context = _Ctx([cur])
     assert pick_page(cur, _PICK_CFG) is cur
+
+
+# ── 구분(매입/매출) — 확인 먼저, 못 맞추면 파일 이름으로 검증 ──
+
+_CFG_KIND = {**_CFG_SCREEN,
+             "selectors": {**_CFG_SCREEN["selectors"],
+                           "kind_current": 'text="{kind}"',
+                           "kind_select_open": ["#nope", "#kindopen"]},
+             "kind_try_timeout_ms": 10,
+             "expect_filename_contains": "매입"}
+
+
+def test_kind_already_set_is_left_alone(tmp_path):
+    """이미 매입이면 드롭다운을 건드리지 않는다(엉뚱한 목록을 여는 사고 방지)."""
+    from kafa.fetch.wehago import fetch_one
+    page = _UrlPage(present={'text="2. 매입"'})
+    fetch_one(page, _CFG_KIND, DownloadTask("A", "2026", here=True),
+              tmp_path / "A" / "2026.xlsx")
+    assert not [e for e in page.log if e[1] in ("#nope", "#kindopen")]
+
+
+def test_kind_tries_candidates_in_order(tmp_path):
+    from kafa.fetch.wehago import fetch_one
+
+    class _FirstFails(_UrlPage):
+        def click(self, sel, **kw):
+            if sel == "#nope":
+                raise TimeoutError("not visible")
+            super().click(sel, **kw)
+
+    page = _FirstFails()
+    fetch_one(page, _CFG_KIND, DownloadTask("A", "2026", here=True),
+              tmp_path / "A" / "2026.xlsx")
+    assert ("click", "#kindopen") in page.log
+
+
+def test_kind_failure_does_not_block_but_filename_is_checked(tmp_path):
+    """구분을 못 맞춰도 진행하되, 매출 파일이 오면 저장하지 않고 실패시킨다."""
+    from kafa.fetch.wehago import StepFailed, fetch_one
+
+    class _SalesFile(_UrlPage):
+        def click(self, sel, **kw):
+            if sel in ("#nope", "#kindopen"):
+                raise TimeoutError("not visible")
+            super().click(sel, **kw)
+
+        def expect_download(self, **kw):
+            exp = _FakeExpect(self.log)
+            exp.value.suggested_filename = "신용카드(매출)_20260831.xlsx"
+            return exp
+
+    dest = tmp_path / "A" / "2026.xlsx"
+    try:
+        fetch_one(_SalesFile(), _CFG_KIND, DownloadTask("A", "2026", here=True), dest)
+    except StepFailed as e:
+        assert "'매입' 자료가 아닙니다" in str(e)
+        assert not dest.exists()          # 잘못된 파일은 남기지 않는다
+    else:
+        raise AssertionError("StepFailed 가 나와야 한다")
