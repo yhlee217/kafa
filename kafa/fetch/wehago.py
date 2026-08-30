@@ -48,6 +48,10 @@ class SessionExpired(RuntimeError):
     """로그인 세션이 끊김 — 사람이 다시 로그인해야 한다(자동 로그인 하지 않음)."""
 
 
+class StepFailed(RuntimeError):
+    """어느 단계·어느 selector 에서 막혔는지 밝혀 준다(그냥 TimeoutError 면 못 고친다)."""
+
+
 class NotCalibrated(RuntimeError):
     """selector 가 아직 보정되지 않음 — 추측으로 클릭하지 않기 위해 실행을 막는다."""
 
@@ -87,44 +91,69 @@ class FetchResult:
         return not self.failures
 
 
-def fetch_one(page, cfg: dict, task: DownloadTask, dest: Path) -> Path:
-    """한 거래처·한 기간을 받아 dest 에 저장. 실패 시 예외."""
+def _step(what: str, selector: str, action):
+    """한 동작을 실행하고, 실패하면 단계 이름과 selector 를 붙여 다시 던진다."""
+    try:
+        return action()
+    except Exception as e:  # noqa: BLE001
+        raise StepFailed(f"[{what}] selector={selector!r} → "
+                         f"{type(e).__name__}: {e}") from e
+
+
+def fetch_one(page, cfg: dict, task: DownloadTask, dest: Path,
+              on_step=None) -> Path:
+    """한 거래처·한 기간을 받아 dest 에 저장. 실패 시 어느 단계인지 밝혀 예외."""
     sel = cfg["selectors"]
+    say = on_step or (lambda _m: None)
     timeout = int(cfg.get("timeout_ms", 20000))
     fmt = cfg.get("period_format", "%Y-%m")
 
     # 1) 수임처로 이동 — here 면 사람이 열어 둔 화면 그대로, URL 이 있으면 주소로 바로,
     #    둘 다 아니면 화면에서 검색해 고른다.
     if task.here:
-        pass
+        say("이동 생략(열어 둔 화면 그대로)")
     elif task.url:
+        say("주소로 이동")
         page.goto(task.url, timeout=timeout)
         marker = (cfg.get("selectors", {}) or {}).get("login_marker")
         if marker and page.query_selector(marker):
             raise SessionExpired("로그인 화면이 나타났습니다(세션 만료).")
     else:
-        page.fill(sel["client_search_input"], task.client, timeout=timeout)
-        page.click(sel["client_result_item"].replace("{client}", task.client),
-                   timeout=timeout)
+        say("수임처 검색")
+        _step("수임처 검색", sel["client_search_input"],
+              lambda: page.fill(sel["client_search_input"], task.client,
+                                timeout=timeout))
+        item = sel["client_result_item"].replace("{client}", task.client)
+        _step("수임처 선택", item, lambda: page.click(item, timeout=timeout))
 
     # 2) 구분(매입/매출) — 화면에 선택 목록이 있으면 매입으로 맞춘다
-    _select_kind(page, cfg, timeout)
+    _select_kind(page, cfg, timeout, say)
 
     # 3) 기간 설정
     if str(cfg.get("period_mode", "calendar")).strip().lower() != "screen":
         p = format_period(task.period, fmt)
-        page.fill(sel["period_from_input"], p, timeout=timeout)
-        page.fill(sel["period_to_input"], p, timeout=timeout)
+        say(f"기간 입력 {p}")
+        _step("기간 시작", sel["period_from_input"],
+              lambda: page.fill(sel["period_from_input"], p, timeout=timeout))
+        _step("기간 종료", sel["period_to_input"],
+              lambda: page.fill(sel["period_to_input"], p, timeout=timeout))
     # screen 모드면 화면에 이미 잡혀 있는 기간(기수 전체)을 그대로 쓴다.
 
     # 4) 조회
-    page.click(sel["search_button"], timeout=timeout)
+    say("조회")
+    _step("조회", sel["search_button"],
+          lambda: page.click(sel["search_button"], timeout=timeout))
 
     # 5) 엑셀 다운로드 → 지정 경로에 저장
+    say("엑셀 변환·다운로드")
     dest.parent.mkdir(parents=True, exist_ok=True)
-    with page.expect_download(timeout=timeout) as dl:
-        page.click(sel["excel_download_button"], timeout=timeout)
-    dl.value.save_as(str(dest))
+
+    def _download():
+        with page.expect_download(timeout=timeout) as dl:
+            page.click(sel["excel_download_button"], timeout=timeout)
+        dl.value.save_as(str(dest))
+
+    _step("엑셀 다운로드", sel["excel_download_button"], _download)
 
     # 6) 변환 완료 알림이 뜨면 닫는다(안 닫으면 다음 건이 가려진다)
     confirm = sel.get("download_confirm")
@@ -136,21 +165,27 @@ def fetch_one(page, cfg: dict, task: DownloadTask, dest: Path) -> Path:
     return dest
 
 
-def _select_kind(page, cfg: dict, timeout: int) -> None:
+def _select_kind(page, cfg: dict, timeout: int, say=None) -> None:
     """조회 구분을 '매입' 으로 맞춘다. 설정이 없으면 아무것도 하지 않는다."""
+    say = say or (lambda _m: None)
     sel = cfg.get("selectors", {}) or {}
     opener, option = sel.get("kind_select_open"), sel.get("kind_option")
     kind = str(cfg.get("kind_value", "")).strip()
     if not opener or not option or not kind or is_todo(opener) or is_todo(option):
+        say("구분 선택 생략(설정 없음)")
         return
-    page.click(opener, timeout=timeout)
-    page.click(option.replace("{kind}", kind), timeout=timeout)
+    say(f"구분 선택 {kind}")
+    _step("구분 목록 열기", opener, lambda: page.click(opener, timeout=timeout))
+    target = option.replace("{kind}", kind)
+    _step("구분 항목 선택", target, lambda: page.click(target, timeout=timeout))
 
 
 def run_fetch(page, plan: DownloadPlan, inbox, *, cfg: Optional[dict] = None,
               sleep: Callable[[float], None] = None,
               on_progress: Optional[Callable[[DownloadTask, str], None]] = None,
-              on_session_expired: Optional[Callable[[], None]] = None
+              on_session_expired: Optional[Callable[[], None]] = None,
+              on_step: Optional[Callable[[str], None]] = None,
+              on_failure: Optional[Callable[[DownloadTask, Exception], None]] = None
               ) -> FetchResult:
     """계획대로 순회 수집. 한 건 실패해도 계속 진행한다.
 
@@ -176,12 +211,14 @@ def run_fetch(page, plan: DownloadPlan, inbox, *, cfg: Optional[dict] = None,
         label = f"{task.client}/{task.period}"
         try:
             try:
-                dest = fetch_one(page, cfg, task, target_path(inbox, task))
+                dest = fetch_one(page, cfg, task, target_path(inbox, task),
+                                 on_step=on_step)
             except SessionExpired:
                 if on_session_expired is None:
                     raise
                 on_session_expired()          # 사람이 다시 로그인
-                dest = fetch_one(page, cfg, task, target_path(inbox, task))
+                dest = fetch_one(page, cfg, task, target_path(inbox, task),
+                                 on_step=on_step)
             res.saved.append(dest)
             if on_progress:
                 on_progress(task, "저장")
@@ -189,6 +226,8 @@ def run_fetch(page, plan: DownloadPlan, inbox, *, cfg: Optional[dict] = None,
             res.failures[label] = f"{type(e).__name__}: {e}"
             if on_progress:
                 on_progress(task, f"실패({type(e).__name__})")
+            if on_failure:
+                on_failure(task, e)
         if i < len(plan.tasks) - 1:
             sleep(delay)          # 서버 부담 완화
     return res

@@ -281,3 +281,42 @@ def test_here_mode_passes_calibration_guard_in_run_fetch(tmp_path):
     plan.tasks[:] = [replace(t, here=True) for t in plan.tasks]
     res = run_fetch(_UrlPage(), plan, tmp_path, cfg=_CFG_SCREEN, sleep=lambda _: None)
     assert res.ok and (tmp_path / "행복상사" / "2026.xlsx").exists()
+
+
+# ── 실패 진단: 어느 단계에서 막혔는지 ──
+
+def test_failure_names_the_step_and_selector(tmp_path):
+    from kafa.fetch.wehago import StepFailed, fetch_one
+
+    class _NoKind(_UrlPage):
+        def click(self, sel, **kw):
+            if sel == "#kindopen":
+                raise TimeoutError("Timeout 100ms exceeded")
+            super().click(sel, **kw)
+
+    try:
+        fetch_one(_NoKind(), _CFG_SCREEN, DownloadTask("A", "2026", here=True),
+                  tmp_path / "A" / "2026.xlsx")
+    except StepFailed as e:
+        assert "구분 목록 열기" in str(e) and "#kindopen" in str(e)
+    else:
+        raise AssertionError("StepFailed 가 나와야 한다")
+
+
+def test_run_fetch_reports_steps_and_failure(tmp_path):
+    class _Broken(_UrlPage):
+        def click(self, sel, **kw):
+            if sel == "#xls":
+                raise TimeoutError("nope")
+            super().click(sel, **kw)
+
+    steps, failures = [], []
+    plan = build_plan(tmp_path, ["A"], ["2026"])
+    from dataclasses import replace
+    plan.tasks[:] = [replace(t, here=True) for t in plan.tasks]
+    res = run_fetch(_Broken(), plan, tmp_path, cfg=_CFG_SCREEN, sleep=lambda _: None,
+                    on_step=steps.append,
+                    on_failure=lambda t, e: failures.append((t.client, str(e))))
+    assert not res.ok
+    assert "조회" in steps and "엑셀 변환·다운로드" in steps
+    assert failures and "엑셀 다운로드" in failures[0][1]

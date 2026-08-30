@@ -42,6 +42,7 @@ def main(argv: list[str] | None = None, *, input_fn=input) -> int:
                     help="수임처 마스터 엑셀(회사명+접속 URL). 주면 화면 검색 없이 "
                          "주소로 바로 이동하고, --clients 를 생략하면 전체를 대상으로 함")
     ap.add_argument("--months", type=int, help="최근 N개월")
+    ap.add_argument("--fail-dump", help="실패 시 화면 덤프 저장 경로(기본 kafa-fail.txt)")
     ap.add_argument("--here", action="store_true",
                     help="이동하지 않고 **지금 열어 둔 화면** 그대로 한 건만 받는다"
                          "(한 곳 시험용). --clients 로 이름 하나를 함께 준다")
@@ -203,10 +204,31 @@ def main(argv: list[str] | None = None, *, input_fn=input) -> int:
         else:
             wait_for_human("브라우저에서 로그인해 주세요.\n"
                            + str(cfg.get("start_hint", "")))
+        # 실패하면 그 순간의 화면을 한 번 덤프해 둔다 — 무엇이 안 맞았는지 바로 보인다.
+        fail_dump = Path(args.fail_dump or "kafa-fail.txt")
+        dumped = []
+
+        def _on_failure(task, exc):
+            print(f"     ↳ {exc}", file=sys.stderr)
+            if dumped:
+                return
+            dumped.append(True)
+            from kafa.fetch.inspect import inspect_page
+            try:
+                fail_dump.write_text("\n".join(
+                    [f"[실패] {task.client}/{task.period}: {exc}", ""]
+                    + inspect_page(page)), encoding="utf-8")
+                print(f"     ↳ 실패 시점 화면을 저장했습니다: {fail_dump.resolve()}",
+                      file=sys.stderr)
+            except Exception as e:  # noqa: BLE001 — 덤프 실패가 수집을 막지 않게
+                print(f"     ↳ 화면 저장 실패: {e}", file=sys.stderr)
+
         try:
             res = run_fetch(
                 page, plan, args.inbox, cfg=cfg,
                 on_progress=lambda t, s: print(f"  [{s}] {t.client}/{t.period}"),
+                on_step=lambda m: print(f"     · {m}"),
+                on_failure=_on_failure,
                 on_session_expired=lambda: wait_for_human(
                     "로그인이 풀렸습니다. 브라우저에서 다시 로그인해 주세요."))
         except NotCalibrated as e:
