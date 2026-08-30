@@ -24,7 +24,8 @@ _PROBES = [
 _KEYWORDS = ("엑셀", "다운로드", "조회", "검색", "거래처", "기간", "매입", "월")
 
 # 정밀 스캔용(좁게) — 이 단어가 걸린 요소는 숨어 있어도 다 보여준다.
-_DEEP_KEYWORDS = ("엑셀", "excel", "xls", "다운로드", "download", "내려받기", "저장")
+_DEEP_KEYWORDS = ("엑셀", "excel", "xls", "다운로드", "download", "내려받기",
+                  "저장", "변환", "출력")
 
 # 요소 하나의 라벨/대체텍스트/속성 — 값(value)은 읽지 않는다.
 _INFO_JS = r"""
@@ -80,6 +81,12 @@ _SCAN_JS = r"""
     const text = (el.textContent || '').trim().replace(/\s+/g, ' ').slice(0, 40);
     const hay = (text + attrs).toLowerCase();
     if (!kw.some(k => hay.includes(k))) continue;
+    // 같은 글자를 감싸기만 하는 바깥 요소는 건너뛴다(dl>dd>ul>li>a>span 사슬 제거).
+    if (el.children.length === 1) {
+      const only = el.children[0];
+      const ot = (only.textContent || '').trim().replace(/\s+/g, ' ');
+      if (ot && ot === (el.textContent || '').trim().replace(/\s+/g, ' ')) continue;
+    }
     let cls = '';
     try {
       cls = (typeof el.className === 'string') ? el.className
@@ -88,10 +95,16 @@ _SCAN_JS = r"""
     let sel = tag;
     if (el.id) sel += '#' + el.id;
     if (cls) sel += '.' + cls.trim().split(/\s+/).slice(0, 4).join('.');
-    let vis = false;
-    try { const r = el.getBoundingClientRect(); vis = r.width > 0 && r.height > 0; } catch (e) {}
-    out.push({sel: sel.slice(0, 90), text: text, attrs: attrs.trim().slice(0, 160), vis: vis});
-    if (out.length >= 60) break;
+    let vis = false, box = '';
+    try {
+      const r = el.getBoundingClientRect();
+      vis = r.width > 0 && r.height > 0;
+      box = Math.round(r.x) + ',' + Math.round(r.y) + ' ' +
+            Math.round(r.width) + 'x' + Math.round(r.height);
+    } catch (e) {}
+    out.push({sel: sel.slice(0, 90), text: text, attrs: attrs.trim().slice(0, 160),
+              vis: vis, box: box});
+    if (out.length >= 200) break;
   }
   return out;
 }
@@ -178,9 +191,12 @@ def _deep_scan(frame, label: str) -> list[str]:
     if not hits:
         return []
     out = [f"[엑셀·다운로드 정밀 스캔] {len(hits)}개  ({label}) — 숨은 요소 포함"]
+    # 보이는 것부터(누를 수 있는 후보가 먼저 보이게)
+    hits = sorted(hits, key=lambda h: not h.get("vis"))
     for h in hits:
         mark = "보임" if h.get("vis") else "숨음"
-        out.append(f"   [{mark}] {h.get('sel', '')}")
+        box = h.get("box") or ""
+        out.append(f"   [{mark}] {h.get('sel', '')}" + (f"   ({box})" if box else ""))
         text = _safe_text((h.get("text") or "").strip())
         if text:
             out.append(f"           텍스트={text!r}")

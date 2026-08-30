@@ -464,3 +464,48 @@ def test_steps_use_freshly_resolved_page(tmp_path):
     fetch_one(dead, _CFG_KIND, DownloadTask("A", "2026", here=True),
               tmp_path / "A" / "2026.xlsx", resolve=lambda: alive)
     assert ("click", "#go") in alive.log and ("click", "#xls") in alive.log
+
+
+# ── 후보 selector 여러 개 시도 ──
+
+def test_click_any_falls_back_to_next_candidate(tmp_path):
+    from kafa.fetch.wehago import fetch_one
+
+    class _OnlySecond(_UrlPage):
+        def click(self, sel, **kw):
+            if sel == "#first":
+                raise TimeoutError("없음")
+            super().click(sel, **kw)
+
+    cfg = {**_CFG_KIND, "selectors": {**_CFG_KIND["selectors"],
+                                      "excel_download_button": ["#first", "#xls"]}}
+    page = _OnlySecond()
+    dest = tmp_path / "A" / "2026.xlsx"
+    fetch_one(page, cfg, DownloadTask("A", "2026", here=True), dest)
+    assert ("click", "#xls") in page.log and dest.exists()
+
+
+def test_click_any_reports_all_tried_selectors(tmp_path):
+    from kafa.fetch.wehago import StepFailed, fetch_one
+
+    class _NoneWork(_UrlPage):
+        def click(self, sel, **kw):
+            if sel in ("#a", "#b"):
+                raise TimeoutError("없음")
+            super().click(sel, **kw)
+
+    cfg = {**_CFG_KIND, "selectors": {**_CFG_KIND["selectors"],
+                                      "excel_download_button": ["#a", "#b"]}}
+    try:
+        fetch_one(_NoneWork(), cfg, DownloadTask("A", "2026", here=True),
+                  tmp_path / "A" / "2026.xlsx")
+    except StepFailed as e:
+        assert "#a" in str(e) and "#b" in str(e) and "모두 시도" in str(e)
+    else:
+        raise AssertionError("StepFailed 가 나와야 한다")
+
+
+def test_shipped_config_download_has_candidates():
+    from kafa.fetch.wehago import _as_list, load_fetch_config
+    cands = _as_list(load_fetch_config()["selectors"]["excel_download_button"])
+    assert len(cands) >= 2      # 하나가 안 맞아도 다음을 시도한다

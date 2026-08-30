@@ -56,10 +56,17 @@ selectors:
   kind_option: "li.LSnghSelectResult_listitem a:has-text(\"{kind}\")"
 
   # 조회 — '휴폐업조회' 와 구분하려고 조회 영역 안의 버튼으로 한정한다
-  search_button: "div#SAOSearchMain button.LUX_basic_btn.Default.basic"
+  search_button:
+    - "div#SAOSearchMain button.LUX_basic_btn.Default.basic"
+    - "button.LUX_basic_btn.Default.basic:has-text(\"조회\")"
 
   # 다운로드 — 툴바의 '엑셀변환'. 누르면 파일이 만들어지고 알림이 뜬다.
-  excel_download_button: "td:text-is(\"엑셀변환\")"
+  # 위치를 정확히 못 집을 수 있어 후보를 차례로 시도한다.
+  excel_download_button:
+    - "td:text-is(\"엑셀변환\")"
+    - "*:text-is(\"엑셀변환\")"
+    - "text=\"엑셀변환\""
+    - "a:has-text(\"조회한 데이터를 엑셀로 변환\")"
   download_confirm: "button#confirm"
 
   # 달력 방식(period_mode: calendar)으로 월 단위 수집을 하려면 아래를 보정해야 한다.

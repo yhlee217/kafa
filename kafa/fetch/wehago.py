@@ -72,8 +72,7 @@ def missing_selectors(cfg: dict, *, url_mode: bool = False) -> list[str]:
     sel = cfg.get("selectors", {}) or {}
     out = []
     for k in required_selectors(cfg, url_mode=url_mode):
-        v = sel.get(k)
-        if v is None or is_todo(v) or not str(v).strip():
+        if not _as_list(sel.get(k)):
             out.append(k)
     return out
 
@@ -151,6 +150,37 @@ class FetchResult:
         return not self.failures
 
 
+def _as_list(value) -> list[str]:
+    """selector 는 하나 또는 후보 여러 개(먼저 눌리는 것 사용)."""
+    if value is None:
+        return []
+    values = value if isinstance(value, (list, tuple)) else [value]
+    return [str(v).strip() for v in values
+            if v is not None and str(v).strip() and not is_todo(v)]
+
+
+def _click_any(page, selectors, timeout: int, what: str):
+    """후보 selector 를 차례로 눌러 본다. 하나라도 되면 그 selector 를 돌려준다.
+
+    화면에 비슷한 요소가 많거나 위하고가 화면 구조를 조금 바꿔도 견디게 하기 위함.
+    마지막 후보까지 실패하면 시도한 목록을 붙여 예외를 던진다.
+    """
+    cands = _as_list(selectors)
+    if not cands:
+        raise StepFailed(f"[{what}] 누를 selector 가 설정되지 않았습니다")
+    errors = []
+    for i, cand in enumerate(cands):
+        # 마지막 후보에는 남은 시간을 다 준다(앞 후보는 짧게 훑고 넘어간다).
+        t = timeout if i == len(cands) - 1 else min(timeout, 5000)
+        try:
+            page.click(cand, timeout=t)
+            return cand
+        except Exception as e:  # noqa: BLE001 — 다음 후보로
+            errors.append(f"{cand} → {type(e).__name__}")
+    raise StepFailed(f"[{what}] 후보를 모두 시도했지만 못 눌렀습니다: "
+                     + " | ".join(errors))
+
+
 def _step(what: str, selector: str, action):
     """한 동작을 실행하고, 실패하면 단계 이름과 selector 를 붙여 다시 던진다."""
     try:
@@ -219,8 +249,7 @@ def fetch_one(page, cfg: dict, task: DownloadTask, dest: Path,
 
     # 4) 조회
     say("조회")
-    _step("조회", sel["search_button"],
-          lambda: P().click(sel["search_button"], timeout=timeout))
+    _click_any(P(), sel["search_button"], timeout, "조회")
 
     # 5) 엑셀 다운로드 → 지정 경로에 저장
     say("엑셀 변환·다운로드")
@@ -231,7 +260,7 @@ def fetch_one(page, cfg: dict, task: DownloadTask, dest: Path,
     def _download():
         pg = P()
         with pg.expect_download(timeout=timeout) as dl:
-            pg.click(sel["excel_download_button"], timeout=timeout)
+            _click_any(pg, sel["excel_download_button"], timeout, "엑셀 다운로드")
         name = getattr(dl.value, "suggested_filename", "") or ""
         # 구분을 못 맞췄을 수 있으니 **받은 파일 이름**으로 매입 자료인지 확인한다.
         if expect and name and expect not in name:
@@ -250,15 +279,6 @@ def fetch_one(page, cfg: dict, task: DownloadTask, dest: Path,
         except Exception:  # noqa: BLE001 — 알림이 없을 수도 있다
             pass
     return dest
-
-
-def _as_list(value) -> list[str]:
-    """selector 는 하나 또는 후보 여러 개(먼저 눌리는 것 사용)."""
-    if value is None:
-        return []
-    if isinstance(value, (list, tuple)):
-        return [str(v) for v in value if v and not is_todo(v)]
-    return [] if is_todo(value) else [str(value)]
 
 
 def _select_kind(page, cfg: dict, timeout: int, say=None) -> None:
