@@ -3,6 +3,10 @@
 selector 를 추측해 넣으면 엉뚱한 곳을 클릭할 수 있으므로, 실제 화면을 한 번 보고
 config/fetch/wehago.yaml 을 채우는 절차를 둔다. 이 함수는 **화면 구조만** 읽고,
 입력값·거래처명 같은 데이터는 출력하지 않는다(PII 유출 방지).
+
+위하고 회계 화면은 아이콘 버튼(텍스트 없음)과 라벨이 떨어진 입력칸이 많아,
+① 요소별 '라벨/대체텍스트'를 함께 뽑고 ② 엑셀·다운로드 관련 요소는 **숨은 것까지**
+따로 정밀 스캔한다(메뉴가 접혀 있어도 찾을 수 있게).
 """
 from __future__ import annotations
 
@@ -16,17 +20,105 @@ _PROBES = [
 
 _KEYWORDS = ("엑셀", "다운로드", "조회", "검색", "거래처", "기간", "매입", "월")
 
+# 정밀 스캔용(좁게) — 이 단어가 걸린 요소는 숨어 있어도 다 보여준다.
+_DEEP_KEYWORDS = ("엑셀", "excel", "xls", "다운로드", "download", "내려받기", "저장")
 
-def _attrs(el) -> str:
-    parts = []
-    for name in ("id", "name", "class", "type", "placeholder", "title", "aria-label"):
-        v = el.get_attribute(name)
-        if v:
-            v = v.strip()
-            if len(v) > 60:
-                v = v[:57] + "…"
-            parts.append(f'{name}="{v}"')
-    return " ".join(parts)
+# 요소 하나의 라벨/대체텍스트/속성 — 값(value)은 읽지 않는다.
+_INFO_JS = r"""
+(el) => {
+  const attrs = [];
+  for (const a of el.attributes) {
+    if (a.name === 'value' || a.name === 'style') continue;   // 입력값·인라인스타일 제외
+    attrs.push(a.name + '="' + String(a.value).slice(0, 60) + '"');
+  }
+  let ctx = '';
+  try { if (el.labels && el.labels.length) ctx = el.labels[0].textContent; } catch (e) {}
+  if (!ctx && el.id) {
+    try {
+      const esc = (window.CSS && CSS.escape) ? CSS.escape(el.id) : el.id;
+      const f = document.querySelector('label[for="' + esc + '"]');
+      if (f) ctx = f.textContent;
+    } catch (e) {}
+  }
+  if (!ctx) {
+    let p = el.parentElement, d = 0;
+    while (p && d < 3) {
+      const t = (p.innerText || '').trim();
+      if (t) { ctx = t; break; }
+      p = p.parentElement; d++;
+    }
+  }
+  const b = el.querySelector('.blind, .sr-only, .ir, .hide, .hidden-text');
+  const img = el.querySelector('img[alt], svg title');
+  return {
+    attrs: attrs.join(' ').slice(0, 220),
+    ctx: (ctx || '').replace(/\s+/g, ' ').slice(0, 40),
+    blind: b ? (b.textContent || '').trim().slice(0, 30) : '',
+    alt: img ? String(img.getAttribute ? (img.getAttribute('alt') || '')
+                                       : (img.textContent || '')).slice(0, 30) : ''
+  };
+}
+"""
+
+# 문서 전체에서 키워드가 걸린 요소(숨은 것 포함) — 접힌 메뉴 안의 버튼을 찾기 위함.
+_SCAN_JS = r"""
+(kw) => {
+  const skip = new Set(['script','style','meta','link','head','html','body','title']);
+  const out = [];
+  for (const el of document.querySelectorAll('*')) {
+    const tag = el.tagName.toLowerCase();
+    if (skip.has(tag)) continue;
+    if (el.children.length > 2) continue;          // 큰 컨테이너는 건너뜀
+    let attrs = '';
+    for (const a of el.attributes) {
+      if (a.name === 'value' || a.name === 'style') continue;
+      attrs += ' ' + a.name + '="' + String(a.value).slice(0, 60) + '"';
+    }
+    const text = (el.textContent || '').trim().replace(/\s+/g, ' ').slice(0, 40);
+    const hay = (text + attrs).toLowerCase();
+    if (!kw.some(k => hay.includes(k))) continue;
+    let cls = '';
+    try {
+      cls = (typeof el.className === 'string') ? el.className
+          : (el.className && el.className.baseVal) || '';
+    } catch (e) {}
+    let sel = tag;
+    if (el.id) sel += '#' + el.id;
+    if (cls) sel += '.' + cls.trim().split(/\s+/).slice(0, 4).join('.');
+    let vis = false;
+    try { const r = el.getBoundingClientRect(); vis = r.width > 0 && r.height > 0; } catch (e) {}
+    out.push({sel: sel.slice(0, 90), text: text, attrs: attrs.trim().slice(0, 160), vis: vis});
+    if (out.length >= 60) break;
+  }
+  return out;
+}
+"""
+
+
+def _info(el) -> dict:
+    try:
+        info = el.evaluate(_INFO_JS)
+    except Exception:  # noqa: BLE001 — 화면 상태에 따라 실패해도 계속
+        return {}
+    return info if isinstance(info, dict) else {}
+
+
+def _describe(el) -> tuple[str, str]:
+    """(표시용 텍스트, 속성/라벨 문자열). 값(value)은 읽지 않는다."""
+    try:
+        text = (el.inner_text() or "").strip().replace("\n", " ")[:30]
+    except Exception:  # noqa: BLE001
+        text = ""
+    info = _info(el)
+    attrs = info.get("attrs", "")
+    extra = []
+    for key, label in (("ctx", "라벨"), ("blind", "숨은텍스트"), ("alt", "아이콘")):
+        v = (info.get(key) or "").strip()
+        if v and v != text:
+            extra.append(f"{label}={v!r}")
+    if extra:
+        attrs = " ".join(extra) + "  |  " + attrs
+    return text, attrs
 
 
 def _inspect_frame(frame, label: str, limit: int) -> list[str]:
@@ -35,21 +127,17 @@ def _inspect_frame(frame, label: str, limit: int) -> list[str]:
     for kind, css in _PROBES:
         try:
             els = frame.query_selector_all(css)
-        except Exception:  # noqa: BLE001 — 화면 상태에 따라 실패해도 계속
+        except Exception:  # noqa: BLE001
             continue
         if not els:
             continue
         rows = []
         for el in els:
-            try:
-                text = (el.inner_text() or "").strip().replace("\n", " ")[:30]
-                a = _attrs(el)
-            except Exception:  # noqa: BLE001
+            text, attrs = _describe(el)
+            if not attrs and not text:
                 continue
-            if not a and not text:
-                continue
-            hit = any(k in text or k in a for k in _KEYWORDS)
-            rows.append((hit, f"   {'★ ' if hit else '  '}{text!r:<32} {a}"))
+            hit = any(k in text or k in attrs for k in _KEYWORDS)
+            rows.append((hit, f"   {'★ ' if hit else '  '}{text!r:<24} {attrs}"))
         if not rows:
             continue
         rows.sort(key=lambda r: not r[0])          # 키워드 매칭 우선 노출
@@ -58,6 +146,28 @@ def _inspect_frame(frame, label: str, limit: int) -> list[str]:
         if len(rows) > limit:
             out.append(f"   … 외 {len(rows) - limit}개")
         out.append("")
+    return out
+
+
+def _deep_scan(frame, label: str) -> list[str]:
+    """엑셀/다운로드 관련 요소를 숨은 것까지 훑는다(접힌 메뉴 대비)."""
+    try:
+        hits = frame.evaluate(_SCAN_JS, list(_DEEP_KEYWORDS))
+    except Exception:  # noqa: BLE001
+        return []
+    if not hits:
+        return []
+    out = [f"[엑셀·다운로드 정밀 스캔] {len(hits)}개  ({label}) — 숨은 요소 포함"]
+    for h in hits:
+        mark = "보임" if h.get("vis") else "숨음"
+        out.append(f"   [{mark}] {h.get('sel', '')}")
+        text = (h.get("text") or "").strip()
+        if text:
+            out.append(f"           텍스트={text!r}")
+        attrs = (h.get("attrs") or "").strip()
+        if attrs:
+            out.append(f"           {attrs}")
+    out.append("")
     return out
 
 
@@ -90,6 +200,7 @@ def inspect_page(page, *, limit: int = 40) -> list[str]:
         if lines:
             found = True
             out += lines
+        out += _deep_scan(fr, label)
     if not found:
         out.append("(요소를 찾지 못했습니다 — 화면이 다 뜬 뒤 엔터를 눌러 보세요)")
     out.append("★ 표시는 '엑셀/다운로드/조회/거래처/기간' 같은 단어가 걸린 항목입니다.")
