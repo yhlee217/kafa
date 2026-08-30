@@ -10,6 +10,9 @@ config/fetch/wehago.yaml 을 채우는 절차를 둔다. 이 함수는 **화면 
 """
 from __future__ import annotations
 
+import re
+import time
+
 # 뽑아볼 요소 종류(역할별)
 _PROBES = [
     ("입력창", "input:visible"),
@@ -95,6 +98,23 @@ _SCAN_JS = r"""
 """
 
 
+# 화면 텍스트에 수임처 이름·사업자번호가 섞여 나오는 자리가 있다(예: 수임처 목록의 링크).
+# 보안 제0원칙 — 원천 데이터는 어떤 LLM 컨텍스트에도 올리지 않는다. 구조만 남긴다.
+_COMPANY_MARKERS = ("(주)", "㈜", "주식회사", "(유)", "유한회사", "(합)", "(재)", "(사)")
+_BIZNO_RE = re.compile(r"\d{3}-?\d{2}-?\d{5}")
+_LONGNUM_RE = re.compile(r"\d{8,}")
+
+
+def _safe_text(text: str) -> str:
+    """표시용 텍스트에서 회사명·사업자번호를 지운다(구조 파악에는 지장 없음)."""
+    if not text:
+        return text
+    if any(m in text for m in _COMPANY_MARKERS):
+        return "‹회사명›"
+    text = _BIZNO_RE.sub("‹사업자번호›", text)
+    return _LONGNUM_RE.sub("‹번호›", text)
+
+
 def _info(el) -> dict:
     try:
         info = el.evaluate(_INFO_JS)
@@ -106,14 +126,14 @@ def _info(el) -> dict:
 def _describe(el) -> tuple[str, str]:
     """(표시용 텍스트, 속성/라벨 문자열). 값(value)은 읽지 않는다."""
     try:
-        text = (el.inner_text() or "").strip().replace("\n", " ")[:30]
+        text = _safe_text((el.inner_text() or "").strip().replace("\n", " ")[:30])
     except Exception:  # noqa: BLE001
         text = ""
     info = _info(el)
     attrs = info.get("attrs", "")
     extra = []
     for key, label in (("ctx", "라벨"), ("blind", "숨은텍스트"), ("alt", "아이콘")):
-        v = (info.get(key) or "").strip()
+        v = _safe_text((info.get(key) or "").strip())
         if v and v != text:
             extra.append(f"{label}={v!r}")
     if extra:
@@ -161,7 +181,7 @@ def _deep_scan(frame, label: str) -> list[str]:
     for h in hits:
         mark = "보임" if h.get("vis") else "숨음"
         out.append(f"   [{mark}] {h.get('sel', '')}")
-        text = (h.get("text") or "").strip()
+        text = _safe_text((h.get("text") or "").strip())
         if text:
             out.append(f"           텍스트={text!r}")
         attrs = (h.get("attrs") or "").strip()
@@ -228,6 +248,39 @@ def screen_hint(lines: list[str]) -> list[str]:
             "       조회 기간·엑셀 버튼이 다 보이는 상태에서 r + 엔터로 다시 해보세요."]
 
 
+def _inspect_one(pg, pi: int, limit: int) -> tuple[list[str], bool]:
+    """탭 하나(모든 프레임)의 요소 후보. (라인들, 무언가 찾았는지)."""
+    out, found = [], False
+    frames = _frames_of(pg)
+    for fi, fr in enumerate(frames):
+        where = f"탭#{pi}" if fi == 0 else f"탭#{pi}·iframe#{fi}: {_url_of(fr)}"
+        lines = _inspect_frame(fr, where, limit)
+        if lines:
+            found = True
+            out += lines
+        out += _deep_scan(fr, where)
+    return out, found
+
+
+def _header() -> list[str]:
+    return ["", "── 현재 화면의 후보 요소 (selector 보정용) ──",
+            "※ 아래 id/name/class 를 config/fetch/wehago.yaml 에 적으세요.",
+            "   예) period_from_input: \"#dateFrom\"  또는  \"input[name='fromDt']\"", ""]
+
+
+def _inventory(pages) -> list[str]:
+    out = [f"[화면 목록] 탭 {len(pages)}개"]
+    for pi, pg in enumerate(pages):
+        frames = _frames_of(pg)
+        title = _title_of(pg)
+        head = f"   탭#{pi} (프레임 {len(frames)}개) {_url_of(pg)}"
+        out.append(head + (f"  제목={title!r}" if title else ""))
+        for fi, fr in enumerate(frames[1:], start=1):
+            out.append(f"      └ iframe#{fi} {_url_of(fr)}")
+    out.append("")
+    return out
+
+
 def inspect_page(page, *, limit: int = 40) -> list[str]:
     """화면 요소 후보 목록(문자열 라인).
 
@@ -235,33 +288,13 @@ def inspect_page(page, *, limit: int = 40) -> list[str]:
     같은 브라우저의 모든 탭 × 모든 프레임을 훑는다. 어디서 나온 요소인지 함께
     표시한다. 값(value)·거래처명 같은 데이터는 읽지 않는다.
     """
-    out = ["", "── 현재 화면의 후보 요소 (selector 보정용) ──",
-           "※ 아래 id/name/class 를 config/fetch/wehago.yaml 에 적으세요.",
-           "   예) period_from_input: \"#dateFrom\"  또는  \"input[name='fromDt']\"", ""]
-
     pages = _pages(page)
-    inventory = []
-    for pi, pg in enumerate(pages):
-        frames = _frames_of(pg)
-        inventory.append((pi, pg, frames))
-    out.append(f"[화면 목록] 탭 {len(pages)}개")
-    for pi, pg, frames in inventory:
-        title = _title_of(pg)
-        head = f"   탭#{pi} (프레임 {len(frames)}개) {_url_of(pg)}"
-        out.append(head + (f"  제목={title!r}" if title else ""))
-        for fi, fr in enumerate(frames[1:], start=1):
-            out.append(f"      └ iframe#{fi} {_url_of(fr)}")
-    out.append("")
-
+    out = _header() + _inventory(pages)
     found = False
-    for pi, pg, frames in inventory:
-        for fi, fr in enumerate(frames):
-            where = f"탭#{pi}" if fi == 0 else f"탭#{pi}·iframe#{fi}: {_url_of(fr)}"
-            lines = _inspect_frame(fr, where, limit)
-            if lines:
-                found = True
-                out += lines
-            out += _deep_scan(fr, where)
+    for pi, pg in enumerate(pages):
+        lines, hit = _inspect_one(pg, pi, limit)
+        found = found or hit
+        out += lines
     if not found:
         out.append("(요소를 찾지 못했습니다 — 회계 화면이 다른 탭/창에 있거나 아직 로딩 중일 수 "
                    "있습니다. 위 [화면 목록] 의 주소를 확인해 주세요.)")
@@ -269,3 +302,76 @@ def inspect_page(page, *, limit: int = 40) -> list[str]:
     out.append("")
     out += screen_hint(out)
     return out
+
+
+# ── 감시 모드: 사람은 로그인·이동만, 화면 포착은 도구가 한다 ──
+
+_SIG_JS = ("() => document.title + '|' + "
+           "document.querySelectorAll('input,button,a,select').length")
+
+
+def _signature(pg) -> str:
+    """화면이 바뀌었는지 싸게 판별할 지문(제목 + 요소 수 + 주소)."""
+    try:
+        core = pg.evaluate(_SIG_JS)
+    except Exception:  # noqa: BLE001
+        core = ""
+    return f"{_url_of(pg)}|{core}"
+
+
+def is_ledger(lines: list[str]) -> bool:
+    return "회계 전표 화면" in "\n".join(screen_hint(lines))
+
+
+def is_dashboard(lines: list[str]) -> bool:
+    return "대시보드" in "\n".join(screen_hint(lines))
+
+
+def watch_screens(page, *, seconds: float = 300.0, interval: float = 2.0,
+                  limit: int = 40, on_event=None, sleep=time.sleep,
+                  now=time.monotonic) -> list[str]:
+    """로그인 뒤 화면 전환을 지켜보다가 **회계 전표 화면이 뜨면 자동으로 잡는다**.
+
+    사람은 로그인하고 평소처럼 메뉴를 눌러 이동하기만 하면 된다. 엔터 타이밍을
+    맞출 필요가 없다. 지나친 화면 중 대시보드는 한 줄 요약만 남긴다(수임처 이름이
+    잔뜩 있는 화면을 통째로 남기지 않기 위함 — 보안 제0원칙).
+    """
+    say = on_event or (lambda _m: None)
+    deadline = now() + seconds
+    seen: set[str] = set()
+    log: list[str] = []
+    captured: list[str] | None = None
+
+    say(f"[감시] 최대 {int(seconds)}초 동안 화면을 지켜봅니다. "
+        "평소처럼 수임처 › 회계 › 신용카드(매입) 로 이동하세요.")
+    while captured is None and now() < deadline:
+        for pi, pg in enumerate(_pages(page)):
+            sig = _signature(pg)
+            if not sig or sig in seen:
+                continue
+            seen.add(sig)
+            lines, _ = _inspect_one(pg, pi, limit)
+            where = f"탭#{pi} {_url_of(pg)} 제목={_title_of(pg)!r}"
+            if is_ledger(lines):
+                say(f"[감시] 회계 전표 화면을 찾았습니다 — {where}")
+                captured = _header() + _inventory(_pages(page)) + lines
+                break
+            kind = "수임처 목록" if is_dashboard(lines) else "기타"
+            say(f"[감시] 지나감({kind}) — {where}")
+            log.append(f"   - {kind}: {where}")
+        if captured is None:
+            sleep(interval)
+
+    if captured is None:
+        out = _header() + _inventory(_pages(page))
+        out.append("[감시] 제한 시간 안에 회계 전표 화면을 찾지 못했습니다.")
+        out.append("[감시] 지나간 화면:")
+        out += log or ["   (없음 — 화면이 바뀌지 않았습니다)"]
+        out.append("")
+        out += screen_hint(out)
+        return out
+
+    captured.append("★ 표시는 '엑셀/다운로드/조회/거래처/기간' 같은 단어가 걸린 항목입니다.")
+    captured.append("")
+    captured += screen_hint(captured)
+    return captured

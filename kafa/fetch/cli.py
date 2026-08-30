@@ -56,6 +56,11 @@ def main(argv: list[str] | None = None, *, input_fn=input) -> int:
     ap.add_argument("--goto",
                     help="--inspect 시 로그인 후 이 주소로 이동한 뒤 살펴본다"
                          "(수임처 마스터의 '접속 URL' 하나를 넣으면 신용카드 화면으로 바로 감)")
+    ap.add_argument("--watch", action="store_true",
+                    help="--inspect 시 로그인만 하면, 화면 전환을 지켜보다가 "
+                         "신용카드(회계 전표) 화면이 뜨는 순간 자동으로 잡는다")
+    ap.add_argument("--watch-seconds", type=float, default=300.0,
+                    help="--watch 최대 감시 시간(초, 기본 300)")
     ap.add_argument("--no-keep-open", action="store_true",
                     help="작업이 끝나면 묻지 않고 브라우저를 닫는다(무인 실행용)")
     args = ap.parse_args(argv)
@@ -67,7 +72,7 @@ def main(argv: list[str] | None = None, *, input_fn=input) -> int:
     cfg = load_fetch_config(args.config)
 
     if args.inspect:
-        from kafa.fetch.inspect import inspect_page, screen_hint
+        from kafa.fetch.inspect import inspect_page, screen_hint, watch_screens
         from kafa.fetch.session import browser_page, wait_for_human
         print(TOS_NOTICE)
         with browser_page(profile_dir=args.profile,
@@ -77,13 +82,21 @@ def main(argv: list[str] | None = None, *, input_fn=input) -> int:
                                "엔터를 누르면 신용카드 화면으로 이동합니다.")
                 page.goto(args.goto, timeout=int(cfg.get("timeout_ms", 20000)))
                 wait_for_human("화면이 다 뜨면 엔터를 눌러 주세요(표·버튼이 보일 때까지 기다렸다가).")
+            elif args.watch:
+                wait_for_human("브라우저에서 **로그인만** 해 주세요.\n"
+                               "엔터를 누른 뒤에는 평소처럼 수임처 › 회계 › 신용카드(매입) 로 "
+                               "이동만 하시면, 화면을 자동으로 잡습니다.")
             else:
                 wait_for_human("브라우저에서 로그인하고, 보정할 화면을 열어 두세요.\n"
                                + str(cfg.get("start_hint", "")))
             # 붙여넣기/전달이 쉽도록 파일로도 남긴다(화면 구조만 — 입력값·거래처명 없음).
             out = Path(args.inspect_out or "kafa-inspect.txt")
             while True:
-                lines = inspect_page(page)
+                if args.watch:
+                    lines = watch_screens(page, seconds=args.watch_seconds,
+                                          on_event=print)
+                else:
+                    lines = inspect_page(page)
                 for line in lines:
                     print(line)
                 out.write_text("\n".join(lines), encoding="utf-8")

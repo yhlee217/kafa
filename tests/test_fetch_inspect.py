@@ -192,3 +192,75 @@ def test_hint_detects_ledger_screen():
 def test_hint_unknown_screen():
     out = inspect_page(_Page(_Frame({"button:visible": [_El(text="확인")]})))
     assert "확신할 수 없습니다" in "\n".join(out)
+
+
+# ── 감시 모드: 사람은 로그인만, 화면 포착은 도구가 ──
+
+class _WatchPage(_Page):
+    """호출할 때마다 다음 화면으로 바뀌는 가짜 탭."""
+    def __init__(self, screens):
+        super().__init__()
+        self._screens, self._i = screens, 0
+
+    def evaluate(self, _js, _arg=None):
+        return f"화면{self._i}|10"
+
+    def advance(self):
+        self._i = min(self._i + 1, len(self._screens) - 1)
+        self.frames = [self._screens[self._i]]
+
+    @property
+    def url(self):
+        return f"https://x/{self._i}"
+
+    @url.setter
+    def url(self, _v):
+        pass
+
+
+def _dash_frame():
+    return _Frame({"button:visible": [_El(text="수집정보등록", attrs='class="b"')]})
+
+
+def _ledger_frame():
+    return _Frame({"button:visible": [
+        _El(text="상세검색 열기", attrs='class="btnmore"'),
+        _El(text="전표상태 안내", attrs='id="hint"')]})
+
+
+def test_watch_captures_ledger_after_navigation():
+    from kafa.fetch.inspect import watch_screens
+
+    pg = _WatchPage([_dash_frame(), _ledger_frame()])
+    pg.frames = [_dash_frame()]
+    events = []
+    out = watch_screens(pg, seconds=10, interval=0,
+                        on_event=events.append,
+                        sleep=lambda _s: pg.advance(),
+                        now=iter([0, 1, 2, 3, 4, 5, 6]).__next__)
+    joined = "\n".join(out)
+    assert "회계 전표 화면으로 보입니다" in joined
+    assert 'id="hint"' in joined
+    assert any("지나감(수임처 목록)" in e for e in events)
+
+
+def test_watch_times_out_with_screen_log():
+    from kafa.fetch.inspect import watch_screens
+
+    pg = _WatchPage([_dash_frame()])
+    pg.frames = [_dash_frame()]
+    out = watch_screens(pg, seconds=1, interval=0, sleep=lambda _s: None,
+                        now=iter([0, 0, 5]).__next__)
+    joined = "\n".join(out)
+    assert "찾지 못했습니다" in joined
+    assert "지나간 화면" in joined
+
+
+def test_masks_company_names_and_bizno():
+    """수임처 목록 화면을 훑어도 회사명·사업자번호는 남지 않는다."""
+    fr = _Frame({"a:visible": [
+        _El(text="(주) 어떤회사", attrs='id="tooltip_1"'),
+        _El(text="사업자 123-45-67890", attrs='id="t2"')]})
+    joined = "\n".join(inspect_page(_Page(fr)))
+    assert "어떤회사" not in joined and "123-45-67890" not in joined
+    assert "‹회사명›" in joined and "‹사업자번호›" in joined
