@@ -29,6 +29,24 @@ _COLLECT_JS = r"""
 
 _CNO_RE = re.compile(r"(cno=)\d+")
 
+# 화면에 '담당 수임처136' / '수임처 136개' 처럼 전체 수가 적혀 있다 — 다 모았는지 확인용.
+_TOTAL_JS = ("() => (document.body && document.body.innerText || '')"
+             r".replace(/\s+/g, ' ').slice(0, 4000)")
+_TOTAL_RE = re.compile(r"수임처\s*(\d{1,4})\s*개|담당\s*수임처\s*(\d{1,4})")
+
+
+def expected_total(page) -> int:
+    """화면이 알려주는 담당 수임처 수. 못 찾으면 0."""
+    for pg in pages_of(page):
+        try:
+            text = pg.evaluate(_TOTAL_JS) or ""
+        except Exception:  # noqa: BLE001
+            continue
+        m = _TOTAL_RE.search(text)
+        if m:
+            return int(m.group(1) or m.group(2))
+    return 0
+
 
 def url_template(url: str) -> str:
     """'...?sao&cno=10049328&x=1' → '...?sao&cno={cno}&x=1'. cno 가 없으면 빈 문자열."""

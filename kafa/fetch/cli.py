@@ -90,7 +90,8 @@ def main(argv: list[str] | None = None, *, input_fn=input) -> int:
     cfg = load_fetch_config(args.config)
 
     if args.discover:
-        from kafa.fetch.discover import collect_clients, merge, write_csv
+        from kafa.fetch.discover import (collect_clients, expected_total, merge,
+                                         write_csv)
         from kafa.fetch.session import browser_page, wait_for_human
         print(TOS_NOTICE)
         with browser_page(profile_dir=args.profile,
@@ -99,11 +100,21 @@ def main(argv: list[str] | None = None, *, input_fn=input) -> int:
             wait_for_human(
                 "브라우저에서 로그인하고 **수임처 목록 화면**을 열어 주세요.\n"
                 "엔터를 누를 때마다 보이는 만큼 모읍니다(페이지를 넘겨 가며 반복).")
+            total = expected_total(page)
+            if total:
+                print(f"   화면 표시: 담당 수임처 {total}곳")
             while True:
                 added = merge(known, collect_clients(page))
-                print(f"   모은 수임처 {len(known)}곳 (이번에 +{added})")
+                left = f" / 남은 것 약 {total - len(known)}곳" if total else ""
+                print(f"   모은 수임처 {len(known)}곳 (이번에 +{added}){left}")
+                if total and len(known) >= total:
+                    print("   전부 모았습니다.")
+                    break
                 ans = input_fn("   다음 페이지로 넘긴 뒤 엔터, 끝내려면 q + 엔터: ")
                 if (ans or "").strip().lower() in ("q", "quit", "끝", "ㅂ"):
+                    if total and len(known) < total:
+                        print(f"   [주의] {total}곳 중 {len(known)}곳만 모았습니다.",
+                              file=sys.stderr)
                     break
             out = write_csv(args.discover_out, known)
         if not known:

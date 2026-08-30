@@ -76,3 +76,29 @@ def test_collect_ignores_tabs_without_list():
     good = _Tab("https://y/", rows=[{"cno": "9", "name": "다"}])
     bad.context = _Ctx([bad, good])
     assert collect_clients(bad) == [{"cno": "9", "name": "다"}]
+
+
+def test_expected_total_reads_screen_count():
+    from kafa.fetch.discover import expected_total
+
+    class _T(_Tab):
+        def evaluate(self, js, _arg=None):
+            if "innerText" in js:
+                return "담당 수임처136 수임처관리 노란우산공제"
+            return []
+
+    tab = _T("https://x/")
+    tab.context = _Ctx([tab])
+    assert expected_total(tab) == 136
+
+
+def test_expected_total_zero_when_absent():
+    from kafa.fetch.discover import expected_total
+
+    class _T(_Tab):
+        def evaluate(self, js, _arg=None):
+            return "그런 표시 없음" if "innerText" in js else []
+
+    tab = _T("https://x/")
+    tab.context = _Ctx([tab])
+    assert expected_total(tab) == 0
