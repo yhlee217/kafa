@@ -208,13 +208,29 @@ def main(argv: list[str] | None = None, *, input_fn=input) -> int:
     cnos: dict = {}
     if args.master:
         from kafa.clients import client_cnos, client_urls
-        urls = client_urls(args.master)
-        cnos = client_cnos(args.master)
+        mp = Path(args.master)
+        if not mp.exists():
+            ap.error(f"수임처 마스터 파일이 없습니다: {args.master}\n"
+                     "       (예시 자리표시자 말고 실제 파일 경로를 넣어 주세요. "
+                     "파인더에서 파일을 터미널로 끌어다 놓으면 경로가 입력됩니다.)")
+        if mp.suffix.lower() not in (".xlsx", ".xlsm", ".csv"):
+            ap.error(f"읽을 수 없는 형식입니다: {mp.suffix or '(확장자 없음)'}\n"
+                     "       .xlsx 또는 kafa-fetch --discover 가 만든 .csv 를 주세요. "
+                     "옛 .xls 라면 엑셀에서 .xlsx 로 저장해 주세요.")
+        try:
+            urls = client_urls(args.master)
+            cnos = client_cnos(args.master)
+        except Exception as e:  # noqa: BLE001 — 사람이 고칠 수 있게 짧게 알린다
+            ap.error(f"수임처 마스터를 읽지 못했습니다: {type(e).__name__}: {e}")
         # 주소 전체는 수임처마다 다른 값이 섞여 있어 쓰지 않는다 — 코드만 쓴다.
         urls = {}
         if cnos:
             print(f"수임처 마스터: 수임처코드 {len(cnos)}곳 "
                   "(목록에서 코드로 정확히 열기)")
+        else:
+            ap.error("수임처 마스터에서 수임처코드를 못 찾았습니다.\n"
+                     "       엑셀이면 '접속 URL' 칸에 cno=... 가 들어 있어야 하고,\n"
+                     "       CSV 면 '수임처코드' 칸이 있어야 합니다.")
 
     if not args.inbox or not (args.clients or urls or cnos):
         ap.error("--inbox 와 --clients(또는 --master) 가 필요합니다(또는 --inspect).")

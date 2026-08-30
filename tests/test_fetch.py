@@ -618,3 +618,36 @@ def test_ledger_tab_closed_after_each_client(tmp_path):
               DownloadTask("A", "2026", cno="1"), tmp_path / "A" / "2026.xlsx",
               resolve=lambda: page)
     assert _Closable.closed
+
+
+# ── 마스터 파일 지정 실수에 친절히 ──
+
+def _run_cli(argv):
+    """CLI 를 돌리고 (종료코드, stderr) 를 돌려준다."""
+    import contextlib
+    import io
+
+    from kafa.fetch import cli as fetch_cli
+    err = io.StringIO()
+    try:
+        with contextlib.redirect_stderr(err), contextlib.redirect_stdout(io.StringIO()):
+            code = fetch_cli.main(argv)
+    except SystemExit as e:
+        code = e.code
+    return code, err.getvalue()
+
+
+def test_missing_master_file_gives_plain_message(tmp_path):
+    code, err = _run_cli(["--inbox", str(tmp_path), "--master",
+                          "<마스터 엑셀 경로>", "--whole", "--dry-run"])
+    assert code != 0
+    assert "수임처 마스터 파일이 없습니다" in err
+    assert "Traceback" not in err
+
+
+def test_unsupported_master_format_is_explained(tmp_path):
+    bad = tmp_path / "목록.xls"
+    bad.write_text("not really excel", encoding="utf-8")
+    code, err = _run_cli(["--inbox", str(tmp_path), "--master", str(bad),
+                          "--whole", "--dry-run"])
+    assert code != 0 and ".xlsx" in err
