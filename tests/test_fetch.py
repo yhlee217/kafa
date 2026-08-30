@@ -255,3 +255,20 @@ def test_kind_selection_skipped_when_not_configured(tmp_path):
     fetch_one(page, cfg, DownloadTask("A", "2026", url="https://x/1"),
               tmp_path / "A" / "2026.xlsx")
     assert not [e for e in page.log if e[1] == "TODO"]
+
+
+# ── --here: 이동 없이 열어 둔 화면에서 받기 ──
+
+def test_here_mode_does_not_navigate(tmp_path):
+    from kafa.fetch.wehago import fetch_one
+    page = _UrlPage()
+    dest = tmp_path / "행복상사" / "2026.xlsx"
+    fetch_one(page, _CFG_SCREEN, DownloadTask("행복상사", "2026", here=True), dest)
+    assert page.goto_urls == []                      # 주소 이동 없음
+    assert not [e for e in page.log if e[1] == "#s"]  # 화면 검색도 안 함
+    assert dest.exists()
+
+
+def test_here_mode_needs_no_search_selectors():
+    cfg = {**_CFG_SCREEN}
+    assert missing_selectors(cfg, url_mode=True) == []

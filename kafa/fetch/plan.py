@@ -51,8 +51,9 @@ def recent_months(n: int, *, today: date | None = None) -> list[str]:
 @dataclass(frozen=True)
 class DownloadTask:
     client: str            # 수임처 이름
-    period: str            # 'YYYY-MM'
+    period: str            # 'YYYY-MM' 또는 기수 라벨('2026')
     url: str = ""          # 있으면 화면 검색 없이 이 주소로 바로 이동(로그인 세션 필요)
+    here: bool = False     # True 면 이동하지 않고 **사람이 열어 둔 화면 그대로** 받는다
 
     @property
     def filename(self) -> str:

@@ -42,6 +42,9 @@ def main(argv: list[str] | None = None, *, input_fn=input) -> int:
                     help="수임처 마스터 엑셀(회사명+접속 URL). 주면 화면 검색 없이 "
                          "주소로 바로 이동하고, --clients 를 생략하면 전체를 대상으로 함")
     ap.add_argument("--months", type=int, help="최근 N개월")
+    ap.add_argument("--here", action="store_true",
+                    help="이동하지 않고 **지금 열어 둔 화면** 그대로 한 건만 받는다"
+                         "(한 곳 시험용). --clients 로 이름 하나를 함께 준다")
     ap.add_argument("--whole", nargs="?", const="", metavar="라벨",
                     help="화면에 잡혀 있는 기간(기수 전체 = 1년치)을 그대로 수임처당 1건씩 "
                          "받는다. 달력 조작이 없어 가장 안전하다. 파일 이름에 쓸 라벨을 "
@@ -143,6 +146,8 @@ def main(argv: list[str] | None = None, *, input_fn=input) -> int:
 
     if not args.inbox or not (args.clients or urls):
         ap.error("--inbox 와 --clients(또는 --master) 가 필요합니다(또는 --inspect).")
+    if args.here and len(_clients_from(args.clients or "")) != 1:
+        ap.error("--here 는 --clients 에 수임처 이름 **하나**만 주세요(한 곳 시험용).")
 
     clients = _clients_from(args.clients) if args.clients else list(urls)
     screen_mode = str(cfg.get("period_mode", "calendar")).strip().lower() == "screen"
@@ -162,6 +167,9 @@ def main(argv: list[str] | None = None, *, input_fn=input) -> int:
                  "달마다 다른 파일이 나오지 않으므로 --whole 로 1건씩 받으세요.")
 
     plan = build_plan(args.inbox, clients, periods, archive=args.archive, urls=urls)
+    if args.here:
+        from dataclasses import replace
+        plan.tasks[:] = [replace(t, url="", here=True) for t in plan.tasks]
     print(f"거래처 {len(clients)}곳 × 기간 {len(periods)}개월 = {plan.total}건")
     print(f"  받을 것 {len(plan.tasks)}건 / 이미 있음 {len(plan.skipped)}건")
 
@@ -172,7 +180,7 @@ def main(argv: list[str] | None = None, *, input_fn=input) -> int:
             print(f"   … 외 {len(plan.tasks) - 40}건")
         return 0
 
-    url_mode = bool(plan.tasks) and all(t.url for t in plan.tasks)
+    url_mode = bool(plan.tasks) and all(t.url or t.here for t in plan.tasks)
     miss = missing_selectors(cfg, url_mode=url_mode)
     if miss:
         print("\n[중단] 화면 selector 가 아직 보정되지 않았습니다: " + ", ".join(miss),
@@ -189,7 +197,12 @@ def main(argv: list[str] | None = None, *, input_fn=input) -> int:
     print(TOS_NOTICE)
     with browser_page(profile_dir=args.profile, attach_port=args.attach_port,
                       downloads_dir=args.inbox) as page:
-        wait_for_human("브라우저에서 로그인해 주세요.\n" + str(cfg.get("start_hint", "")))
+        if args.here:
+            wait_for_human(f"브라우저에서 로그인하고 **{clients[0]}** 의 신용카드(매입) "
+                           "화면을 열어 두세요.\n엔터를 누르면 그 화면에서 바로 받습니다.")
+        else:
+            wait_for_human("브라우저에서 로그인해 주세요.\n"
+                           + str(cfg.get("start_hint", "")))
         try:
             res = run_fetch(
                 page, plan, args.inbox, cfg=cfg,

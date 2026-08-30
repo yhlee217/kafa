@@ -93,8 +93,11 @@ def fetch_one(page, cfg: dict, task: DownloadTask, dest: Path) -> Path:
     timeout = int(cfg.get("timeout_ms", 20000))
     fmt = cfg.get("period_format", "%Y-%m")
 
-    # 1) 수임처로 이동 — URL 이 있으면 주소로 바로(로그인 세션 필요), 없으면 화면 검색
-    if task.url:
+    # 1) 수임처로 이동 — here 면 사람이 열어 둔 화면 그대로, URL 이 있으면 주소로 바로,
+    #    둘 다 아니면 화면에서 검색해 고른다.
+    if task.here:
+        pass
+    elif task.url:
         page.goto(task.url, timeout=timeout)
         marker = (cfg.get("selectors", {}) or {}).get("login_marker")
         if marker and page.query_selector(marker):
