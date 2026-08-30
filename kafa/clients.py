@@ -7,6 +7,7 @@ YAML 을 직접 편집하게 하는 대신, **엑셀 양식**을 채워 오면 �
 """
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 SHEET = "수임처"
@@ -193,6 +194,61 @@ def profiles_from_excel(path, *, max_header_scan: int = 20) -> list[dict]:
                 rec["url"] = url
         out.append(rec)
     return out
+
+
+def client_urls_from_csv(path) -> dict[str, str]:
+    """kafa-fetch --discover 가 만든 목록(CSV) → {회사명: 접속 URL}."""
+    import csv as _csv
+    out: dict[str, str] = {}
+    with Path(path).open("r", encoding="utf-8-sig", newline="") as fh:
+        for row in _csv.DictReader(fh):
+            name = _norm(row.get("회사명"))
+            url = _norm(row.get("접속 URL"))
+            if name and url.startswith("http"):
+                out[name] = url
+    return out
+
+
+def client_cnos_from_csv(path) -> dict[str, str]:
+    """kafa-fetch --discover 목록(CSV) → {회사명: 수임처코드}."""
+    import csv as _csv
+    out: dict[str, str] = {}
+    with Path(path).open("r", encoding="utf-8-sig", newline="") as fh:
+        for row in _csv.DictReader(fh):
+            name, cno = _norm(row.get("회사명")), _norm(row.get("수임처코드"))
+            if name and cno:
+                out[name] = cno
+    return out
+
+
+_CNO_IN_URL = re.compile(r"[?&]cno=(\d+)")
+
+
+def client_cnos_from_excel(path) -> dict[str, str]:
+    """수임처 마스터 엑셀 → {회사명: 수임처코드}.
+
+    접속 URL 안에 `cno=<코드>` 가 들어 있다. 주소 전체는 수임처마다 다른 값
+    (cd_com·gisu·companyID·taxNum)이 섞여 있어 쓸 수 없지만, **코드만은** 그대로
+    쓸 수 있다 — 목록에서 `a#tooltip_<코드>` 를 눌러 여는 데 필요한 값이다.
+    """
+    out: dict[str, str] = {}
+    for name, url in client_urls_from_excel(path).items():
+        m = _CNO_IN_URL.search(url)
+        if m:
+            out[name] = m.group(1)
+    return out
+
+
+def client_cnos(path) -> dict[str, str]:
+    """수임처 목록 파일 → {회사명: 수임처코드}. CSV 는 코드 칸, 엑셀은 URL 에서 추출."""
+    return (client_cnos_from_csv(path) if str(path).lower().endswith(".csv")
+            else client_cnos_from_excel(path))
+
+
+def client_urls(path) -> dict[str, str]:
+    """수임처 목록 파일 → {회사명: 접속 URL}. .csv 와 엑셀 둘 다 받는다."""
+    return (client_urls_from_csv(path) if str(path).lower().endswith(".csv")
+            else client_urls_from_excel(path))
 
 
 def client_urls_from_excel(path) -> dict[str, str]:

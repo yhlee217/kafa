@@ -1,34 +1,139 @@
 # 위하고 다운로드 화면 조작 설정 (감독형 수집)
 #
-# ⚠️ **보정(calibration) 필요** — 아래 selector 는 실제 화면을 보고 채워야 동작한다.
-#    화면 구조를 모른 채 추측해 넣지 않는다(잘못된 selector 는 엉뚱한 클릭을 유발).
-#    보정 방법: `kafa-fetch --inspect` 로 현재 화면의 후보 요소를 뽑아 확인 후 여기에 적는다.
+# 아래 selector 는 **실화면 기록**(kafa-fetch --inspect --record, 2026-08)으로 확인한 값이다.
+# 추측해 넣지 않는다 — 화면이 바뀌면 다시 --record 로 확인해 고친다.
+# 근거·기록 요약: docs/decisions.md
 #
 # ⚠️ **이용약관 확인은 사용자 책임.** 서비스가 자동화 접근을 금지하면 사용하지 말 것.
 
 # 사람이 로그인한 뒤 도달해 있어야 하는 화면(안내 문구에만 쓰임)
-start_hint: "전표관리 › 자동전표처리 › 신용카드 › 구분=매입 화면까지 열어 두세요."
+start_hint: "수임처 › 회계 › 전표관리 › 신용카드 화면까지 열어 두세요."
 
 # 서버 부담을 줄이기 위한 요청 간 대기(초). 너무 짧게 두지 말 것.
 delay_seconds: 3.0
 # 요소를 기다리는 최대 시간(밀리초)
 timeout_ms: 20000
+# 변환 완료 알림을 닫을 때의 대기(없을 수도 있으므로 짧게)
+confirm_timeout_ms: 5000
+
+# 느린 수임처 대비 — 화면이 뜰 때까지 기다리고, 안 되면 다시 시도한다.
+ready_timeout_ms: 30000        # 회계 화면·조회 결과 표가 나타날 때까지
+after_search_seconds: 1.5      # 조회 누른 뒤 결과가 그려질 시간
+menu_retries: 3                # 우클릭 메뉴가 안 뜨면 다시 시도할 횟수
+menu_retry_seconds: 2.0
+task_retries: 2                # 한 수임처를 통째로 다시 시도할 횟수
+retry_wait_seconds: 5.0
+
+# 이 문구(팝업)가 보이면 '받을 게 없음'으로 보고 넘어간다(실패로 세지 않음).
+empty_result_texts:
+  - "조회조건에 맞는 데이터가 없습니다"
+  - "조회된 자료가 없습니다"
+  - "조회할 자료가 없습니다"
+  - "데이터가 없습니다"
+  - "자료가 없습니다"
+
+# 조작할 탭 고르기 — 회계 모듈이 새 창으로 열리고 처음 탭이 닫히는 일이 있다.
+# 주소를 about:blank 로 보고하는 탭이 있어, 주소보다 **요소 존재 여부**를 더 크게 본다.
+page_url_hint: "smarta.wehago.com"
+dashboard_url_hint: "wehago.com/#/main"
+# 한 수임처를 끝내면 회계 탭을 닫는다(여러 곳을 돌 때 탭이 쌓이면 헷갈린다)
+close_ledger_after: true
+ignore_url_parts:            # 광고·추적용으로 열리는 탭(조작 대상 아님)
+  - "adtrafficquality.google"
+  - "googlesyndication.com"
+  - "doubleclick.net"
+  - "about:blank"
+
+# 기간을 정하는 방식
+#   screen   — 화면에 이미 잡혀 있는 기간을 그대로 쓴다. 위하고 기본값이 **기수 전체**
+#              (예: 2026.01.01 ~ 2026.12.31)라 1년치를 한 번에 받는다. 달력 조작 불필요.
+#   calendar — 달력을 눌러 월 단위로 지정(아래 period_* 보정 필요, 아직 미확정)
+period_mode: screen
+
+# 조회 구분 — 신용카드 화면은 매입/매출을 목록에서 고른다.
+kind_value: "2. 매입"
+# 구분을 코드가 직접 바꾼다. 수임처를 새로 열면 매출로 시작해 '조회조건에 맞는
+# 데이터가 없습니다' 가 뜨기 때문에 필요하다(2026-08-30 확인).
+# 잘못 잡을 위험은 ① 현재 값 글자를 눌러 여는 방식 ② 받은 파일 이름 검증으로 줄인다.
+kind_autoselect: true
+# 화면에 현재 구분이 글자로 보인다 — 매출이면 그 글자를 눌러 목록을 연다.
+kind_current_other: "1. 매출"
+# 후보 selector 하나를 시도하는 시간(짧게 — 안 되면 다음 후보로)
+kind_try_timeout_ms: 4000
+# 받은 파일 이름에 이 말이 있어야 매입 자료다(구분을 잘못 잡았을 때의 마지막 안전장치)
+expect_filename_contains: "매입"
 
 selectors:
-  # 수임처 선택 — **--master 로 접속 URL 을 주면 아래 둘은 필요 없다**(주소로 바로 이동).
-  client_search_input: TODO      # 거래처 검색 입력창
-  client_result_item: TODO       # 검색 결과 항목(이름으로 매칭)
-  # 기간 설정
-  period_from_input: TODO        # 조회 시작월 입력
-  period_to_input: TODO          # 조회 종료월 입력
-  search_button: TODO            # 조회 버튼
-  # 다운로드
-  excel_download_button: TODO    # '엑셀 다운로드' 버튼
+  # 수임처 선택 — 수임처 목록(대시보드)에서 이름으로 검색해 항목을 누른다.
+  # 주소로 바로 가는 방식은 쓰지 않는다: 화면 주소에 cno 말고도 cd_com·gisu·companyID·
+  # taxNum 처럼 **수임처마다 다른 값**이 들어 있어 틀로 만들 수 없다(2026-08-30 확인).
+  client_search_input: "input[placeholder*=\"회사명\"]"
+  # 목록 링크는 a#tooltip_<수임처코드> — 코드가 있으면 이름이 겹쳐도 정확히 집힌다.
+  client_result_by_cno: "a#tooltip_{cno}"
+  client_result_item: "a[id^=\"tooltip_\"]:has-text(\"{client}\")"
+
+  # 구분(매입/매출) — 이미 매입이면 건드리지 않는다(화면에 현재 값이 글자로 보인다).
+  kind_current: "text=\"{kind}\""
+  # 비슷한 드롭다운이 여러 개라 후보를 차례로 시도한다(보이는 것만).
+  # 목록 열기 — 현재 값 글자를 누르는 게 가장 확실하다(비슷한 드롭다운이 3개라
+  # class 로 집으면 접혀 있는 것을 먼저 잡는다).
+  kind_select_open:
+    - "text=\"{other}\""
+    - "div.LS_saoinput div.LS_ngh_select2 div.fake_inputbox div.fakebutton:visible"
+    - "div.LS_ngh_select2 div.fake_inputbox div.fakebutton:visible"
+  kind_option: "li.LSnghSelectResult_listitem a:has-text(\"{kind}\")"
+
+  # 조회 — '휴폐업조회' 와 구분하려고 조회 영역 안의 버튼으로 한정한다
+  search_button:
+    - "div#SAOSearchMain button.LUX_basic_btn.Default.basic"
+    - "button.LUX_basic_btn.Default.basic:has-text(\"조회\")"
+
+  # 다운로드 — '엑셀변환' 은 조회 결과 표의 **데이터 행에서 우클릭**해야 나오는
+  # 메뉴 안에 있다(담당자 확인 2026-08-30). 표는 canvas 로 그려진다.
+  excel_context_target:
+    - "div#GRID_TOP canvas"
+    - "div#GRID_TOP"
+  # 우클릭으로 열린 메뉴의 '엑셀변환'. 누르면 파일이 만들어지고 알림이 뜬다.
+  excel_download_button:
+    - "td:text-is(\"엑셀변환\")"
+    - "*:text-is(\"엑셀변환\")"
+    - "text=\"엑셀변환\""
+    - "a:has-text(\"조회한 데이터를 엑셀로 변환\")"
+  download_confirm: "button#confirm"
+  # 알림 팝업 닫기(자료 없음 등) — 안 닫으면 다음 수임처 화면이 가려진다
+  popup_confirm:
+    - "button#confirm"
+    - "button:has-text(\"확인\")"
+    - "div.dialog_btnbx button"
+
+  # 달력 방식(period_mode: calendar)으로 월 단위 수집을 하려면 아래를 보정해야 한다.
+  # 실화면 기록상 시작일/종료일 모두 '달력 열기' 버튼을 눌러 월 이동 후 날짜를 클릭하는
+  # 방식이라 단순 입력(fill)이 되지 않는다. 확정 전까지 screen 모드를 쓴다.
+  period_from_input: TODO
+  period_to_input: TODO
+
   # (선택) 결과가 없을 때 나타나는 요소 — 있으면 빈 달을 빨리 건너뛴다
   empty_result_marker: null
   # (선택) 로그인 화면에만 있는 요소. 지정하면 세션 만료를 감지해 사람에게 재로그인을
   # 요청하고 그 건부터 이어서 진행한다(자동 로그인은 하지 않음). 예: "input[type=password]"
   login_marker: null
 
-# 기간 입력 형식. 화면이 'YYYY-MM' 이 아니면 바꾼다(예: "%Y%m", "%Y.%m").
+# 기간 입력 형식(calendar 모드에서만 쓰임).
 period_format: "%Y-%m"
+
+# 수임처 목록 자동 넘기기(kafa-fetch --discover)
+# 화면마다 방식이 달라 쪽번호 → '다음' 버튼 → 스크롤 순서로 시도한다.
+discover:
+  max_pages: 40
+  wait_seconds: 1.5
+  click_timeout_ms: 2500
+  page_number_button:
+    - "button:text-is(\"{n}\")"
+    - "a:text-is(\"{n}\")"
+  next_buttons:
+    - "button[title=\"다음\"]"
+    - "button[aria-label=\"다음\"]"
+    - "button:text-is(\"다음\")"
+    - "a:text-is(\"다음\")"
+  scroll: true
+  scroll_container: null

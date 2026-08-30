@@ -32,7 +32,7 @@ def _clients_from(arg: str) -> list[str]:
     return [c.strip() for c in arg.split(",") if c.strip()]
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(argv: list[str] | None = None, *, input_fn=input) -> int:
     ap = argparse.ArgumentParser(
         prog="kafa-fetch",
         description="감독형 수집 — 로그인은 사람이, 반복 다운로드는 자동으로")
@@ -42,6 +42,21 @@ def main(argv: list[str] | None = None) -> int:
                     help="수임처 마스터 엑셀(회사명+접속 URL). 주면 화면 검색 없이 "
                          "주소로 바로 이동하고, --clients 를 생략하면 전체를 대상으로 함")
     ap.add_argument("--months", type=int, help="최근 N개월")
+    ap.add_argument("--discover", action="store_true",
+                    help="수임처 목록과 접속 URL 을 화면에서 직접 모아 파일로 저장"
+                         "(수임처 마스터 엑셀 없이 --master 로 쓸 목록을 만든다)")
+    ap.add_argument("--discover-out", default="clients_urls.csv",
+                    help="--discover 결과 저장 경로(기본 clients_urls.csv)")
+    ap.add_argument("--discover-manual", action="store_true",
+                    help="--discover 시 페이지를 사람이 넘긴다(자동 넘기기가 안 될 때)")
+    ap.add_argument("--fail-dump", help="실패 시 화면 덤프 저장 경로(기본 kafa-fail.txt)")
+    ap.add_argument("--here", action="store_true",
+                    help="이동하지 않고 **지금 열어 둔 화면** 그대로 한 건만 받는다"
+                         "(한 곳 시험용). --clients 로 이름 하나를 함께 준다")
+    ap.add_argument("--whole", nargs="?", const="", metavar="라벨",
+                    help="화면에 잡혀 있는 기간(기수 전체 = 1년치)을 그대로 수임처당 1건씩 "
+                         "받는다. 달력 조작이 없어 가장 안전하다. 파일 이름에 쓸 라벨을 "
+                         "줄 수 있다(기본: 올해)")
     ap.add_argument("--from", dest="frm", help="시작 기간 YYYY-MM")
     ap.add_argument("--to", dest="to", help="종료 기간 YYYY-MM")
     ap.add_argument("--archive", help="처리 완료 보관 폴더(out/_archive) — 있으면 재수집 생략")
@@ -56,6 +71,18 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--goto",
                     help="--inspect 시 로그인 후 이 주소로 이동한 뒤 살펴본다"
                          "(수임처 마스터의 '접속 URL' 하나를 넣으면 신용카드 화면으로 바로 감)")
+    ap.add_argument("--record", action="store_true",
+                    help="--inspect 시 사람이 직접 한 번 받는 동안 클릭·입력 순서를 기록"
+                         "(엑셀 메뉴·달력처럼 화면만 봐선 알 수 없는 순서를 잡는다)")
+    ap.add_argument("--record-seconds", type=float, default=300.0,
+                    help="--record 최대 기록 시간(초, 기본 300)")
+    ap.add_argument("--watch", action="store_true",
+                    help="--inspect 시 로그인만 하면, 화면 전환을 지켜보다가 "
+                         "신용카드(회계 전표) 화면이 뜨는 순간 자동으로 잡는다")
+    ap.add_argument("--watch-seconds", type=float, default=300.0,
+                    help="--watch 최대 감시 시간(초, 기본 300)")
+    ap.add_argument("--no-keep-open", action="store_true",
+                    help="작업이 끝나면 묻지 않고 브라우저를 닫는다(무인 실행용)")
     args = ap.parse_args(argv)
 
     from kafa.fetch.plan import build_plan, months_between, recent_months
@@ -64,8 +91,68 @@ def main(argv: list[str] | None = None) -> int:
 
     cfg = load_fetch_config(args.config)
 
+    if args.discover:
+        from kafa.fetch.discover import (auto_collect, collect_clients,
+                                         expected_total, merge,
+                                         pagination_report, shape_report,
+                                         write_csv)
+        from kafa.fetch.session import browser_page, wait_for_human
+        print(TOS_NOTICE)
+        with browser_page(profile_dir=args.profile,
+                          attach_port=args.attach_port) as page:
+            known: dict = {}
+            if args.discover_manual:
+                wait_for_human(
+                    "브라우저에서 로그인하고 **수임처 목록 화면**을 열어 주세요.\n"
+                    "엔터를 누를 때마다 보이는 만큼 모읍니다(페이지를 넘겨 가며 반복).")
+                total = expected_total(page)
+                if total:
+                    print(f"   화면 표시: 담당 수임처 {total}곳")
+                while True:
+                    added = merge(known, collect_clients(page))
+                    left = f" / 남은 것 약 {total - len(known)}곳" if total else ""
+                    print(f"   모은 수임처 {len(known)}곳 (이번에 +{added}){left}")
+                    if total and len(known) >= total:
+                        print("   전부 모았습니다.")
+                        break
+                    ans = input_fn("   다음 페이지로 넘긴 뒤 엔터, 끝내려면 q + 엔터: ")
+                    if (ans or "").strip().lower() in ("q", "quit", "끝", "ㅂ"):
+                        break
+            else:
+                wait_for_human(
+                    "브라우저에서 로그인하고 **수임처 목록 화면**을 열어 주세요.\n"
+                    "엔터를 누르면 페이지를 **알아서 넘기며** 전부 모읍니다.")
+                auto_collect(page, cfg, on_event=lambda m: print(f"   {m}"),
+                             known=known)
+            total = expected_total(page)
+            if total and len(known) < total:
+                print(f"   [주의] {total}곳 중 {len(known)}곳만 모았습니다.",
+                      file=sys.stderr)
+                # 어떤 컨트롤로 넘겨야 하는지 보정할 수 있게 후보를 남긴다.
+                rep = Path("kafa-discover.txt")
+                try:
+                    rep.write_text("\n".join(shape_report(page)
+                                             + pagination_report(page)),
+                                   encoding="utf-8")
+                    print(f"   넘기기 후보를 저장했습니다: {rep.resolve()}",
+                          file=sys.stderr)
+                except Exception as e:  # noqa: BLE001
+                    print(f"   후보 저장 실패: {e}", file=sys.stderr)
+                print("   --discover-manual 로 직접 넘기며 모을 수도 있습니다.",
+                      file=sys.stderr)
+            out = write_csv(args.discover_out, known)
+        if not known:
+            print("\n[중단] 수임처를 하나도 모으지 못했습니다(목록 화면이 맞나요?).",
+                  file=sys.stderr)
+            return 2
+        print(f"\n[저장] {out.resolve()}  — 수임처 {len(known)}곳")
+        print("   이 파일은 수임처 실명이 들어 있어 **로컬에만** 두세요.")
+        print(f"\n다음: kafa-fetch --inbox <폴더> --master {out} --whole")
+        print("   (수임처 목록 화면을 열어 둔 채로 실행하면 한 곳씩 열어 받습니다)")
+        return 0
+
     if args.inspect:
-        from kafa.fetch.inspect import inspect_page
+        from kafa.fetch.inspect import inspect_page, screen_hint, watch_screens
         from kafa.fetch.session import browser_page, wait_for_human
         print(TOS_NOTICE)
         with browser_page(profile_dir=args.profile,
@@ -75,36 +162,106 @@ def main(argv: list[str] | None = None) -> int:
                                "엔터를 누르면 신용카드 화면으로 이동합니다.")
                 page.goto(args.goto, timeout=int(cfg.get("timeout_ms", 20000)))
                 wait_for_human("화면이 다 뜨면 엔터를 눌러 주세요(표·버튼이 보일 때까지 기다렸다가).")
+            elif args.record:
+                wait_for_human(
+                    "브라우저에서 **로그인하고 신용카드(매입) 화면까지** 가 주세요.\n"
+                    "엔터를 누른 뒤, 평소처럼 기간을 고르고 조회한 다음 엑셀을 한 번\n"
+                    "받아 보시면 그 순서를 기록합니다.")
+            elif args.watch:
+                wait_for_human("브라우저에서 **로그인만** 해 주세요.\n"
+                               "엔터를 누른 뒤에는 평소처럼 수임처 › 회계 › 신용카드(매입) 로 "
+                               "이동만 하시면, 화면을 자동으로 잡습니다.")
             else:
                 wait_for_human("브라우저에서 로그인하고, 보정할 화면을 열어 두세요.\n"
                                + str(cfg.get("start_hint", "")))
-            lines = inspect_page(page)
-        for line in lines:
-            print(line)
-        # 붙여넣기/전달이 쉽도록 파일로도 남긴다(화면 구조만 — 입력값·거래처명 없음).
-        out = Path(args.inspect_out or "kafa-inspect.txt")
-        out.write_text("\n".join(lines), encoding="utf-8")
-        print(f"\n[저장] {out.resolve()}  ← 이 파일을 보내주시면 selector 를 채워 드립니다.")
+            # 붙여넣기/전달이 쉽도록 파일로도 남긴다(화면 구조만 — 입력값·거래처명 없음).
+            default_out = "kafa-record.txt" if args.record else "kafa-inspect.txt"
+            out = Path(args.inspect_out or default_out)
+            while True:
+                if args.record:
+                    from kafa.fetch.record import record_flow
+                    lines = record_flow(page, seconds=args.record_seconds,
+                                        on_event=print)
+                elif args.watch:
+                    lines = watch_screens(page, seconds=args.watch_seconds,
+                                          on_event=print)
+                else:
+                    lines = inspect_page(page)
+                for line in lines:
+                    print(line)
+                out.write_text("\n".join(lines), encoding="utf-8")
+                print(f"\n[저장] {out.resolve()}"
+                      "  ← 이 파일을 보내주시면 selector 를 채워 드립니다.")
+                # 판정을 맨 마지막에 한 번 더 — 출력이 길어 위로 밀려 안 보이기 쉽다.
+                if not args.record:
+                    print()
+                    for line in screen_hint(lines):
+                        print(line)
+                if args.no_keep_open:
+                    break
+                # 화면을 잘못 잡았을 때 브라우저를 다시 띄우지 않고 그 자리에서 재시도한다.
+                ans = input_fn("\n브라우저는 열어 둔 채입니다. 화면을 옮긴 뒤 "
+                               "다시 살펴보려면 r + 엔터, 끝내려면 그냥 엔터: ")
+                if (ans or "").strip().lower() not in ("r", "ㄱ", "다시"):
+                    break
         return 0
 
     urls: dict = {}
+    cnos: dict = {}
     if args.master:
-        from kafa.clients import client_urls_from_excel
-        urls = client_urls_from_excel(args.master)
-        print(f"수임처 마스터: URL {len(urls)}곳 (주소로 바로 이동 — 화면 검색 생략)")
+        from kafa.clients import client_cnos, client_urls
+        mp = Path(args.master)
+        if not mp.exists():
+            ap.error(f"수임처 마스터 파일이 없습니다: {args.master}\n"
+                     "       (예시 자리표시자 말고 실제 파일 경로를 넣어 주세요. "
+                     "파인더에서 파일을 터미널로 끌어다 놓으면 경로가 입력됩니다.)")
+        if mp.suffix.lower() not in (".xlsx", ".xlsm", ".csv"):
+            ap.error(f"읽을 수 없는 형식입니다: {mp.suffix or '(확장자 없음)'}\n"
+                     "       .xlsx 또는 kafa-fetch --discover 가 만든 .csv 를 주세요. "
+                     "옛 .xls 라면 엑셀에서 .xlsx 로 저장해 주세요.")
+        try:
+            urls = client_urls(args.master)
+            cnos = client_cnos(args.master)
+        except Exception as e:  # noqa: BLE001 — 사람이 고칠 수 있게 짧게 알린다
+            ap.error(f"수임처 마스터를 읽지 못했습니다: {type(e).__name__}: {e}")
+        # 주소 전체는 수임처마다 다른 값이 섞여 있어 쓰지 않는다 — 코드만 쓴다.
+        urls = {}
+        if cnos:
+            print(f"수임처 마스터: 수임처코드 {len(cnos)}곳 "
+                  "(목록에서 코드로 정확히 열기)")
+        else:
+            ap.error("수임처 마스터에서 수임처코드를 못 찾았습니다.\n"
+                     "       엑셀이면 '접속 URL' 칸에 cno=... 가 들어 있어야 하고,\n"
+                     "       CSV 면 '수임처코드' 칸이 있어야 합니다.")
 
-    if not args.inbox or not (args.clients or urls):
+    if not args.inbox or not (args.clients or urls or cnos):
         ap.error("--inbox 와 --clients(또는 --master) 가 필요합니다(또는 --inspect).")
+    if args.here and len(_clients_from(args.clients or "")) != 1:
+        ap.error("--here 는 --clients 에 수임처 이름 **하나**만 주세요(한 곳 시험용).")
 
-    clients = _clients_from(args.clients) if args.clients else list(urls)
-    if args.frm and args.to:
+    clients = (_clients_from(args.clients) if args.clients
+               else list(urls) or list(cnos))
+    screen_mode = str(cfg.get("period_mode", "calendar")).strip().lower() == "screen"
+    if args.whole is not None:
+        from datetime import date
+        periods = [args.whole or str(date.today().year)]
+    elif args.frm and args.to:
         periods = months_between(args.frm, args.to)
     elif args.months:
         periods = recent_months(args.months)
     else:
-        ap.error("--months 또는 --from/--to 로 기간을 지정하세요.")
+        ap.error("--whole, --months, --from/--to 중 하나로 기간을 지정하세요.")
 
-    plan = build_plan(args.inbox, clients, periods, archive=args.archive, urls=urls)
+    # 화면 기간을 그대로 쓰는 모드에서 여러 달을 돌리면 같은 파일을 반복해 받게 된다.
+    if screen_mode and len(periods) > 1:
+        ap.error("설정이 period_mode: screen 입니다(화면에 잡힌 기간 그대로). "
+                 "달마다 다른 파일이 나오지 않으므로 --whole 로 1건씩 받으세요.")
+
+    plan = build_plan(args.inbox, clients, periods, archive=args.archive,
+                      urls=urls, cnos=cnos)
+    if args.here:
+        from dataclasses import replace
+        plan.tasks[:] = [replace(t, url="", here=True) for t in plan.tasks]
     print(f"거래처 {len(clients)}곳 × 기간 {len(periods)}개월 = {plan.total}건")
     print(f"  받을 것 {len(plan.tasks)}건 / 이미 있음 {len(plan.skipped)}건")
 
@@ -115,7 +272,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"   … 외 {len(plan.tasks) - 40}건")
         return 0
 
-    url_mode = bool(plan.tasks) and all(t.url for t in plan.tasks)
+    url_mode = bool(plan.tasks) and all(t.url or t.here for t in plan.tasks)
     miss = missing_selectors(cfg, url_mode=url_mode)
     if miss:
         print("\n[중단] 화면 selector 가 아직 보정되지 않았습니다: " + ", ".join(miss),
@@ -132,18 +289,52 @@ def main(argv: list[str] | None = None) -> int:
     print(TOS_NOTICE)
     with browser_page(profile_dir=args.profile, attach_port=args.attach_port,
                       downloads_dir=args.inbox) as page:
-        wait_for_human("브라우저에서 로그인해 주세요.\n" + str(cfg.get("start_hint", "")))
+        if args.here:
+            wait_for_human(f"브라우저에서 로그인하고 **{clients[0]}** 의 신용카드(매입) "
+                           "화면을 열어 두세요.\n엔터를 누르면 그 화면에서 바로 받습니다.")
+        else:
+            wait_for_human("브라우저에서 로그인해 주세요.\n"
+                           + str(cfg.get("start_hint", "")))
+        # 실패하면 그 순간의 화면을 한 번 덤프해 둔다 — 무엇이 안 맞았는지 바로 보인다.
+        fail_dump = Path(args.fail_dump or "kafa-fail.txt")
+        dumped = []
+
+        def _on_failure(task, exc):
+            print(f"     ↳ {exc}", file=sys.stderr)
+            if dumped:
+                return
+            dumped.append(True)
+            from kafa.fetch.inspect import inspect_page
+            try:
+                fail_dump.write_text("\n".join(
+                    [f"[실패] {task.client}/{task.period}: {exc}", ""]
+                    + inspect_page(page)), encoding="utf-8")
+                print(f"     ↳ 실패 시점 화면을 저장했습니다: {fail_dump.resolve()}",
+                      file=sys.stderr)
+            except Exception as e:  # noqa: BLE001 — 덤프 실패가 수집을 막지 않게
+                print(f"     ↳ 화면 저장 실패: {e}", file=sys.stderr)
+
         try:
             res = run_fetch(
                 page, plan, args.inbox, cfg=cfg,
                 on_progress=lambda t, s: print(f"  [{s}] {t.client}/{t.period}"),
+                on_step=lambda m: print(f"     · {m}"),
+                on_failure=_on_failure,
                 on_session_expired=lambda: wait_for_human(
                     "로그인이 풀렸습니다. 브라우저에서 다시 로그인해 주세요."))
         except NotCalibrated as e:
             print(f"\n[중단] {e}", file=sys.stderr)
             return 2
+        if not args.no_keep_open:
+            input_fn("\n브라우저는 열어 둔 채입니다. 확인이 끝나면 엔터를 누르세요... ")
 
-    print(f"\n저장 {len(res.saved)}건 / 실패 {len(res.failures)}건 / 생략 {res.skipped}건")
+    print(f"\n저장 {len(res.saved)}건 / 자료없음 {len(res.empty)}건 / "
+          f"실패 {len(res.failures)}건 / 생략 {res.skipped}건"
+          + (f" (재시도 {res.retried}회)" if res.retried else ""))
+    for label in res.empty[:20]:
+        print(f"  [자료없음] {label}")
+    if len(res.empty) > 20:
+        print(f"  … 외 {len(res.empty) - 20}건")
     for k, v in res.failures.items():
         print(f"  [실패] {k} → {v}", file=sys.stderr)
     print(f"\n다음: kafa-pipeline {args.inbox} <출력폴더>")

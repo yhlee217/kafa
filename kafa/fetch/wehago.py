@@ -18,16 +18,50 @@ from kafa.fetch.plan import DownloadPlan, DownloadTask, target_path
 
 _DEFAULT_CFG = Path(__file__).resolve().parent.parent.parent / "config" / "fetch" / "wehago.yaml"
 
+# 기간을 어떻게 정하느냐에 따라 필요한 selector 가 다르다.
+#   screen   — 화면에 이미 설정된 기간(기수 전체 = 1년치) 그대로 받는다. 달력 조작 없음.
+#   calendar — 달력을 눌러 월 단위로 지정한다(클릭 순서 보정 필요).
+# 실화면 기록(2026-08) 결과 기수 기본값이 '2026.01.01 ~ 2026.12.31' 이라, screen 모드면
+# 달력을 건드리지 않고 1년치를 한 번에 받을 수 있다. 근거: docs/decisions.md
+PERIOD_MODES = ("screen", "calendar")
+_BASE_SELECTORS = ("search_button", "excel_download_button")
+_SEARCH_SELECTORS = ("client_search_input", "client_result_item")
+_CALENDAR_SELECTORS = ("period_from_input", "period_to_input")
+
 # URL 로 바로 이동할 때는 거래처 검색·선택이 필요 없어 보정 부담이 준다.
-REQUIRED_SELECTORS = ("client_search_input", "client_result_item",
-                      "period_from_input", "period_to_input",
-                      "search_button", "excel_download_button")
-REQUIRED_SELECTORS_URL_MODE = ("period_from_input", "period_to_input",
-                               "search_button", "excel_download_button")
+REQUIRED_SELECTORS = _SEARCH_SELECTORS + _CALENDAR_SELECTORS + _BASE_SELECTORS
+REQUIRED_SELECTORS_URL_MODE = _CALENDAR_SELECTORS + _BASE_SELECTORS
+
+
+def required_selectors(cfg: dict, *, url_mode: bool = False) -> tuple[str, ...]:
+    """이 설정에서 실제로 필요한 selector 이름들."""
+    mode = str((cfg or {}).get("period_mode", "calendar")).strip().lower()
+    names = _BASE_SELECTORS
+    if mode != "screen":
+        names = _CALENDAR_SELECTORS + names
+    if not url_mode:
+        names = _SEARCH_SELECTORS + names
+    return names
 
 
 class SessionExpired(RuntimeError):
     """로그인 세션이 끊김 — 사람이 다시 로그인해야 한다(자동 로그인 하지 않음)."""
+
+
+class NoData(RuntimeError):
+    """조회 결과가 없다 — 실패가 아니라 '받을 게 없음'으로 센다."""
+
+
+class NotReady(RuntimeError):
+    """화면이 제 시간 안에 준비되지 않았다(로딩이 느린 수임처)."""
+
+
+class NoAppPage(RuntimeError):
+    """위하고 화면이 있는 탭을 못 찾음 — 잘못된 탭을 조작하지 않으려고 멈춘다."""
+
+
+class StepFailed(RuntimeError):
+    """어느 단계·어느 selector 에서 막혔는지 밝혀 준다(그냥 TimeoutError 면 못 고친다)."""
 
 
 class NotCalibrated(RuntimeError):
@@ -45,11 +79,79 @@ def missing_selectors(cfg: dict, *, url_mode: bool = False) -> list[str]:
     """아직 TODO/빈값인 필수 selector 목록. url_mode 면 검색 관련은 제외."""
     sel = cfg.get("selectors", {}) or {}
     out = []
-    for k in (REQUIRED_SELECTORS_URL_MODE if url_mode else REQUIRED_SELECTORS):
-        v = sel.get(k)
-        if v is None or is_todo(v) or not str(v).strip():
+    for k in required_selectors(cfg, url_mode=url_mode):
+        if not _as_list(sel.get(k)):
             out.append(k)
     return out
+
+
+def _is_open(pg) -> bool:
+    try:
+        return not pg.is_closed()
+    except Exception:  # noqa: BLE001 — is_closed 가 없는 구현(테스트 더블)
+        return True
+
+
+def _url_lower(pg) -> str:
+    try:
+        return (pg.url or "").lower()
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def _first_selector(value) -> str:
+    cands = _as_list(value)
+    return cands[0] if cands else ""
+
+
+def pick_page(page, cfg: dict, *, want: str = "ledger"):
+    """조작할 탭을 고른다(want='ledger' 전표화면 / 'dashboard' 수임처 목록).
+
+    회계 모듈이 새 창으로 열리고 처음 탭이 닫히는 일이 있어, 붙잡아 둔 page 객체가
+    죽는다(TargetClosedError). 매번 **지금 살아 있는 탭 중 맞는 화면**을 고른다.
+    주소를 about:blank 로 보고하는 탭이 있어 **요소 존재 여부**를 더 크게 본다.
+    """
+    from kafa.fetch.inspect import pages_of
+
+    cfg = cfg or {}
+    sel = cfg.get("selectors", {}) or {}
+    ignore = [str(x).lower() for x in (cfg.get("ignore_url_parts") or [])
+              if str(x).lower() != "about:blank"]
+    if want == "dashboard":
+        hint = str(cfg.get("dashboard_url_hint") or "").strip().lower()
+        marker = _first_selector(sel.get("client_search_input"))
+    else:
+        hint = str(cfg.get("page_url_hint") or "").strip().lower()
+        marker = _first_selector(sel.get("search_button"))
+
+    candidates = [pg for pg in pages_of(page) if _is_open(pg)]
+    candidates = [pg for pg in candidates
+                  if not any(bad in _url_lower(pg) for bad in ignore)]
+    best, best_score = None, -1
+    for pg in candidates:
+        score = 0
+        if hint and hint in _url_lower(pg):
+            score += 2
+        if marker:
+            try:
+                if pg.query_selector(marker):
+                    score += 3
+            except Exception:  # noqa: BLE001 — 로딩 중이면 못 볼 수 있다
+                pass
+        if score > best_score:
+            best, best_score = pg, score
+    if best is not None and best_score > 0:
+        return best
+    if want == "dashboard":
+        raise NoAppPage("수임처 목록 화면을 찾지 못했습니다. "
+                        "위하고 메인(수임처 목록) 탭을 열어 두세요.")
+    if _is_open(page):
+        return page                      # 아직 이동 전이면 원래 탭 그대로
+    if candidates:
+        return candidates[-1]            # 마지막으로 열린 탭
+    raise NoAppPage(
+        "위하고 화면이 있는 탭을 찾지 못했습니다(원래 탭이 닫혔을 수 있습니다). "
+        "신용카드 화면 탭을 열어 둔 채로 다시 실행해 주세요.")
 
 
 def format_period(period: str, fmt: str) -> str:
@@ -63,47 +165,348 @@ class FetchResult:
     saved: list[Path] = field(default_factory=list)
     failures: dict[str, str] = field(default_factory=dict)   # "고객/기간" → 사유
     skipped: int = 0
+    empty: list[str] = field(default_factory=list)           # 조회 결과가 없던 곳
+    retried: int = 0                                         # 다시 시도한 횟수
 
     @property
     def ok(self) -> bool:
         return not self.failures
 
 
-def fetch_one(page, cfg: dict, task: DownloadTask, dest: Path) -> Path:
-    """한 거래처·한 기간을 받아 dest 에 저장. 실패 시 예외."""
+def _as_list(value) -> list[str]:
+    """selector 는 하나 또는 후보 여러 개(먼저 눌리는 것 사용)."""
+    if value is None:
+        return []
+    values = value if isinstance(value, (list, tuple)) else [value]
+    return [str(v).strip() for v in values
+            if v is not None and str(v).strip() and not is_todo(v)]
+
+
+def _click_any(page, selectors, timeout: int, what: str, *, button: str = "left"):
+    """후보 selector 를 차례로 눌러 본다. 하나라도 되면 그 selector 를 돌려준다.
+
+    화면에 비슷한 요소가 많거나 위하고가 화면 구조를 조금 바꿔도 견디게 하기 위함.
+    마지막 후보까지 실패하면 시도한 목록을 붙여 예외를 던진다.
+    """
+    cands = _as_list(selectors)
+    if not cands:
+        raise StepFailed(f"[{what}] 누를 selector 가 설정되지 않았습니다")
+    errors = []
+    for i, cand in enumerate(cands):
+        # 마지막 후보에는 남은 시간을 다 준다(앞 후보는 짧게 훑고 넘어간다).
+        t = timeout if i == len(cands) - 1 else min(timeout, 5000)
+        try:
+            if button == "left":
+                page.click(cand, timeout=t)
+            else:
+                page.click(cand, timeout=t, button=button)
+            return cand
+        except Exception as e:  # noqa: BLE001 — 다음 후보로
+            errors.append(f"{cand} → {type(e).__name__}")
+    raise StepFailed(f"[{what}] 후보를 모두 시도했지만 못 눌렀습니다: "
+                     + " | ".join(errors))
+
+
+def _click_any_right(page, selectors, timeout: int, what: str):
+    """오른쪽 클릭으로 컨텍스트 메뉴를 연다(후보를 차례로 시도)."""
+    return _click_any(page, selectors, timeout, what, button="right")
+
+
+def _wait_ready(get_page, selectors, timeout_ms: int, what: str, *,
+                sleep=None, say=None) -> bool:
+    """요소가 나타날 때까지 기다린다(느린 수임처 대비).
+
+    페이지 자체가 바뀔 수 있어 매번 다시 고른다. 못 기다리면 NotReady.
+    """
+    import time as _time
+
+    sleep = sleep or _time.sleep
+    say = say or (lambda _m: None)
+    cands = _as_list(selectors)
+    if not cands:
+        return False
+    deadline = _time.monotonic() + timeout_ms / 1000.0
+    waited = False
+    while True:
+        pg = get_page()
+        for cand in cands:
+            try:
+                if pg.query_selector(cand):
+                    if waited:
+                        say(f"{what} 준비됨")
+                    return True
+            except Exception:  # noqa: BLE001 — 로딩 중이면 못 볼 수 있다
+                pass
+        if _time.monotonic() >= deadline:
+            raise NotReady(f"[{what}] {int(timeout_ms / 1000)}초 안에 화면이 "
+                           "준비되지 않았습니다")
+        if not waited:
+            say(f"{what} 기다리는 중…")
+            waited = True
+        sleep(0.5)
+
+
+def _has_any_text(pg, texts) -> str:
+    """화면에 이 문구가 있으면 그 문구를 돌려준다(조회 결과 없음 판정용)."""
+    for t in texts or []:
+        try:
+            if pg.query_selector(f'text="{t}"'):
+                return str(t)
+        except Exception:  # noqa: BLE001
+            continue
+    return ""
+
+
+def _watch_for_empty(get_page, cfg: dict, sleep) -> str:
+    """조회 직후 '자료 없음' 팝업이 뜨는지 잠깐 지켜본다. 뜨면 그 문구를 돌려준다."""
+    import time as _time
+
+    texts = cfg.get("empty_result_texts") or []
+    if not texts:
+        sleep(float(cfg.get("after_search_seconds", 1.5)))
+        return ""
+    deadline = _time.monotonic() + float(cfg.get("after_search_seconds", 1.5))
+    while True:
+        found = _has_any_text(get_page(), texts)
+        if found:
+            return found
+        if _time.monotonic() >= deadline:
+            return ""
+        sleep(0.3)
+
+
+def _dismiss_popup(page, cfg: dict) -> None:
+    """알림 팝업을 닫는다. 안 닫으면 다음 수임처 화면이 가려진다."""
+    for cand in _as_list((cfg.get("selectors", {}) or {}).get("popup_confirm")):
+        try:
+            page.click(cand, timeout=int(cfg.get("confirm_timeout_ms", 5000)))
+            return
+        except Exception:  # noqa: BLE001 — 다음 후보로
+            continue
+
+
+def _step(what: str, selector: str, action):
+    """한 동작을 실행하고, 실패하면 단계 이름과 selector 를 붙여 다시 던진다."""
+    try:
+        return action()
+    except Exception as e:  # noqa: BLE001
+        raise StepFailed(f"[{what}] selector={selector!r} → "
+                         f"{type(e).__name__}: {e}") from e
+
+
+def fetch_one(page, cfg: dict, task: DownloadTask, dest: Path,
+              on_step=None, resolve=None, sleep=None) -> Path:
+    """한 거래처·한 기간을 받아 dest 에 저장. 실패 시 어느 단계인지 밝혀 예외.
+
+    resolve 를 주면 **단계마다 살아 있는 탭을 다시 고른다**. 위하고는 광고 탭이
+    수시로 열리고 닫혀 붙잡아 둔 page 가 죽는 일이 있다(TargetClosedError).
+    """
+    import time as _time
+
     sel = cfg["selectors"]
+    say = on_step or (lambda _m: None)
+    sleep = sleep or _time.sleep
+
+    def P():
+        if resolve is None:
+            return page
+        try:
+            return resolve()
+        except Exception:  # noqa: BLE001 — 못 고르면 원래 것으로
+            return page
+
+    page = P()
+    try:
+        say(f"대상 탭 {(page.url or '')[:70]}")
+    except Exception:  # noqa: BLE001
+        pass
     timeout = int(cfg.get("timeout_ms", 20000))
     fmt = cfg.get("period_format", "%Y-%m")
 
-    # 1) 수임처로 이동 — URL 이 있으면 주소로 바로(로그인 세션 필요), 없으면 화면 검색
-    if task.url:
-        page.goto(task.url, timeout=timeout)
+    # 1) 수임처로 이동 — here 면 사람이 열어 둔 화면 그대로, URL 이 있으면 주소로 바로,
+    #    둘 다 아니면 화면에서 검색해 고른다.
+    if task.here:
+        say("이동 생략(열어 둔 화면 그대로)")
+    elif task.url:
+        say("주소로 이동")
+        P().goto(task.url, timeout=timeout)
         marker = (cfg.get("selectors", {}) or {}).get("login_marker")
-        if marker and page.query_selector(marker):
+        if marker and P().query_selector(marker):
             raise SessionExpired("로그인 화면이 나타났습니다(세션 만료).")
     else:
-        page.fill(sel["client_search_input"], task.client, timeout=timeout)
-        page.click(sel["client_result_item"].replace("{client}", task.client),
-                   timeout=timeout)
+        _open_client(page, cfg, task, timeout, say, resolve)
 
-    # 2) 기간 설정 후 조회
-    p = format_period(task.period, fmt)
-    page.fill(sel["period_from_input"], p, timeout=timeout)
-    page.fill(sel["period_to_input"], p, timeout=timeout)
-    page.click(sel["search_button"], timeout=timeout)
+    # 2) 화면이 뜰 때까지 기다린다 — 수임처에 따라 로딩이 한참 걸린다
+    if not task.here:
+        _wait_ready(P, sel.get("search_button"),
+                    int(cfg.get("ready_timeout_ms", 30000)), "회계 화면",
+                    sleep=sleep, say=say)
 
-    # 3) 엑셀 다운로드 → 지정 경로에 저장
+    # 3) 구분(매입/매출) — 화면에 선택 목록이 있으면 매입으로 맞춘다
+    _select_kind(P(), cfg, timeout, say)
+
+    # 3) 기간 설정
+    if str(cfg.get("period_mode", "calendar")).strip().lower() != "screen":
+        p = format_period(task.period, fmt)
+        say(f"기간 입력 {p}")
+        _step("기간 시작", sel["period_from_input"],
+              lambda: page.fill(sel["period_from_input"], p, timeout=timeout))
+        _step("기간 종료", sel["period_to_input"],
+              lambda: page.fill(sel["period_to_input"], p, timeout=timeout))
+    # screen 모드면 화면에 이미 잡혀 있는 기간(기수 전체)을 그대로 쓴다.
+
+    # 5) 조회
+    say("조회")
+    _click_any(P(), sel["search_button"], timeout, "조회")
+
+    # 결과가 없으면 팝업이 뜬다. 팝업이 나타날 시간을 주고, 뜨면 닫고 넘어간다.
+    empty = _watch_for_empty(P, cfg, sleep)
+    if empty:
+        say(f"조회 결과 없음 — {empty}")
+        _dismiss_popup(P(), cfg)
+        raise NoData(empty)
+
+    # 6) 엑셀 다운로드 → 지정 경로에 저장
+    say("엑셀 변환·다운로드")
     dest.parent.mkdir(parents=True, exist_ok=True)
-    with page.expect_download(timeout=timeout) as dl:
-        page.click(sel["excel_download_button"], timeout=timeout)
-    dl.value.save_as(str(dest))
+
+    expect = str(cfg.get("expect_filename_contains", "")).strip()
+
+    # '엑셀변환' 은 표의 **데이터 행에서 우클릭**해야 나오는 메뉴 안에 있다.
+    # (담당자 확인 2026-08-30 — docs/domain_notes.md)
+    ctx_target = _as_list(sel.get("excel_context_target"))
+
+    tries = max(1, int(cfg.get("menu_retries", 3)))
+
+    def _open_menu_and_pick(pg):
+        """우클릭 → 메뉴에서 '엑셀변환'. 표가 아직 안 그려졌으면 다시 시도한다."""
+        last = None
+        for i in range(tries):
+            try:
+                if ctx_target:
+                    _click_any_right(pg, ctx_target, timeout, "엑셀 메뉴 열기")
+                _click_any(pg, sel["excel_download_button"],
+                           timeout if i == tries - 1 else 5000, "엑셀 다운로드")
+                return
+            except Exception as e:  # noqa: BLE001 — 표가 늦게 뜨는 경우
+                last = e
+                say(f"엑셀 메뉴가 아직 안 떠서 다시 시도합니다 ({i + 1}/{tries})")
+                sleep(float(cfg.get("menu_retry_seconds", 2.0)))
+        raise last
+
+    def _download():
+        pg = P()
+        if ctx_target:
+            _wait_ready(P, ctx_target, int(cfg.get("ready_timeout_ms", 30000)),
+                        "조회 결과 표", sleep=sleep, say=say)
+        with pg.expect_download(timeout=timeout) as dl:
+            _open_menu_and_pick(pg)
+        name = getattr(dl.value, "suggested_filename", "") or ""
+        # 구분을 못 맞췄을 수 있으니 **받은 파일 이름**으로 매입 자료인지 확인한다.
+        if expect and name and expect not in name:
+            raise StepFailed(
+                f"받은 파일이 '{expect}' 자료가 아닙니다: {name!r}. "
+                f"화면의 구분을 '{cfg.get('kind_value')}' 으로 맞춘 뒤 다시 실행하세요.")
+        dl.value.save_as(str(dest))
+
+    _step("엑셀 다운로드", sel["excel_download_button"], _download)
+
+    # 6) 변환 완료 알림이 뜨면 닫는다(안 닫으면 다음 건이 가려진다)
+    confirm = sel.get("download_confirm")
+    if confirm and not is_todo(confirm):
+        try:
+            P().click(confirm, timeout=int(cfg.get("confirm_timeout_ms", 5000)))
+        except Exception:  # noqa: BLE001 — 알림이 없을 수도 있다
+            pass
+
+    # 7) 여러 수임처를 도는 중이면 회계 탭을 닫는다(탭이 쌓이면 다음 건이 헷갈린다)
+    if cfg.get("close_ledger_after") and not task.here:
+        try:
+            say("회계 탭 닫기")
+            P().close()
+        except Exception:  # noqa: BLE001 — 못 닫아도 계속
+            pass
     return dest
+
+
+def _open_client(page, cfg: dict, task: DownloadTask, timeout: int, say, resolve):
+    """수임처 목록에서 검색해 해당 수임처의 회계 화면을 연다.
+
+    목록 링크는 `a#tooltip_<수임처코드>` 라서 코드가 있으면 이름 중복과 무관하게
+    정확히 집을 수 있다. 코드가 없으면 이름으로 찾는다.
+    """
+    sel = cfg.get("selectors", {}) or {}
+    dash = pick_page(page, cfg, want="dashboard") if resolve else page
+    say("수임처 목록에서 검색")
+    search_input = _first_selector(sel.get("client_search_input"))
+    if search_input:
+        _step("수임처 검색", search_input,
+              lambda: dash.fill(search_input, task.client, timeout=timeout))
+    if task.cno:
+        item = _first_selector(sel.get("client_result_by_cno")) \
+            .replace("{cno}", task.cno)
+    else:
+        item = _first_selector(sel.get("client_result_item")) \
+            .replace("{client}", task.client)
+    if not item:
+        raise StepFailed("[수임처 선택] 목록 항목 selector 가 설정되지 않았습니다")
+    say(f"수임처 열기 {item}")
+    _step("수임처 선택", item, lambda: dash.click(item, timeout=timeout))
+
+
+def _select_kind(page, cfg: dict, timeout: int, say=None) -> None:
+    """조회 구분을 '매입' 으로 맞춘다.
+
+    화면에 비슷한 드롭다운이 여럿이라 selector 하나로 콕 집기 어렵다. 그래서
+    ① 이미 매입이면 건드리지 않고 ② 아니면 후보를 차례로 시도하고 ③ 그래도 안 되면
+    막지 않고 넘어간다 — 잘못된 자료를 받는 사고는 **파일 이름 검증**이 막는다.
+    """
+    say = say or (lambda _m: None)
+    sel = cfg.get("selectors", {}) or {}
+    kind = str(cfg.get("kind_value", "")).strip()
+    option = sel.get("kind_option")
+    openers = _as_list(sel.get("kind_select_open"))
+    if not kind or not option or is_todo(option) or not openers:
+        say("구분 선택 생략(설정 없음)")
+        return
+
+    current = sel.get("kind_current")
+    if current and not is_todo(current):
+        try:
+            if page.query_selector(current.replace("{kind}", kind)):
+                say(f"구분 확인 — 이미 '{kind}'")
+                return
+        except Exception:  # noqa: BLE001 — 확인 실패는 치명적이지 않다
+            pass
+
+    if not cfg.get("kind_autoselect", False):
+        say(f"구분이 '{kind}' 인지 확인해 주세요(자동 선택 꺼짐) — 받은 파일 이름으로 검증합니다")
+        return
+
+    target = option.replace("{kind}", kind)
+    other = str(cfg.get("kind_current_other", "")).strip()
+    tries = int(cfg.get("kind_try_timeout_ms", 4000))
+    for cand in openers:
+        if "{other}" in cand:
+            if not other:
+                continue
+            cand = cand.replace("{other}", other)
+        try:
+            page.click(cand, timeout=tries)
+            page.click(target, timeout=tries)
+            say(f"구분 선택 '{kind}'")
+            return
+        except Exception:  # noqa: BLE001 — 다음 후보로
+            continue
+    say(f"구분을 자동으로 못 맞췄습니다 — 받은 파일 이름으로 확인합니다")
 
 
 def run_fetch(page, plan: DownloadPlan, inbox, *, cfg: Optional[dict] = None,
               sleep: Callable[[float], None] = None,
               on_progress: Optional[Callable[[DownloadTask, str], None]] = None,
-              on_session_expired: Optional[Callable[[], None]] = None
+              on_session_expired: Optional[Callable[[], None]] = None,
+              on_step: Optional[Callable[[str], None]] = None,
+              on_failure: Optional[Callable[[DownloadTask, Exception], None]] = None
               ) -> FetchResult:
     """계획대로 순회 수집. 한 건 실패해도 계속 진행한다.
 
@@ -113,7 +516,8 @@ def run_fetch(page, plan: DownloadPlan, inbox, *, cfg: Optional[dict] = None,
     import time
 
     cfg = cfg or load_fetch_config()
-    url_mode = all(t.url for t in plan.tasks) and bool(plan.tasks)
+    # here(열어 둔 화면 그대로) 도 화면 검색이 필요 없다 — URL 모드와 같게 본다.
+    url_mode = bool(plan.tasks) and all(t.url or t.here for t in plan.tasks)
     miss = missing_selectors(cfg, url_mode=url_mode)
     if miss:
         raise NotCalibrated(
@@ -124,23 +528,52 @@ def run_fetch(page, plan: DownloadPlan, inbox, *, cfg: Optional[dict] = None,
     delay = float(cfg.get("delay_seconds", 3.0))
     res = FetchResult(skipped=len(plan.skipped))
 
+    attempts = max(1, int(cfg.get("task_retries", 2)) + 1)
+    retry_wait = float(cfg.get("retry_wait_seconds", 5.0))
+
+    def _once(task):
+        return fetch_one(pick_page(page, cfg), cfg, task,
+                         target_path(inbox, task), on_step=on_step,
+                         resolve=lambda: pick_page(page, cfg), sleep=sleep)
+
     for i, task in enumerate(plan.tasks):
         label = f"{task.client}/{task.period}"
-        try:
+        last = None
+        for attempt in range(attempts):
             try:
-                dest = fetch_one(page, cfg, task, target_path(inbox, task))
-            except SessionExpired:
-                if on_session_expired is None:
-                    raise
-                on_session_expired()          # 사람이 다시 로그인
-                dest = fetch_one(page, cfg, task, target_path(inbox, task))
-            res.saved.append(dest)
+                try:
+                    dest = _once(task)
+                except SessionExpired:
+                    if on_session_expired is None:
+                        raise
+                    on_session_expired()          # 사람이 다시 로그인
+                    dest = _once(task)
+                res.saved.append(dest)
+                if on_progress:
+                    on_progress(task, "저장")
+                last = None
+                break
+            except NoData as e:
+                # 자료가 없는 달·수임처는 실패가 아니다. 다시 시도하지 않는다.
+                res.empty.append(label)
+                if on_progress:
+                    on_progress(task, "자료 없음")
+                last = None
+                break
+            except Exception as e:  # noqa: BLE001 — 한 건 실패가 전체를 막지 않음
+                last = e
+                if attempt < attempts - 1:
+                    res.retried += 1
+                    if on_progress:
+                        on_progress(task, f"재시도 {attempt + 1}/{attempts - 1}"
+                                          f"({type(e).__name__})")
+                    sleep(retry_wait)
+        if last is not None:
+            res.failures[label] = f"{type(last).__name__}: {last}"
             if on_progress:
-                on_progress(task, "저장")
-        except Exception as e:  # noqa: BLE001 — 한 건 실패가 전체를 막지 않음
-            res.failures[label] = f"{type(e).__name__}: {e}"
-            if on_progress:
-                on_progress(task, f"실패({type(e).__name__})")
+                on_progress(task, f"실패({type(last).__name__})")
+            if on_failure:
+                on_failure(task, last)
         if i < len(plan.tasks) - 1:
             sleep(delay)          # 서버 부담 완화
     return res

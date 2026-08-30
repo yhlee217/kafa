@@ -51,8 +51,10 @@ def recent_months(n: int, *, today: date | None = None) -> list[str]:
 @dataclass(frozen=True)
 class DownloadTask:
     client: str            # 수임처 이름
-    period: str            # 'YYYY-MM'
+    period: str            # 'YYYY-MM' 또는 기수 라벨('2026')
     url: str = ""          # 있으면 화면 검색 없이 이 주소로 바로 이동(로그인 세션 필요)
+    here: bool = False     # True 면 이동하지 않고 **사람이 열어 둔 화면 그대로** 받는다
+    cno: str = ""          # 수임처코드. 있으면 대시보드에서 a#tooltip_<cno> 로 정확히 연다
 
     @property
     def filename(self) -> str:
@@ -74,19 +76,26 @@ def target_path(inbox, task: DownloadTask) -> Path:
     return Path(inbox) / safe_name(task.client) / task.filename
 
 
+def _plan_task(client, period, urls, cnos):
+    return DownloadTask(client, period, url=(urls or {}).get(client, ""),
+                        cno=str((cnos or {}).get(client, "") or ""))
+
+
 def build_plan(inbox, clients: list[str], periods: list[str], *,
-               archive=None, urls: dict | None = None) -> DownloadPlan:
+               archive=None, urls: dict | None = None,
+               cnos: dict | None = None) -> DownloadPlan:
     """받을 목록 생성. inbox 나 archive 에 이미 있으면 건너뛴다(재개 가능).
 
     archive: 파이프라인이 처리 후 원본을 옮겨두는 폴더(out/_archive). 여기에 있으면
     이미 수집·처리된 것이므로 다시 받지 않는다.
     urls: {수임처: 접속 URL} — 주면 화면 검색 대신 주소로 바로 이동한다.
+    cnos: {수임처: 수임처코드} — 주면 대시보드에서 a#tooltip_<코드> 로 정확히 연다.
     """
     urls = urls or {}
     plan = DownloadPlan()
     for c in clients:
         for p in periods:
-            t = DownloadTask(c, p, urls.get(c, ""))
+            t = _plan_task(c, p, urls, cnos)
             done = target_path(inbox, t).exists()
             if not done and archive:
                 done = (Path(archive) / safe_name(c) / t.filename).exists()
