@@ -208,6 +208,23 @@ def client_urls_from_csv(path) -> dict[str, str]:
     return out
 
 
+def client_cnos_from_csv(path) -> dict[str, str]:
+    """kafa-fetch --discover 목록(CSV) → {회사명: 수임처코드}."""
+    import csv as _csv
+    out: dict[str, str] = {}
+    with Path(path).open("r", encoding="utf-8-sig", newline="") as fh:
+        for row in _csv.DictReader(fh):
+            name, cno = _norm(row.get("회사명")), _norm(row.get("수임처코드"))
+            if name and cno:
+                out[name] = cno
+    return out
+
+
+def client_cnos(path) -> dict[str, str]:
+    """수임처 목록 파일 → {회사명: 수임처코드}. CSV 만 지원(엑셀엔 코드가 없다)."""
+    return client_cnos_from_csv(path) if str(path).lower().endswith(".csv") else {}
+
+
 def client_urls(path) -> dict[str, str]:
     """수임처 목록 파일 → {회사명: 접속 URL}. .csv 와 엑셀 둘 다 받는다."""
     return (client_urls_from_csv(path) if str(path).lower().endswith(".csv")

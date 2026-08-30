@@ -51,8 +51,16 @@ def test_collect_and_merge_dedupes_across_pages():
     assert merge(known, collect_clients(tab)) == 1
 
 
-def test_written_csv_feeds_master_option(tmp_path):
-    out = write_csv(tmp_path / "clients_urls.csv", {"10049328": "행복상사"},
+def test_written_csv_carries_client_code_not_url(tmp_path):
+    """주소는 수임처마다 다른 값이 섞여 있어 만들지 않는다 — 코드만 남긴다."""
+    from kafa.clients import client_cnos
+    out = write_csv(tmp_path / "clients_urls.csv", {"10049328": "행복상사"})
+    assert client_cnos(out) == {"행복상사": "10049328"}
+    assert client_urls_from_csv(out) == {}    # URL 칸 없음
+
+
+def test_written_csv_with_template_still_feeds_url_mode(tmp_path):
+    out = write_csv(tmp_path / "u.csv", {"10049328": "행복상사"},
                     "https://smarta.wehago.com/#/x?cno={cno}")
     urls = client_urls_from_csv(out)
     assert urls == {"행복상사": "https://smarta.wehago.com/#/x?cno=10049328"}

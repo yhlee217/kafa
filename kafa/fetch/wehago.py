@@ -91,20 +91,30 @@ def _url_lower(pg) -> str:
         return ""
 
 
-def pick_page(page, cfg: dict):
-    """조작할 탭을 고른다.
+def _first_selector(value) -> str:
+    cands = _as_list(value)
+    return cands[0] if cands else ""
+
+
+def pick_page(page, cfg: dict, *, want: str = "ledger"):
+    """조작할 탭을 고른다(want='ledger' 전표화면 / 'dashboard' 수임처 목록).
 
     회계 모듈이 새 창으로 열리고 처음 탭이 닫히는 일이 있어, 붙잡아 둔 page 객체가
-    죽는다(TargetClosedError). 매번 **지금 살아 있는 탭 중 위하고 화면**을 고른다.
-    광고·추적용으로 열리는 탭은 제외한다.
+    죽는다(TargetClosedError). 매번 **지금 살아 있는 탭 중 맞는 화면**을 고른다.
+    주소를 about:blank 로 보고하는 탭이 있어 **요소 존재 여부**를 더 크게 본다.
     """
     from kafa.fetch.inspect import pages_of
 
     cfg = cfg or {}
-    hint = str(cfg.get("page_url_hint") or "").strip().lower()
-    ignore = [str(x).lower() for x in (cfg.get("ignore_url_parts") or [])]
     sel = cfg.get("selectors", {}) or {}
-    search = sel.get("search_button")
+    ignore = [str(x).lower() for x in (cfg.get("ignore_url_parts") or [])
+              if str(x).lower() != "about:blank"]
+    if want == "dashboard":
+        hint = str(cfg.get("dashboard_url_hint") or "").strip().lower()
+        marker = _first_selector(sel.get("client_search_input"))
+    else:
+        hint = str(cfg.get("page_url_hint") or "").strip().lower()
+        marker = _first_selector(sel.get("search_button"))
 
     candidates = [pg for pg in pages_of(page) if _is_open(pg)]
     candidates = [pg for pg in candidates
@@ -114,9 +124,9 @@ def pick_page(page, cfg: dict):
         score = 0
         if hint and hint in _url_lower(pg):
             score += 2
-        if search and not is_todo(search):
+        if marker:
             try:
-                if pg.query_selector(search):
+                if pg.query_selector(marker):
                     score += 3
             except Exception:  # noqa: BLE001 — 로딩 중이면 못 볼 수 있다
                 pass
@@ -124,6 +134,9 @@ def pick_page(page, cfg: dict):
             best, best_score = pg, score
     if best is not None and best_score > 0:
         return best
+    if want == "dashboard":
+        raise NoAppPage("수임처 목록 화면을 찾지 못했습니다. "
+                        "위하고 메인(수임처 목록) 탭을 열어 두세요.")
     if _is_open(page):
         return page                      # 아직 이동 전이면 원래 탭 그대로
     if candidates:
@@ -235,12 +248,7 @@ def fetch_one(page, cfg: dict, task: DownloadTask, dest: Path,
         if marker and P().query_selector(marker):
             raise SessionExpired("로그인 화면이 나타났습니다(세션 만료).")
     else:
-        say("수임처 검색")
-        _step("수임처 검색", sel["client_search_input"],
-              lambda: page.fill(sel["client_search_input"], task.client,
-                                timeout=timeout))
-        item = sel["client_result_item"].replace("{client}", task.client)
-        _step("수임처 선택", item, lambda: page.click(item, timeout=timeout))
+        _open_client(page, cfg, task, timeout, say, resolve)
 
     # 2) 구분(매입/매출) — 화면에 선택 목록이 있으면 매입으로 맞춘다
     _select_kind(P(), cfg, timeout, say)
@@ -293,7 +301,40 @@ def fetch_one(page, cfg: dict, task: DownloadTask, dest: Path,
             P().click(confirm, timeout=int(cfg.get("confirm_timeout_ms", 5000)))
         except Exception:  # noqa: BLE001 — 알림이 없을 수도 있다
             pass
+
+    # 7) 여러 수임처를 도는 중이면 회계 탭을 닫는다(탭이 쌓이면 다음 건이 헷갈린다)
+    if cfg.get("close_ledger_after") and not task.here:
+        try:
+            say("회계 탭 닫기")
+            P().close()
+        except Exception:  # noqa: BLE001 — 못 닫아도 계속
+            pass
     return dest
+
+
+def _open_client(page, cfg: dict, task: DownloadTask, timeout: int, say, resolve):
+    """수임처 목록에서 검색해 해당 수임처의 회계 화면을 연다.
+
+    목록 링크는 `a#tooltip_<수임처코드>` 라서 코드가 있으면 이름 중복과 무관하게
+    정확히 집을 수 있다. 코드가 없으면 이름으로 찾는다.
+    """
+    sel = cfg.get("selectors", {}) or {}
+    dash = pick_page(page, cfg, want="dashboard") if resolve else page
+    say("수임처 목록에서 검색")
+    search_input = _first_selector(sel.get("client_search_input"))
+    if search_input:
+        _step("수임처 검색", search_input,
+              lambda: dash.fill(search_input, task.client, timeout=timeout))
+    if task.cno:
+        item = _first_selector(sel.get("client_result_by_cno")) \
+            .replace("{cno}", task.cno)
+    else:
+        item = _first_selector(sel.get("client_result_item")) \
+            .replace("{client}", task.client)
+    if not item:
+        raise StepFailed("[수임처 선택] 목록 항목 selector 가 설정되지 않았습니다")
+    say(f"수임처 열기 {item}")
+    _step("수임처 선택", item, lambda: dash.click(item, timeout=timeout))
 
 
 def _select_kind(page, cfg: dict, timeout: int, say=None) -> None:

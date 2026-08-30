@@ -67,11 +67,18 @@ def test_shipped_config_is_calibrated_for_screen_url_mode():
     assert missing_selectors(cfg, url_mode=True) == []
 
 
-def test_shipped_config_still_blocks_unverified_paths():
-    """확인하지 못한 경로(화면 검색·달력 월지정)는 여전히 실행을 막는다."""
+def test_shipped_config_supports_dashboard_navigation():
+    """수임처 목록에서 검색·클릭하는 경로도 보정 완료(실화면 확인)."""
     from kafa.fetch.wehago import load_fetch_config
     cfg = load_fetch_config()
-    assert missing_selectors(cfg, url_mode=False)           # 화면 검색 미보정
+    assert missing_selectors(cfg, url_mode=False) == []
+    assert "tooltip_{cno}" in cfg["selectors"]["client_result_by_cno"]
+
+
+def test_shipped_config_still_blocks_calendar_mode():
+    """확인하지 못한 경로(달력 월지정)는 여전히 실행을 막는다."""
+    from kafa.fetch.wehago import load_fetch_config
+    cfg = load_fetch_config()
     cfg["period_mode"] = "calendar"
     assert missing_selectors(cfg, url_mode=True)            # 달력 미보정
 
@@ -91,6 +98,7 @@ def test_format_period():
 # ── 순회(가짜 page) ──
 
 _CFG = {"selectors": {"client_search_input": "#s", "client_result_item": "#r-{client}",
+                      "client_result_by_cno": "a#tooltip_{cno}",
                       "period_from_input": "#f", "period_to_input": "#t",
                       "search_button": "#go", "excel_download_button": "#xls"},
         "delay_seconds": 0, "timeout_ms": 100, "period_format": "%Y-%m"}
@@ -114,8 +122,16 @@ class _FakeExpect:
 
 class _FakePage:
     """클릭/입력을 기록만 하는 가짜 페이지. fail_on 에 걸리면 예외."""
-    def __init__(self, fail_on=None):
+    def __init__(self, fail_on=None, present=("#s",)):
         self.log, self.fail_on = [], fail_on or set()
+        self.present = set(present)   # query_selector 로 '있다' 고 답할 selector
+        self.context = None
+
+    def is_closed(self):
+        return False
+
+    def query_selector(self, sel):
+        return object() if sel in self.present else None
     def fill(self, sel, val, **kw):
         if val in self.fail_on:
             raise RuntimeError(f"입력 실패: {val}")
@@ -163,17 +179,16 @@ _CFG_URL = {"selectors": {"period_from_input": "#f", "period_to_input": "#t",
 class _UrlPage(_FakePage):
     """goto 를 기록하고, login_hits 만큼 로그인 화면을 흉내낸다."""
     def __init__(self, login_hits=0, present=()):
-        super().__init__()
+        super().__init__(present=present)
         self.goto_urls = []
         self.login_hits = login_hits
-        self.present = set(present)   # query_selector 로 '있다' 고 답할 selector
     def goto(self, url, **kw):
         self.goto_urls.append(url)
     def query_selector(self, sel):
         if sel == "#login" and self.login_hits > 0:
             self.login_hits -= 1
             return object()          # 로그인 화면 감지
-        return object() if sel in self.present else None
+        return super().query_selector(sel)
 
 
 def test_url_mode_navigates_directly_and_skips_search_selectors(tmp_path):
@@ -554,3 +569,52 @@ def test_context_target_falls_back_to_next_candidate(tmp_path):
 def test_shipped_config_right_clicks_the_grid():
     from kafa.fetch.wehago import _as_list, load_fetch_config
     assert _as_list(load_fetch_config()["selectors"]["excel_context_target"])
+
+
+# ── 수임처 목록에서 코드로 정확히 열기 ──
+
+_CFG_NAV = {**_CFG_SCREEN,
+            "selectors": {**_CFG_SCREEN["selectors"],
+                          "client_search_input": "#s",
+                          "client_result_by_cno": "a#tooltip_{cno}",
+                          "client_result_item": 'a:has-text("{client}")'},
+            "close_ledger_after": False}
+
+
+def test_opens_client_by_code_when_available(tmp_path):
+    from kafa.fetch.wehago import fetch_one
+    page = _UrlPage(present={"#s"})
+    fetch_one(page, _CFG_NAV, DownloadTask("행복상사", "2026", cno="10049328"),
+              tmp_path / "행복상사" / "2026.xlsx", resolve=lambda: page)
+    assert ("fill", "#s", "행복상사") in page.log
+    assert ("click", "a#tooltip_10049328") in page.log
+
+
+def test_opens_client_by_name_without_code(tmp_path):
+    from kafa.fetch.wehago import fetch_one
+    page = _UrlPage(present={"#s"})
+    fetch_one(page, _CFG_NAV, DownloadTask("행복상사", "2026"),
+              tmp_path / "행복상사" / "2026.xlsx", resolve=lambda: page)
+    assert ("click", 'a:has-text("행복상사")') in page.log
+
+
+def test_build_plan_carries_client_code():
+    plan = build_plan("/tmp/nowhere", ["행복상사"], ["2026"],
+                      cnos={"행복상사": "10049328"})
+    assert plan.tasks[0].cno == "10049328"
+
+
+def test_ledger_tab_closed_after_each_client(tmp_path):
+    from kafa.fetch.wehago import fetch_one
+
+    class _Closable(_UrlPage):
+        closed = False
+
+        def close(self):
+            type(self).closed = True
+
+    page = _Closable(present={"#s"})
+    fetch_one(page, {**_CFG_NAV, "close_ledger_after": True},
+              DownloadTask("A", "2026", cno="1"), tmp_path / "A" / "2026.xlsx",
+              resolve=lambda: page)
+    assert _Closable.closed

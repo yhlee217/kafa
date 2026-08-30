@@ -90,32 +90,22 @@ def main(argv: list[str] | None = None, *, input_fn=input) -> int:
     cfg = load_fetch_config(args.config)
 
     if args.discover:
-        from kafa.fetch.discover import (collect_clients, find_url_template,
-                                         merge, write_csv)
+        from kafa.fetch.discover import collect_clients, merge, write_csv
         from kafa.fetch.session import browser_page, wait_for_human
         print(TOS_NOTICE)
         with browser_page(profile_dir=args.profile,
                           attach_port=args.attach_port) as page:
-            wait_for_human(
-                "① 브라우저에서 로그인하고, **아무 수임처 하나의 신용카드 화면**을\n"
-                "   한 번 열어 주세요(주소 틀을 배웁니다). 그다음 엔터.")
-            template = find_url_template(page)
-            if not template:
-                print("\n[중단] 열린 탭에서 'cno=' 가 들어간 주소를 찾지 못했습니다.\n"
-                      "       수임처 하나의 신용카드 화면을 연 상태에서 다시 해 주세요.",
-                      file=sys.stderr)
-                return 2
-            print(f"\n주소 틀: {template}")
-
             known: dict = {}
-            wait_for_human("② 이제 **수임처 목록 화면**으로 돌아가 주세요. 그다음 엔터.")
+            wait_for_human(
+                "브라우저에서 로그인하고 **수임처 목록 화면**을 열어 주세요.\n"
+                "엔터를 누를 때마다 보이는 만큼 모읍니다(페이지를 넘겨 가며 반복).")
             while True:
                 added = merge(known, collect_clients(page))
                 print(f"   모은 수임처 {len(known)}곳 (이번에 +{added})")
                 ans = input_fn("   다음 페이지로 넘긴 뒤 엔터, 끝내려면 q + 엔터: ")
                 if (ans or "").strip().lower() in ("q", "quit", "끝", "ㅂ"):
                     break
-            out = write_csv(args.discover_out, known, template)
+            out = write_csv(args.discover_out, known)
         if not known:
             print("\n[중단] 수임처를 하나도 모으지 못했습니다(목록 화면이 맞나요?).",
                   file=sys.stderr)
@@ -123,6 +113,7 @@ def main(argv: list[str] | None = None, *, input_fn=input) -> int:
         print(f"\n[저장] {out.resolve()}  — 수임처 {len(known)}곳")
         print("   이 파일은 수임처 실명이 들어 있어 **로컬에만** 두세요.")
         print(f"\n다음: kafa-fetch --inbox <폴더> --master {out} --whole")
+        print("   (수임처 목록 화면을 열어 둔 채로 실행하면 한 곳씩 열어 받습니다)")
         return 0
 
     if args.inspect:
@@ -181,17 +172,24 @@ def main(argv: list[str] | None = None, *, input_fn=input) -> int:
         return 0
 
     urls: dict = {}
+    cnos: dict = {}
     if args.master:
-        from kafa.clients import client_urls
+        from kafa.clients import client_cnos, client_urls
         urls = client_urls(args.master)
-        print(f"수임처 마스터: URL {len(urls)}곳 (주소로 바로 이동 — 화면 검색 생략)")
+        cnos = client_cnos(args.master)
+        if urls:
+            print(f"수임처 마스터: URL {len(urls)}곳 (주소로 바로 이동)")
+        if cnos:
+            print(f"수임처 마스터: 수임처코드 {len(cnos)}곳 "
+                  "(목록에서 코드로 정확히 열기)")
 
-    if not args.inbox or not (args.clients or urls):
+    if not args.inbox or not (args.clients or urls or cnos):
         ap.error("--inbox 와 --clients(또는 --master) 가 필요합니다(또는 --inspect).")
     if args.here and len(_clients_from(args.clients or "")) != 1:
         ap.error("--here 는 --clients 에 수임처 이름 **하나**만 주세요(한 곳 시험용).")
 
-    clients = _clients_from(args.clients) if args.clients else list(urls)
+    clients = (_clients_from(args.clients) if args.clients
+               else list(urls) or list(cnos))
     screen_mode = str(cfg.get("period_mode", "calendar")).strip().lower() == "screen"
     if args.whole is not None:
         from datetime import date
@@ -208,7 +206,8 @@ def main(argv: list[str] | None = None, *, input_fn=input) -> int:
         ap.error("설정이 period_mode: screen 입니다(화면에 잡힌 기간 그대로). "
                  "달마다 다른 파일이 나오지 않으므로 --whole 로 1건씩 받으세요.")
 
-    plan = build_plan(args.inbox, clients, periods, archive=args.archive, urls=urls)
+    plan = build_plan(args.inbox, clients, periods, archive=args.archive,
+                      urls=urls, cnos=cnos)
     if args.here:
         from dataclasses import replace
         plan.tasks[:] = [replace(t, url="", here=True) for t in plan.tasks]

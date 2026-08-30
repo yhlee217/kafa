@@ -72,13 +72,22 @@ def merge(known: dict, rows: list[dict]) -> int:
     return len(known) - before
 
 
-def write_csv(path, known: dict, template: str) -> Path:
-    """--master 로 바로 쓸 수 있는 목록 파일(로컬 전용 — 수임처 실명이 들어 있다)."""
+def write_csv(path, known: dict, template: str = "") -> Path:
+    """--master 로 바로 쓸 수 있는 목록 파일(로컬 전용 — 수임처 실명이 들어 있다).
+
+    접속 URL 은 만들지 않는다: 화면 주소에 수임처마다 다른 값(cd_com·gisu·companyID·
+    taxNum)이 들어 있어 코드만 바꿔 쓸 수 없다. 대신 **수임처코드**를 저장해 두고,
+    수집할 때 목록에서 a#tooltip_<코드> 를 눌러 연다.
+    """
     out = Path(path)
     out.parent.mkdir(parents=True, exist_ok=True)
     with out.open("w", encoding="utf-8-sig", newline="") as fh:
         w = csv.writer(fh)
-        w.writerow(["회사명", "수임처코드", "접속 URL"])
+        header = ["회사명", "수임처코드"] + (["접속 URL"] if template else [])
+        w.writerow(header)
         for cno, name in sorted(known.items(), key=lambda kv: kv[1]):
-            w.writerow([name, cno, template.replace("{cno}", cno)])
+            row = [name, cno]
+            if template:
+                row.append(template.replace("{cno}", cno))
+            w.writerow(row)
     return out
