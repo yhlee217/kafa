@@ -18,12 +18,30 @@ from kafa.fetch.plan import DownloadPlan, DownloadTask, target_path
 
 _DEFAULT_CFG = Path(__file__).resolve().parent.parent.parent / "config" / "fetch" / "wehago.yaml"
 
+# 기간을 어떻게 정하느냐에 따라 필요한 selector 가 다르다.
+#   screen   — 화면에 이미 설정된 기간(기수 전체 = 1년치) 그대로 받는다. 달력 조작 없음.
+#   calendar — 달력을 눌러 월 단위로 지정한다(클릭 순서 보정 필요).
+# 실화면 기록(2026-08) 결과 기수 기본값이 '2026.01.01 ~ 2026.12.31' 이라, screen 모드면
+# 달력을 건드리지 않고 1년치를 한 번에 받을 수 있다. 근거: docs/decisions.md
+PERIOD_MODES = ("screen", "calendar")
+_BASE_SELECTORS = ("search_button", "excel_download_button")
+_SEARCH_SELECTORS = ("client_search_input", "client_result_item")
+_CALENDAR_SELECTORS = ("period_from_input", "period_to_input")
+
 # URL 로 바로 이동할 때는 거래처 검색·선택이 필요 없어 보정 부담이 준다.
-REQUIRED_SELECTORS = ("client_search_input", "client_result_item",
-                      "period_from_input", "period_to_input",
-                      "search_button", "excel_download_button")
-REQUIRED_SELECTORS_URL_MODE = ("period_from_input", "period_to_input",
-                               "search_button", "excel_download_button")
+REQUIRED_SELECTORS = _SEARCH_SELECTORS + _CALENDAR_SELECTORS + _BASE_SELECTORS
+REQUIRED_SELECTORS_URL_MODE = _CALENDAR_SELECTORS + _BASE_SELECTORS
+
+
+def required_selectors(cfg: dict, *, url_mode: bool = False) -> tuple[str, ...]:
+    """이 설정에서 실제로 필요한 selector 이름들."""
+    mode = str((cfg or {}).get("period_mode", "calendar")).strip().lower()
+    names = _BASE_SELECTORS
+    if mode != "screen":
+        names = _CALENDAR_SELECTORS + names
+    if not url_mode:
+        names = _SEARCH_SELECTORS + names
+    return names
 
 
 class SessionExpired(RuntimeError):
@@ -45,7 +63,7 @@ def missing_selectors(cfg: dict, *, url_mode: bool = False) -> list[str]:
     """아직 TODO/빈값인 필수 selector 목록. url_mode 면 검색 관련은 제외."""
     sel = cfg.get("selectors", {}) or {}
     out = []
-    for k in (REQUIRED_SELECTORS_URL_MODE if url_mode else REQUIRED_SELECTORS):
+    for k in required_selectors(cfg, url_mode=url_mode):
         v = sel.get(k)
         if v is None or is_todo(v) or not str(v).strip():
             out.append(k)
@@ -86,18 +104,44 @@ def fetch_one(page, cfg: dict, task: DownloadTask, dest: Path) -> Path:
         page.click(sel["client_result_item"].replace("{client}", task.client),
                    timeout=timeout)
 
-    # 2) 기간 설정 후 조회
-    p = format_period(task.period, fmt)
-    page.fill(sel["period_from_input"], p, timeout=timeout)
-    page.fill(sel["period_to_input"], p, timeout=timeout)
+    # 2) 구분(매입/매출) — 화면에 선택 목록이 있으면 매입으로 맞춘다
+    _select_kind(page, cfg, timeout)
+
+    # 3) 기간 설정
+    if str(cfg.get("period_mode", "calendar")).strip().lower() != "screen":
+        p = format_period(task.period, fmt)
+        page.fill(sel["period_from_input"], p, timeout=timeout)
+        page.fill(sel["period_to_input"], p, timeout=timeout)
+    # screen 모드면 화면에 이미 잡혀 있는 기간(기수 전체)을 그대로 쓴다.
+
+    # 4) 조회
     page.click(sel["search_button"], timeout=timeout)
 
-    # 3) 엑셀 다운로드 → 지정 경로에 저장
+    # 5) 엑셀 다운로드 → 지정 경로에 저장
     dest.parent.mkdir(parents=True, exist_ok=True)
     with page.expect_download(timeout=timeout) as dl:
         page.click(sel["excel_download_button"], timeout=timeout)
     dl.value.save_as(str(dest))
+
+    # 6) 변환 완료 알림이 뜨면 닫는다(안 닫으면 다음 건이 가려진다)
+    confirm = sel.get("download_confirm")
+    if confirm and not is_todo(confirm):
+        try:
+            page.click(confirm, timeout=int(cfg.get("confirm_timeout_ms", 5000)))
+        except Exception:  # noqa: BLE001 — 알림이 없을 수도 있다
+            pass
     return dest
+
+
+def _select_kind(page, cfg: dict, timeout: int) -> None:
+    """조회 구분을 '매입' 으로 맞춘다. 설정이 없으면 아무것도 하지 않는다."""
+    sel = cfg.get("selectors", {}) or {}
+    opener, option = sel.get("kind_select_open"), sel.get("kind_option")
+    kind = str(cfg.get("kind_value", "")).strip()
+    if not opener or not option or not kind or is_todo(opener) or is_todo(option):
+        return
+    page.click(opener, timeout=timeout)
+    page.click(option.replace("{kind}", kind), timeout=timeout)
 
 
 def run_fetch(page, plan: DownloadPlan, inbox, *, cfg: Optional[dict] = None,

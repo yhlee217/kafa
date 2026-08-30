@@ -59,10 +59,21 @@ def test_missing_selectors_detects_todo():
     assert missing_selectors(cfg) == ["client_search_input", "client_result_item"]
 
 
-def test_shipped_config_is_not_calibrated():
-    """배포 기본 설정은 보정 전이어야 한다(추측 selector 를 넣지 않았음)."""
+def test_shipped_config_is_calibrated_for_screen_url_mode():
+    """실화면 기록으로 보정된 경로(URL 이동 + 화면 기간)는 바로 쓸 수 있어야 한다."""
     from kafa.fetch.wehago import load_fetch_config
-    assert missing_selectors(load_fetch_config())      # 비어있지 않음 = 보정 필요
+    cfg = load_fetch_config()
+    assert cfg["period_mode"] == "screen"
+    assert missing_selectors(cfg, url_mode=True) == []
+
+
+def test_shipped_config_still_blocks_unverified_paths():
+    """확인하지 못한 경로(화면 검색·달력 월지정)는 여전히 실행을 막는다."""
+    from kafa.fetch.wehago import load_fetch_config
+    cfg = load_fetch_config()
+    assert missing_selectors(cfg, url_mode=False)           # 화면 검색 미보정
+    cfg["period_mode"] = "calendar"
+    assert missing_selectors(cfg, url_mode=True)            # 달력 미보정
 
 
 def test_run_fetch_refuses_when_not_calibrated(tmp_path):
@@ -190,3 +201,57 @@ def test_session_expiry_without_handler_is_a_failure(tmp_path):
     plan = build_plan(tmp_path, ["행복상사"], ["2026-01"], urls={"행복상사": "https://x/1"})
     res = run_fetch(page, plan, tmp_path, cfg=_CFG_URL, sleep=lambda _: None)
     assert not res.ok and "SessionExpired" in str(res.failures)
+
+
+# ── 화면 기간(screen) 모드 — 달력 조작 없이 기수 전체를 한 번에 ──
+
+_CFG_SCREEN = {"period_mode": "screen",
+               "kind_value": "2. 매입",
+               "selectors": {
+                   "kind_select_open": "#kindopen",
+                   "kind_option": "li a:has-text(\"{kind}\")",
+                   "search_button": "#go",
+                   "excel_download_button": "#xls",
+                   "download_confirm": "#confirm"},
+               "delay_seconds": 0, "timeout_ms": 100}
+
+
+def test_screen_mode_skips_calendar_and_picks_purchase(tmp_path):
+    from kafa.fetch.wehago import fetch_one
+    page = _UrlPage()
+    task = DownloadTask("행복상사", "2026", url="https://x/1")
+    fetch_one(page, _CFG_SCREEN, task, tmp_path / "행복상사" / "2026.xlsx")
+    kinds = [e for e in page.log if e[0] == "click"]
+    assert ("click", "#kindopen") in kinds
+    assert ("click", 'li a:has-text("2. 매입")') in kinds
+    assert ("click", "#go") in kinds and ("click", "#xls") in kinds
+    # 변환 완료 알림도 닫는다(안 닫으면 다음 건이 가려짐)
+    assert ("click", "#confirm") in kinds
+    # 기간 입력은 건드리지 않는다
+    assert not [e for e in page.log if e[0] == "fill"]
+
+
+def test_screen_mode_survives_missing_confirm_dialog(tmp_path):
+    """알림이 안 뜨는 경우에도 저장은 성공해야 한다."""
+    from kafa.fetch.wehago import fetch_one
+
+    class _NoConfirm(_UrlPage):
+        def click(self, sel, **kw):
+            if sel == "#confirm":
+                raise RuntimeError("no dialog")
+            super().click(sel, **kw)
+
+    page = _NoConfirm()
+    dest = tmp_path / "행복상사" / "2026.xlsx"
+    fetch_one(page, _CFG_SCREEN, DownloadTask("행복상사", "2026", url="https://x/1"), dest)
+    assert dest.exists()
+
+
+def test_kind_selection_skipped_when_not_configured(tmp_path):
+    from kafa.fetch.wehago import fetch_one
+    cfg = {**_CFG_SCREEN, "selectors": {**_CFG_SCREEN["selectors"],
+                                        "kind_select_open": "TODO"}}
+    page = _UrlPage()
+    fetch_one(page, cfg, DownloadTask("A", "2026", url="https://x/1"),
+              tmp_path / "A" / "2026.xlsx")
+    assert not [e for e in page.log if e[1] == "TODO"]

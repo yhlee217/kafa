@@ -42,6 +42,10 @@ def main(argv: list[str] | None = None, *, input_fn=input) -> int:
                     help="수임처 마스터 엑셀(회사명+접속 URL). 주면 화면 검색 없이 "
                          "주소로 바로 이동하고, --clients 를 생략하면 전체를 대상으로 함")
     ap.add_argument("--months", type=int, help="최근 N개월")
+    ap.add_argument("--whole", nargs="?", const="", metavar="라벨",
+                    help="화면에 잡혀 있는 기간(기수 전체 = 1년치)을 그대로 수임처당 1건씩 "
+                         "받는다. 달력 조작이 없어 가장 안전하다. 파일 이름에 쓸 라벨을 "
+                         "줄 수 있다(기본: 올해)")
     ap.add_argument("--from", dest="frm", help="시작 기간 YYYY-MM")
     ap.add_argument("--to", dest="to", help="종료 기간 YYYY-MM")
     ap.add_argument("--archive", help="처리 완료 보관 폴더(out/_archive) — 있으면 재수집 생략")
@@ -141,12 +145,21 @@ def main(argv: list[str] | None = None, *, input_fn=input) -> int:
         ap.error("--inbox 와 --clients(또는 --master) 가 필요합니다(또는 --inspect).")
 
     clients = _clients_from(args.clients) if args.clients else list(urls)
-    if args.frm and args.to:
+    screen_mode = str(cfg.get("period_mode", "calendar")).strip().lower() == "screen"
+    if args.whole is not None:
+        from datetime import date
+        periods = [args.whole or str(date.today().year)]
+    elif args.frm and args.to:
         periods = months_between(args.frm, args.to)
     elif args.months:
         periods = recent_months(args.months)
     else:
-        ap.error("--months 또는 --from/--to 로 기간을 지정하세요.")
+        ap.error("--whole, --months, --from/--to 중 하나로 기간을 지정하세요.")
+
+    # 화면 기간을 그대로 쓰는 모드에서 여러 달을 돌리면 같은 파일을 반복해 받게 된다.
+    if screen_mode and len(periods) > 1:
+        ap.error("설정이 period_mode: screen 입니다(화면에 잡힌 기간 그대로). "
+                 "달마다 다른 파일이 나오지 않으므로 --whole 로 1건씩 받으세요.")
 
     plan = build_plan(args.inbox, clients, periods, archive=args.archive, urls=urls)
     print(f"거래처 {len(clients)}곳 × 기간 {len(periods)}개월 = {plan.total}건")
