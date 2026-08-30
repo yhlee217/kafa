@@ -16,6 +16,14 @@ timeout_ms: 20000
 # 변환 완료 알림을 닫을 때의 대기(없을 수도 있으므로 짧게)
 confirm_timeout_ms: 5000
 
+# 조작할 탭 고르기 — 회계 모듈이 새 창으로 열리고 처음 탭이 닫히는 일이 있다.
+page_url_hint: "smarta.wehago.com"
+ignore_url_parts:            # 광고·추적용으로 열리는 탭(조작 대상 아님)
+  - "adtrafficquality.google"
+  - "googlesyndication.com"
+  - "doubleclick.net"
+  - "about:blank"
+
 # 기간을 정하는 방식
 #   screen   — 화면에 이미 잡혀 있는 기간을 그대로 쓴다. 위하고 기본값이 **기수 전체**
 #              (예: 2026.01.01 ~ 2026.12.31)라 1년치를 한 번에 받는다. 달력 조작 불필요.

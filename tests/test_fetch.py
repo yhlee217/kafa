@@ -320,3 +320,61 @@ def test_run_fetch_reports_steps_and_failure(tmp_path):
     assert not res.ok
     assert "조회" in steps and "엑셀 변환·다운로드" in steps
     assert failures and "엑셀 다운로드" in failures[0][1]
+
+
+# ── 조작할 탭 고르기(회계 모듈이 새 창으로 열리고 원래 탭이 닫히는 경우) ──
+
+class _Tab:
+    def __init__(self, url, *, closed=False, has=None):
+        self._url, self._closed, self._has = url, closed, set(has or [])
+        self.context = None
+
+    @property
+    def url(self):
+        return self._url
+
+    def is_closed(self):
+        return self._closed
+
+    def query_selector(self, sel):
+        return object() if sel in self._has else None
+
+
+class _Ctx:
+    def __init__(self, pages):
+        self.pages = [p for p in pages if not p.is_closed()]
+
+
+_PICK_CFG = {"page_url_hint": "smarta.wehago.com",
+             "ignore_url_parts": ["adtrafficquality.google", "about:blank"],
+             "selectors": {"search_button": "#go"}}
+
+
+def test_pick_page_finds_ledger_tab_when_original_closed():
+    from kafa.fetch.wehago import pick_page
+    dead = _Tab("about:blank", closed=True)
+    ad = _Tab("https://ep2.adtrafficquality.google/sodar/runner.html")
+    real = _Tab("https://smarta.wehago.com/#/smarta/account/SAAC0105", has=["#go"])
+    dead.context = _Ctx([dead, ad, real])
+    assert pick_page(dead, _PICK_CFG) is real
+
+
+def test_pick_page_ignores_ad_tabs():
+    from kafa.fetch.wehago import NoAppPage, pick_page
+    dead = _Tab("about:blank", closed=True)
+    ad = _Tab("https://ep2.adtrafficquality.google/sodar/runner.html")
+    dead.context = _Ctx([dead, ad])
+    try:
+        pick_page(dead, _PICK_CFG)
+    except NoAppPage as e:
+        assert "탭을 찾지 못했습니다" in str(e)
+    else:
+        raise AssertionError("NoAppPage 가 나와야 한다")
+
+
+def test_pick_page_keeps_current_tab_before_navigation():
+    """아직 이동 전(화면에 조회 버튼이 없음)이면 원래 탭을 그대로 쓴다."""
+    from kafa.fetch.wehago import pick_page
+    cur = _Tab("https://www.wehago.com/#/main")
+    cur.context = _Ctx([cur])
+    assert pick_page(cur, _PICK_CFG) is cur

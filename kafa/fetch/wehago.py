@@ -48,6 +48,10 @@ class SessionExpired(RuntimeError):
     """로그인 세션이 끊김 — 사람이 다시 로그인해야 한다(자동 로그인 하지 않음)."""
 
 
+class NoAppPage(RuntimeError):
+    """위하고 화면이 있는 탭을 못 찾음 — 잘못된 탭을 조작하지 않으려고 멈춘다."""
+
+
 class StepFailed(RuntimeError):
     """어느 단계·어느 selector 에서 막혔는지 밝혀 준다(그냥 TimeoutError 면 못 고친다)."""
 
@@ -72,6 +76,62 @@ def missing_selectors(cfg: dict, *, url_mode: bool = False) -> list[str]:
         if v is None or is_todo(v) or not str(v).strip():
             out.append(k)
     return out
+
+
+def _is_open(pg) -> bool:
+    try:
+        return not pg.is_closed()
+    except Exception:  # noqa: BLE001 — is_closed 가 없는 구현(테스트 더블)
+        return True
+
+
+def _url_lower(pg) -> str:
+    try:
+        return (pg.url or "").lower()
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def pick_page(page, cfg: dict):
+    """조작할 탭을 고른다.
+
+    회계 모듈이 새 창으로 열리고 처음 탭이 닫히는 일이 있어, 붙잡아 둔 page 객체가
+    죽는다(TargetClosedError). 매번 **지금 살아 있는 탭 중 위하고 화면**을 고른다.
+    광고·추적용으로 열리는 탭은 제외한다.
+    """
+    from kafa.fetch.inspect import pages_of
+
+    cfg = cfg or {}
+    hint = str(cfg.get("page_url_hint") or "").strip().lower()
+    ignore = [str(x).lower() for x in (cfg.get("ignore_url_parts") or [])]
+    sel = cfg.get("selectors", {}) or {}
+    search = sel.get("search_button")
+
+    candidates = [pg for pg in pages_of(page) if _is_open(pg)]
+    candidates = [pg for pg in candidates
+                  if not any(bad in _url_lower(pg) for bad in ignore)]
+    best, best_score = None, -1
+    for pg in candidates:
+        score = 0
+        if hint and hint in _url_lower(pg):
+            score += 2
+        if search and not is_todo(search):
+            try:
+                if pg.query_selector(search):
+                    score += 3
+            except Exception:  # noqa: BLE001 — 로딩 중이면 못 볼 수 있다
+                pass
+        if score > best_score:
+            best, best_score = pg, score
+    if best is not None and best_score > 0:
+        return best
+    if _is_open(page):
+        return page                      # 아직 이동 전이면 원래 탭 그대로
+    if candidates:
+        return candidates[-1]            # 마지막으로 열린 탭
+    raise NoAppPage(
+        "위하고 화면이 있는 탭을 찾지 못했습니다(원래 탭이 닫혔을 수 있습니다). "
+        "신용카드 화면 탭을 열어 둔 채로 다시 실행해 주세요.")
 
 
 def format_period(period: str, fmt: str) -> str:
@@ -211,14 +271,14 @@ def run_fetch(page, plan: DownloadPlan, inbox, *, cfg: Optional[dict] = None,
         label = f"{task.client}/{task.period}"
         try:
             try:
-                dest = fetch_one(page, cfg, task, target_path(inbox, task),
-                                 on_step=on_step)
+                dest = fetch_one(pick_page(page, cfg), cfg, task,
+                                 target_path(inbox, task), on_step=on_step)
             except SessionExpired:
                 if on_session_expired is None:
                     raise
                 on_session_expired()          # 사람이 다시 로그인
-                dest = fetch_one(page, cfg, task, target_path(inbox, task),
-                                 on_step=on_step)
+                dest = fetch_one(pick_page(page, cfg), cfg, task,
+                                 target_path(inbox, task), on_step=on_step)
             res.saved.append(dest)
             if on_progress:
                 on_progress(task, "저장")

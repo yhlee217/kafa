@@ -206,6 +206,9 @@ def _pages(page) -> list:
     return pages or [page]
 
 
+pages_of = _pages          # 다른 모듈에서 쓸 수 있게 공개 이름
+
+
 def _frames_of(page) -> list:
     try:
         return list(page.frames)
