@@ -257,6 +257,34 @@ def _has_any_text(pg, texts) -> str:
     return ""
 
 
+def _watch_for_empty(get_page, cfg: dict, sleep) -> str:
+    """조회 직후 '자료 없음' 팝업이 뜨는지 잠깐 지켜본다. 뜨면 그 문구를 돌려준다."""
+    import time as _time
+
+    texts = cfg.get("empty_result_texts") or []
+    if not texts:
+        sleep(float(cfg.get("after_search_seconds", 1.5)))
+        return ""
+    deadline = _time.monotonic() + float(cfg.get("after_search_seconds", 1.5))
+    while True:
+        found = _has_any_text(get_page(), texts)
+        if found:
+            return found
+        if _time.monotonic() >= deadline:
+            return ""
+        sleep(0.3)
+
+
+def _dismiss_popup(page, cfg: dict) -> None:
+    """알림 팝업을 닫는다. 안 닫으면 다음 수임처 화면이 가려진다."""
+    for cand in _as_list((cfg.get("selectors", {}) or {}).get("popup_confirm")):
+        try:
+            page.click(cand, timeout=int(cfg.get("confirm_timeout_ms", 5000)))
+            return
+        except Exception:  # noqa: BLE001 — 다음 후보로
+            continue
+
+
 def _step(what: str, selector: str, action):
     """한 동작을 실행하고, 실패하면 단계 이름과 selector 를 붙여 다시 던진다."""
     try:
@@ -330,12 +358,13 @@ def fetch_one(page, cfg: dict, task: DownloadTask, dest: Path,
     # 5) 조회
     say("조회")
     _click_any(P(), sel["search_button"], timeout, "조회")
-    sleep(float(cfg.get("after_search_seconds", 1.5)))
 
-    # 조회 결과가 없으면 받을 게 없다(실패가 아니다)
-    empty = _has_any_text(P(), cfg.get("empty_result_texts") or [])
+    # 결과가 없으면 팝업이 뜬다. 팝업이 나타날 시간을 주고, 뜨면 닫고 넘어간다.
+    empty = _watch_for_empty(P, cfg, sleep)
     if empty:
-        raise NoData(f"조회 결과가 없습니다({empty})")
+        say(f"조회 결과 없음 — {empty}")
+        _dismiss_popup(P(), cfg)
+        raise NoData(empty)
 
     # 6) 엑셀 다운로드 → 지정 경로에 저장
     say("엑셀 변환·다운로드")
@@ -455,8 +484,13 @@ def _select_kind(page, cfg: dict, timeout: int, say=None) -> None:
         return
 
     target = option.replace("{kind}", kind)
+    other = str(cfg.get("kind_current_other", "")).strip()
     tries = int(cfg.get("kind_try_timeout_ms", 4000))
     for cand in openers:
+        if "{other}" in cand:
+            if not other:
+                continue
+            cand = cand.replace("{other}", other)
         try:
             page.click(cand, timeout=tries)
             page.click(target, timeout=tries)

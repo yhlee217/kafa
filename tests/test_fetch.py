@@ -757,3 +757,45 @@ def test_menu_reopened_when_not_ready(tmp_path):
     fetch_one(page, _CFG_FULL, DownloadTask("A", "2026", cno="1"), dest,
               resolve=lambda: page, sleep=lambda _s: None)
     assert dest.exists() and page.n == 2
+
+
+# ── '조회조건에 맞는 데이터가 없습니다' 팝업 ──
+
+def test_empty_popup_is_dismissed_and_counted(tmp_path):
+    """팝업을 닫지 않으면 다음 수임처 화면이 가려진다."""
+    from kafa.fetch.wehago import run_fetch
+
+    class _Popup(_UrlPage):
+        def query_selector(self, sel):
+            if sel == 'text="조회조건에 맞는 데이터가 없습니다"':
+                return object()
+            return super().query_selector(sel)
+
+    cfg = {**_CFG_FULL,
+           "empty_result_texts": ["조회조건에 맞는 데이터가 없습니다"],
+           "selectors": {**_CFG_FULL["selectors"], "popup_confirm": ["#ok"]}}
+    page = _Popup(present={"div#GRID_TOP canvas"})
+    plan = build_plan(tmp_path, ["A"], ["2026"], cnos={"A": "1"})
+    res = run_fetch(page, plan, tmp_path, cfg=cfg, sleep=lambda _: None)
+    assert res.ok and res.empty == ["A/2026"]
+    assert ("click", "#ok") in page.log          # 팝업을 닫았다
+
+
+def test_kind_dropdown_opened_by_current_value_text(tmp_path):
+    """비슷한 드롭다운이 여럿이라, 현재 값('1. 매출') 글자를 눌러 목록을 연다."""
+    from kafa.fetch.wehago import fetch_one
+
+    cfg = {**_CFG_FULL,
+           "kind_autoselect": True,
+           "kind_current_other": "1. 매출",
+           "kind_try_timeout_ms": 10,
+           "selectors": {**_CFG_FULL["selectors"],
+                         "kind_current": 'text="{kind}"',
+                         "kind_select_open": ['text="{other}"'],
+                         "kind_option": 'li a:has-text("{kind}")'}}
+    page = _UrlPage(present={"div#GRID_TOP canvas"})
+    fetch_one(page, cfg, DownloadTask("A", "2026", cno="1"),
+              tmp_path / "A" / "2026.xlsx", resolve=lambda: page,
+              sleep=lambda _s: None)
+    assert ("click", 'text="1. 매출"') in page.log
+    assert ("click", 'li a:has-text("2. 매입")') in page.log
