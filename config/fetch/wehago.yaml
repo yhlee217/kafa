@@ -60,8 +60,12 @@ selectors:
     - "div#SAOSearchMain button.LUX_basic_btn.Default.basic"
     - "button.LUX_basic_btn.Default.basic:has-text(\"조회\")"
 
-  # 다운로드 — 툴바의 '엑셀변환'. 누르면 파일이 만들어지고 알림이 뜬다.
-  # 위치를 정확히 못 집을 수 있어 후보를 차례로 시도한다.
+  # 다운로드 — '엑셀변환' 은 조회 결과 표의 **데이터 행에서 우클릭**해야 나오는
+  # 메뉴 안에 있다(담당자 확인 2026-08-30). 표는 canvas 로 그려진다.
+  excel_context_target:
+    - "div#GRID_TOP canvas"
+    - "div#GRID_TOP"
+  # 우클릭으로 열린 메뉴의 '엑셀변환'. 누르면 파일이 만들어지고 알림이 뜬다.
   excel_download_button:
     - "td:text-is(\"엑셀변환\")"
     - "*:text-is(\"엑셀변환\")"

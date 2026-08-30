@@ -159,7 +159,7 @@ def _as_list(value) -> list[str]:
             if v is not None and str(v).strip() and not is_todo(v)]
 
 
-def _click_any(page, selectors, timeout: int, what: str):
+def _click_any(page, selectors, timeout: int, what: str, *, button: str = "left"):
     """후보 selector 를 차례로 눌러 본다. 하나라도 되면 그 selector 를 돌려준다.
 
     화면에 비슷한 요소가 많거나 위하고가 화면 구조를 조금 바꿔도 견디게 하기 위함.
@@ -173,12 +173,20 @@ def _click_any(page, selectors, timeout: int, what: str):
         # 마지막 후보에는 남은 시간을 다 준다(앞 후보는 짧게 훑고 넘어간다).
         t = timeout if i == len(cands) - 1 else min(timeout, 5000)
         try:
-            page.click(cand, timeout=t)
+            if button == "left":
+                page.click(cand, timeout=t)
+            else:
+                page.click(cand, timeout=t, button=button)
             return cand
         except Exception as e:  # noqa: BLE001 — 다음 후보로
             errors.append(f"{cand} → {type(e).__name__}")
     raise StepFailed(f"[{what}] 후보를 모두 시도했지만 못 눌렀습니다: "
                      + " | ".join(errors))
+
+
+def _click_any_right(page, selectors, timeout: int, what: str):
+    """오른쪽 클릭으로 컨텍스트 메뉴를 연다(후보를 차례로 시도)."""
+    return _click_any(page, selectors, timeout, what, button="right")
 
 
 def _step(what: str, selector: str, action):
@@ -257,8 +265,15 @@ def fetch_one(page, cfg: dict, task: DownloadTask, dest: Path,
 
     expect = str(cfg.get("expect_filename_contains", "")).strip()
 
+    # '엑셀변환' 은 표의 **데이터 행에서 우클릭**해야 나오는 메뉴 안에 있다.
+    # (담당자 확인 2026-08-30 — docs/domain_notes.md)
+    ctx_target = _as_list(sel.get("excel_context_target"))
+
     def _download():
         pg = P()
+        if ctx_target:
+            say("표에서 우클릭(엑셀 메뉴 열기)")
+            _click_any_right(pg, ctx_target, timeout, "엑셀 메뉴 열기")
         with pg.expect_download(timeout=timeout) as dl:
             _click_any(pg, sel["excel_download_button"], timeout, "엑셀 다운로드")
         name = getattr(dl.value, "suggested_filename", "") or ""

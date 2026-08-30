@@ -120,7 +120,9 @@ class _FakePage:
         if val in self.fail_on:
             raise RuntimeError(f"입력 실패: {val}")
         self.log.append(("fill", sel, val))
-    def click(self, sel, **kw): self.log.append(("click", sel))
+    def click(self, sel, **kw):
+        kind = "rightclick" if kw.get("button") == "right" else "click"
+        self.log.append((kind, sel))
     def expect_download(self, **kw): return _FakeExpect(self.log)
 
 
@@ -509,3 +511,46 @@ def test_shipped_config_download_has_candidates():
     from kafa.fetch.wehago import _as_list, load_fetch_config
     cands = _as_list(load_fetch_config()["selectors"]["excel_download_button"])
     assert len(cands) >= 2      # 하나가 안 맞아도 다음을 시도한다
+
+
+# ── '엑셀변환' 은 표에서 우클릭해야 나오는 메뉴 안에 있다 ──
+
+_CFG_CTX = {**_CFG_KIND,
+            "selectors": {**_CFG_KIND["selectors"],
+                          "excel_context_target": ["div#GRID_TOP canvas"],
+                          "excel_download_button": ["#xls"]}}
+
+
+def test_right_clicks_grid_before_excel_menu(tmp_path):
+    from kafa.fetch.wehago import fetch_one
+    page = _UrlPage()
+    dest = tmp_path / "A" / "2026.xlsx"
+    fetch_one(page, _CFG_CTX, DownloadTask("A", "2026", here=True), dest)
+    assert ("rightclick", "div#GRID_TOP canvas") in page.log
+    # 우클릭이 '엑셀변환' 클릭보다 먼저여야 한다
+    assert page.log.index(("rightclick", "div#GRID_TOP canvas")) < \
+        page.log.index(("click", "#xls"))
+    assert dest.exists()
+
+
+def test_context_target_falls_back_to_next_candidate(tmp_path):
+    from kafa.fetch.wehago import fetch_one
+
+    class _CanvasMissing(_UrlPage):
+        def click(self, sel, **kw):
+            if sel == "div#GRID_TOP canvas":
+                raise TimeoutError("없음")
+            super().click(sel, **kw)
+
+    cfg = {**_CFG_CTX, "selectors": {
+        **_CFG_CTX["selectors"],
+        "excel_context_target": ["div#GRID_TOP canvas", "div#GRID_TOP"]}}
+    page = _CanvasMissing()
+    fetch_one(page, cfg, DownloadTask("A", "2026", here=True),
+              tmp_path / "A" / "2026.xlsx")
+    assert ("rightclick", "div#GRID_TOP") in page.log
+
+
+def test_shipped_config_right_clicks_the_grid():
+    from kafa.fetch.wehago import _as_list, load_fetch_config
+    assert _as_list(load_fetch_config()["selectors"]["excel_context_target"])
