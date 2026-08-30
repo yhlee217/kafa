@@ -170,3 +170,25 @@ def test_cli_inspect_no_keep_open_closes_immediately(tmp_path, monkeypatch):
     rc = fetch_cli.main(["--inspect", "--no-keep-open",
                          "--inspect-out", str(tmp_path / "o.txt")], input_fn=_input)
     assert rc == 0 and order == ["closed"]
+
+
+# ── 화면 판정 ──
+
+def test_hint_detects_dashboard():
+    out = inspect_page(_Page(_Frame({"button:visible": [
+        _El(text="수집정보등록", attrs='class="button_bg_blue"')]})))
+    joined = "\n".join(out)
+    assert "수임처 목록(대시보드)" in joined
+    assert "r + 엔터" in joined
+
+
+def test_hint_detects_ledger_screen():
+    out = inspect_page(_Page(_Frame({"button:visible": [
+        _El(text="상세검색 열기", attrs='class="btnmore"'),
+        _El(text="전표상태 안내", attrs='class="WSC_LUXButton"')]})))
+    assert "회계 전표 화면으로 보입니다" in "\n".join(out)
+
+
+def test_hint_unknown_screen():
+    out = inspect_page(_Page(_Frame({"button:visible": [_El(text="확인")]})))
+    assert "확신할 수 없습니다" in "\n".join(out)

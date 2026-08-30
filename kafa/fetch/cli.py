@@ -67,7 +67,7 @@ def main(argv: list[str] | None = None, *, input_fn=input) -> int:
     cfg = load_fetch_config(args.config)
 
     if args.inspect:
-        from kafa.fetch.inspect import inspect_page
+        from kafa.fetch.inspect import inspect_page, screen_hint
         from kafa.fetch.session import browser_page, wait_for_human
         print(TOS_NOTICE)
         with browser_page(profile_dir=args.profile,
@@ -89,6 +89,10 @@ def main(argv: list[str] | None = None, *, input_fn=input) -> int:
                 out.write_text("\n".join(lines), encoding="utf-8")
                 print(f"\n[저장] {out.resolve()}"
                       "  ← 이 파일을 보내주시면 selector 를 채워 드립니다.")
+                # 판정을 맨 마지막에 한 번 더 — 출력이 길어 위로 밀려 안 보이기 쉽다.
+                print()
+                for line in screen_hint(lines):
+                    print(line)
                 if args.no_keep_open:
                     break
                 # 화면을 잘못 잡았을 때 브라우저를 다시 띄우지 않고 그 자리에서 재시도한다.

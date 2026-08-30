@@ -200,6 +200,34 @@ def _url_of(obj) -> str:
         return ""
 
 
+def _title_of(page) -> str:
+    """탭 제목. 주소가 about:blank 로만 보이는 화면이 있어 구분에 쓴다."""
+    try:
+        return (page.title() or "").strip()[:40]
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+# 어느 화면을 잡았는지 사람에게 바로 알려주기 위한 표식(구조만 — 데이터 아님).
+_DASHBOARD_MARKERS = ("회사명, 사업자등록번호, 대표자명으로 검색",
+                      "수집정보등록", "새 수임처")
+_LEDGER_MARKERS = ("상세검색", "휴폐업조회", "nm_bizcond", "전표상태", "전표전송")
+
+
+def screen_hint(lines: list[str]) -> list[str]:
+    """잡은 화면이 맞는지 한 줄 판정 — 잘못 잡았으면 무엇을 할지 알려준다."""
+    text = "\n".join(lines)
+    if any(m in text for m in _DASHBOARD_MARKERS):
+        return ["[판정] 지금 잡힌 화면은 **수임처 목록(대시보드)** 입니다.",
+                "       수임처를 하나 선택해 회계 › 전표관리 › 신용카드(매입) 화면까지",
+                "       이동한 뒤, 터미널에서 r + 엔터로 다시 살펴보세요."]
+    hits = sum(1 for m in _LEDGER_MARKERS if m in text)
+    if hits >= 2:
+        return ["[판정] 회계 전표 화면으로 보입니다. 이 결과를 보내주세요."]
+    return ["[판정] 어떤 화면인지 확신할 수 없습니다. 신용카드(매입) 목록과",
+            "       조회 기간·엑셀 버튼이 다 보이는 상태에서 r + 엔터로 다시 해보세요."]
+
+
 def inspect_page(page, *, limit: int = 40) -> list[str]:
     """화면 요소 후보 목록(문자열 라인).
 
@@ -218,7 +246,9 @@ def inspect_page(page, *, limit: int = 40) -> list[str]:
         inventory.append((pi, pg, frames))
     out.append(f"[화면 목록] 탭 {len(pages)}개")
     for pi, pg, frames in inventory:
-        out.append(f"   탭#{pi} (프레임 {len(frames)}개) {_url_of(pg)}")
+        title = _title_of(pg)
+        head = f"   탭#{pi} (프레임 {len(frames)}개) {_url_of(pg)}"
+        out.append(head + (f"  제목={title!r}" if title else ""))
         for fi, fr in enumerate(frames[1:], start=1):
             out.append(f"      └ iframe#{fi} {_url_of(fr)}")
     out.append("")
@@ -236,4 +266,6 @@ def inspect_page(page, *, limit: int = 40) -> list[str]:
         out.append("(요소를 찾지 못했습니다 — 회계 화면이 다른 탭/창에 있거나 아직 로딩 중일 수 "
                    "있습니다. 위 [화면 목록] 의 주소를 확인해 주세요.)")
     out.append("★ 표시는 '엑셀/다운로드/조회/거래처/기간' 같은 단어가 걸린 항목입니다.")
+    out.append("")
+    out += screen_hint(out)
     return out
