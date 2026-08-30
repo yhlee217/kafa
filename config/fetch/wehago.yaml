@@ -16,6 +16,21 @@ timeout_ms: 20000
 # 변환 완료 알림을 닫을 때의 대기(없을 수도 있으므로 짧게)
 confirm_timeout_ms: 5000
 
+# 느린 수임처 대비 — 화면이 뜰 때까지 기다리고, 안 되면 다시 시도한다.
+ready_timeout_ms: 30000        # 회계 화면·조회 결과 표가 나타날 때까지
+after_search_seconds: 1.5      # 조회 누른 뒤 결과가 그려질 시간
+menu_retries: 3                # 우클릭 메뉴가 안 뜨면 다시 시도할 횟수
+menu_retry_seconds: 2.0
+task_retries: 2                # 한 수임처를 통째로 다시 시도할 횟수
+retry_wait_seconds: 5.0
+
+# 이 문구가 보이면 '받을 게 없음'으로 보고 넘어간다(실패로 세지 않음).
+empty_result_texts:
+  - "조회된 자료가 없습니다"
+  - "조회할 자료가 없습니다"
+  - "데이터가 없습니다"
+  - "자료가 없습니다"
+
 # 조작할 탭 고르기 — 회계 모듈이 새 창으로 열리고 처음 탭이 닫히는 일이 있다.
 # 주소를 about:blank 로 보고하는 탭이 있어, 주소보다 **요소 존재 여부**를 더 크게 본다.
 page_url_hint: "smarta.wehago.com"

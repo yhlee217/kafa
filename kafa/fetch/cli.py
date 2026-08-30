@@ -328,7 +328,13 @@ def main(argv: list[str] | None = None, *, input_fn=input) -> int:
         if not args.no_keep_open:
             input_fn("\n브라우저는 열어 둔 채입니다. 확인이 끝나면 엔터를 누르세요... ")
 
-    print(f"\n저장 {len(res.saved)}건 / 실패 {len(res.failures)}건 / 생략 {res.skipped}건")
+    print(f"\n저장 {len(res.saved)}건 / 자료없음 {len(res.empty)}건 / "
+          f"실패 {len(res.failures)}건 / 생략 {res.skipped}건"
+          + (f" (재시도 {res.retried}회)" if res.retried else ""))
+    for label in res.empty[:20]:
+        print(f"  [자료없음] {label}")
+    if len(res.empty) > 20:
+        print(f"  … 외 {len(res.empty) - 20}건")
     for k, v in res.failures.items():
         print(f"  [실패] {k} → {v}", file=sys.stderr)
     print(f"\n다음: kafa-pipeline {args.inbox} <출력폴더>")

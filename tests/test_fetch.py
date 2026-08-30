@@ -101,7 +101,9 @@ _CFG = {"selectors": {"client_search_input": "#s", "client_result_item": "#r-{cl
                       "client_result_by_cno": "a#tooltip_{cno}",
                       "period_from_input": "#f", "period_to_input": "#t",
                       "search_button": "#go", "excel_download_button": "#xls"},
-        "delay_seconds": 0, "timeout_ms": 100, "period_format": "%Y-%m"}
+        "delay_seconds": 0, "timeout_ms": 100, "period_format": "%Y-%m",
+        "ready_timeout_ms": 200, "after_search_seconds": 0,
+        "menu_retry_seconds": 0}
 
 
 class _FakeDownload:
@@ -122,9 +124,10 @@ class _FakeExpect:
 
 class _FakePage:
     """클릭/입력을 기록만 하는 가짜 페이지. fail_on 에 걸리면 예외."""
-    def __init__(self, fail_on=None, present=("#s",)):
+    def __init__(self, fail_on=None, present=()):
         self.log, self.fail_on = [], fail_on or set()
-        self.present = set(present)   # query_selector 로 '있다' 고 답할 selector
+        # 검색창(#s)·조회 버튼(#go)은 기본으로 '있다' — 화면 준비 대기를 통과시킨다
+        self.present = set(present) | {"#s", "#go"}
         self.context = None
 
     def is_closed(self):
@@ -173,7 +176,9 @@ def test_run_fetch_reports_skipped(tmp_path):
 _CFG_URL = {"selectors": {"period_from_input": "#f", "period_to_input": "#t",
                           "search_button": "#go", "excel_download_button": "#xls",
                           "login_marker": "#login"},
-            "delay_seconds": 0, "timeout_ms": 100, "period_format": "%Y-%m"}
+            "delay_seconds": 0, "timeout_ms": 100, "period_format": "%Y-%m",
+        "ready_timeout_ms": 200, "after_search_seconds": 0,
+        "menu_retry_seconds": 0}
 
 
 class _UrlPage(_FakePage):
@@ -233,7 +238,9 @@ _CFG_SCREEN = {"period_mode": "screen",
                    "search_button": "#go",
                    "excel_download_button": "#xls",
                    "download_confirm": "#confirm"},
-               "delay_seconds": 0, "timeout_ms": 100}
+               "delay_seconds": 0, "timeout_ms": 100,
+               "ready_timeout_ms": 200, "after_search_seconds": 0,
+               "menu_retry_seconds": 0}
 
 
 def test_screen_mode_skips_calendar_and_picks_purchase(tmp_path):
@@ -536,9 +543,14 @@ _CFG_CTX = {**_CFG_KIND,
                           "excel_download_button": ["#xls"]}}
 
 
+def _ctx_page(**kw):
+    """표(우클릭 대상)가 이미 그려져 있는 가짜 화면."""
+    return _UrlPage(present={"div#GRID_TOP canvas", "div#GRID_TOP"}, **kw)
+
+
 def test_right_clicks_grid_before_excel_menu(tmp_path):
     from kafa.fetch.wehago import fetch_one
-    page = _UrlPage()
+    page = _ctx_page()
     dest = tmp_path / "A" / "2026.xlsx"
     fetch_one(page, _CFG_CTX, DownloadTask("A", "2026", here=True), dest)
     assert ("rightclick", "div#GRID_TOP canvas") in page.log
@@ -560,7 +572,7 @@ def test_context_target_falls_back_to_next_candidate(tmp_path):
     cfg = {**_CFG_CTX, "selectors": {
         **_CFG_CTX["selectors"],
         "excel_context_target": ["div#GRID_TOP canvas", "div#GRID_TOP"]}}
-    page = _CanvasMissing()
+    page = _CanvasMissing(present={"div#GRID_TOP canvas", "div#GRID_TOP"})
     fetch_one(page, cfg, DownloadTask("A", "2026", here=True),
               tmp_path / "A" / "2026.xlsx")
     assert ("rightclick", "div#GRID_TOP") in page.log
@@ -651,3 +663,97 @@ def test_unsupported_master_format_is_explained(tmp_path):
     code, err = _run_cli(["--inbox", str(tmp_path), "--master", str(bad),
                           "--whole", "--dry-run"])
     assert code != 0 and ".xlsx" in err
+
+
+# ── 느린 수임처: 기다리고, 다시 시도하고, 자료 없으면 넘어간다 ──
+
+# 목록에서 열기 + 우클릭 메뉴까지 갖춘 설정
+_CFG_FULL = {**_CFG_NAV,
+             "selectors": {**_CFG_NAV["selectors"],
+                           "excel_context_target": ["div#GRID_TOP canvas"],
+                           "excel_download_button": ["#xls"]},
+             "ready_timeout_ms": 200, "after_search_seconds": 0,
+             "menu_retry_seconds": 0}
+
+
+def test_waits_for_slow_screen_then_proceeds(tmp_path):
+    """회계 화면이 늦게 떠도 기다렸다가 진행한다."""
+    from kafa.fetch.wehago import fetch_one
+
+    class _Slow(_UrlPage):
+        def __init__(self):
+            super().__init__(present={"div#GRID_TOP canvas"})
+            self.present.discard("#go")
+            self.looks = 0
+
+        def query_selector(self, sel):
+            if sel == "#go":
+                self.looks += 1
+                return object() if self.looks > 2 else None
+            return super().query_selector(sel)
+
+    page = _Slow()
+    dest = tmp_path / "A" / "2026.xlsx"
+    fetch_one(page, {**_CFG_FULL, "ready_timeout_ms": 5000},
+              DownloadTask("A", "2026", cno="1"), dest,
+              resolve=lambda: page, sleep=lambda _s: None)
+    assert dest.exists() and page.looks > 2
+
+
+def test_no_data_is_not_a_failure(tmp_path):
+    from kafa.fetch.wehago import run_fetch
+
+    class _Empty(_UrlPage):
+        def query_selector(self, sel):
+            if sel == 'text="조회된 자료가 없습니다"':
+                return object()
+            return super().query_selector(sel)
+
+    cfg = {**_CFG_FULL, "empty_result_texts": ["조회된 자료가 없습니다"]}
+    plan = build_plan(tmp_path, ["A"], ["2026"], cnos={"A": "1"})
+    res = run_fetch(_Empty(), plan, tmp_path, cfg=cfg, sleep=lambda _: None)
+    assert res.ok and res.empty == ["A/2026"] and res.saved == []
+
+
+def test_task_is_retried_before_giving_up(tmp_path):
+    from kafa.fetch.wehago import run_fetch
+
+    class _FlakyFirst(_UrlPage):
+        tries = 0
+
+        def click(self, sel, **kw):
+            if sel == "#xls":
+                type(self).tries += 1
+                if type(self).tries == 1:
+                    raise TimeoutError("아직 안 뜸")
+            super().click(sel, **kw)
+
+    page = _FlakyFirst(present={"div#GRID_TOP canvas"})
+    plan = build_plan(tmp_path, ["A"], ["2026"], cnos={"A": "1"})
+    cfg = {**_CFG_FULL, "task_retries": 2, "retry_wait_seconds": 0,
+           "menu_retries": 1}
+    res = run_fetch(page, plan, tmp_path, cfg=cfg, sleep=lambda _: None)
+    assert res.ok and res.retried == 1
+
+
+def test_menu_reopened_when_not_ready(tmp_path):
+    """우클릭 메뉴가 처음엔 안 떠도 다시 열어 본다."""
+    from kafa.fetch.wehago import fetch_one
+
+    class _MenuLate(_UrlPage):
+        def __init__(self):
+            super().__init__(present={"div#GRID_TOP canvas"})
+            self.n = 0
+
+        def click(self, sel, **kw):
+            if sel == "#xls":
+                self.n += 1
+                if self.n == 1:
+                    raise TimeoutError("메뉴 없음")
+            super().click(sel, **kw)
+
+    page = _MenuLate()
+    dest = tmp_path / "A" / "2026.xlsx"
+    fetch_one(page, _CFG_FULL, DownloadTask("A", "2026", cno="1"), dest,
+              resolve=lambda: page, sleep=lambda _s: None)
+    assert dest.exists() and page.n == 2
