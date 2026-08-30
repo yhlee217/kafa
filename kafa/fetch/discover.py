@@ -17,11 +17,43 @@ from kafa.fetch.inspect import pages_of
 # 목록 화면에서 (수임처코드, 이름) 을 뽑는다. 값·툴팁 본문은 읽지 않는다.
 _COLLECT_JS = r"""
 () => {
-  const out = [];
-  for (const a of document.querySelectorAll('a[id^="tooltip_"]')) {
-    const cno = a.id.replace('tooltip_', '');
-    const name = (a.textContent || '').trim().replace(/\s+/g, ' ');
-    if (/^[0-9]+$/.test(cno) && name) out.push({cno: cno, name: name});
+  // 화면마다 표시가 달라 여러 형태를 다 받는다.
+  //  ① 대시보드 위젯:  <a id="tooltip_10049328">이름</a>
+  //  ② 목록/표:        id 나 data-* 에 코드, href 에 cno=
+  const out = [], seen = new Set();
+  const add = (cno, name) => {
+    if (!/^[0-9]{4,}$/.test(cno)) return;
+    name = (name || '').trim().replace(/\s+/g, ' ');
+    if (!name || name.length > 60) return;
+    const key = cno + '|' + name;
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push({cno: cno, name: name});
+  };
+  const rowName = (el) => {
+    // 자기 글자가 없으면 같은 행(tr/li)에서 가장 긴 글자를 이름으로 본다.
+    const own = (el.textContent || '').trim();
+    if (own) return own;
+    const row = el.closest('tr, li, .row, [role="row"]');
+    if (!row) return '';
+    let best = '';
+    for (const c of row.querySelectorAll('td, span, div, a')) {
+      const t = (c.textContent || '').trim();
+      if (t.length > best.length && t.length < 60) best = t;
+    }
+    return best;
+  };
+  for (const el of document.querySelectorAll('[id^="tooltip_"]')) {
+    add(el.id.replace('tooltip_', ''), rowName(el));
+  }
+  for (const el of document.querySelectorAll('a[href*="cno="]')) {
+    const m = (el.getAttribute('href') || '').match(/[?&]cno=([0-9]+)/);
+    if (m) add(m[1], rowName(el));
+  }
+  for (const el of document.querySelectorAll('[data-cno], [data-compcd], [data-cd-com]')) {
+    const cno = el.getAttribute('data-cno') || el.getAttribute('data-compcd')
+             || el.getAttribute('data-cd-com') || '';
+    add(String(cno), rowName(el));
   }
   return out;
 }
@@ -164,6 +196,58 @@ _PAGER_JS = r"""
   return out;
 }
 """
+
+
+# 목록이 어떤 모양인지 — **구조만** 센다(이름은 세지도 않는다, 보안 제0원칙).
+_SHAPE_JS = r"""
+() => {
+  const n = (sel) => document.querySelectorAll(sel).length;
+  let scroll = '';
+  const a = document.querySelector('[id^="tooltip_"], a[href*="cno="]');
+  let cur = a && a.parentElement, box = null;
+  while (cur) {
+    const st = getComputedStyle(cur);
+    if ((st.overflowY === 'auto' || st.overflowY === 'scroll') &&
+        cur.scrollHeight > cur.clientHeight + 4) { box = cur; break; }
+    cur = cur.parentElement;
+  }
+  if (box) {
+    let cls = (typeof box.className === 'string') ? box.className : '';
+    scroll = box.tagName.toLowerCase() + (box.id ? '#' + box.id : '') +
+             (cls ? '.' + cls.trim().split(/\s+/).slice(0, 3).join('.') : '') +
+             '  scrollHeight=' + box.scrollHeight + ' clientHeight=' + box.clientHeight;
+  }
+  return {
+    tooltip: n('[id^="tooltip_"]'),
+    hrefCno: n('a[href*="cno="]'),
+    dataCno: n('[data-cno], [data-compcd], [data-cd-com]'),
+    rows: n('tr'),
+    listItems: n('li'),
+    scroll: scroll || '(스크롤 상자 없음 — 페이지 자체가 넘어가는 방식일 수 있음)',
+    title: (document.title || '').slice(0, 60)
+  };
+}
+"""
+
+
+def shape_report(page) -> list[str]:
+    """목록 화면의 구조 요약 — 어떤 방식으로 수임처가 표시되는지."""
+    out = ["", "── 목록 화면 구조 (이름 없음, 개수만) ──", ""]
+    for i, pg in enumerate(pages_of(page)):
+        try:
+            sh = pg.evaluate(_SHAPE_JS)
+        except Exception:  # noqa: BLE001
+            continue
+        if not isinstance(sh, dict):
+            continue
+        out.append(f"[탭#{i}] 제목={sh.get('title')!r}")
+        out.append(f"   tooltip_ 요소 {sh.get('tooltip')}개 / "
+                   f"href 에 cno= {sh.get('hrefCno')}개 / "
+                   f"data-* 코드 {sh.get('dataCno')}개")
+        out.append(f"   표 행 <tr> {sh.get('rows')}개 / 목록 <li> {sh.get('listItems')}개")
+        out.append(f"   스크롤 상자: {sh.get('scroll')}")
+        out.append("")
+    return out
 
 
 def pagination_report(page) -> list[str]:

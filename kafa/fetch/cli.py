@@ -94,7 +94,8 @@ def main(argv: list[str] | None = None, *, input_fn=input) -> int:
     if args.discover:
         from kafa.fetch.discover import (auto_collect, collect_clients,
                                          expected_total, merge,
-                                         pagination_report, write_csv)
+                                         pagination_report, shape_report,
+                                         write_csv)
         from kafa.fetch.session import browser_page, wait_for_human
         print(TOS_NOTICE)
         with browser_page(profile_dir=args.profile,
@@ -130,7 +131,8 @@ def main(argv: list[str] | None = None, *, input_fn=input) -> int:
                 # 어떤 컨트롤로 넘겨야 하는지 보정할 수 있게 후보를 남긴다.
                 rep = Path("kafa-discover.txt")
                 try:
-                    rep.write_text("\n".join(pagination_report(page)),
+                    rep.write_text("\n".join(shape_report(page)
+                                             + pagination_report(page)),
                                    encoding="utf-8")
                     print(f"   넘기기 후보를 저장했습니다: {rep.resolve()}",
                           file=sys.stderr)

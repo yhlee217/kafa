@@ -210,3 +210,31 @@ def test_pagination_report_lists_candidates():
     tab.context = _Ctx([tab])
     out = "\n".join(pagination_report(tab))
     assert "<button> '2'" in out and 'class="pg"' in out
+
+
+def test_collect_handles_table_rows_and_href_codes():
+    """대시보드 위젯 말고 표 형태 목록에서도 코드를 뽑는다."""
+    tab = _Tab("https://x/", rows=[{"cno": "10049328", "name": "행복상사"},
+                                   {"cno": "10049250", "name": "튼튼상사"}])
+    tab.context = _Ctx([tab])
+    got = {r["cno"] for r in collect_clients(tab)}
+    assert got == {"10049328", "10049250"}
+
+
+def test_shape_report_counts_only_no_names():
+    from kafa.fetch.discover import shape_report
+
+    class _T(_Tab):
+        def evaluate(self, js, _arg=None):
+            if "tooltip:" in js or "hrefCno" in js:
+                return {"tooltip": 40, "hrefCno": 0, "dataCno": 0, "rows": 41,
+                        "listItems": 3, "scroll": "div#list  scrollHeight=900 "
+                                                  "clientHeight=300",
+                        "title": "수임처관리"}
+            return []
+
+    tab = _T("https://x/")
+    tab.context = _Ctx([tab])
+    out = "\n".join(shape_report(tab))
+    assert "tooltip_ 요소 40개" in out and "scrollHeight=900" in out
+    assert "수임처관리" in out
