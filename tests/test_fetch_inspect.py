@@ -29,8 +29,18 @@ class _Frame:
 
 
 class _Page:
-    def __init__(self, *frames):
+    def __init__(self, *frames, url="https://x/"):
         self.frames = list(frames)
+        self.url = url
+        self.context = None          # 단일 탭(테스트 더블)
+
+    def is_closed(self):
+        return False
+
+
+class _Ctx:
+    def __init__(self, pages):
+        self.pages = pages
 
 
 def test_icon_button_shows_hidden_label():
@@ -64,8 +74,20 @@ def test_frames_are_labelled():
     inner = _Frame({"button:visible": [_El(text="엑셀", attrs='id="xls"')]},
                    url="https://x/inner")
     out = "\n".join(inspect_page(_Page(main, inner)))
-    assert "프레임 2개 발견" in out
+    assert "프레임 2개" in out
     assert "iframe#1: https://x/inner" in out
+
+
+def test_scans_other_tabs():
+    """회계 모듈이 새 탭으로 열려도 찾아낸다(첫 탭은 비어 있음)."""
+    blank = _Page(_Frame(url="about:blank"), url="about:blank")
+    real = _Page(_Frame({"button:visible": [_El(text="엑셀", attrs='id="xls"')]},
+                        url="https://x/card"), url="https://x/card")
+    blank.context = _Ctx([blank, real])
+    out = "\n".join(inspect_page(blank))
+    assert "탭 2개" in out
+    assert "탭#1" in out and 'id="xls"' in out
+    assert "요소를 찾지 못했습니다" not in out
 
 
 def test_survives_broken_elements():

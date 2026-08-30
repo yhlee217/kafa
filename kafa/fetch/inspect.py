@@ -171,37 +171,65 @@ def _deep_scan(frame, label: str) -> list[str]:
     return out
 
 
+def _pages(page) -> list:
+    """같은 브라우저의 **모든 탭**. 회계 모듈이 새 탭/새 창으로 열리는 경우 대비."""
+    try:
+        pages = [pg for pg in page.context.pages if not pg.is_closed()]
+    except Exception:  # noqa: BLE001 — context 가 없는 구현(테스트 더블 등)
+        pages = []
+    if page not in pages:
+        pages.insert(0, page)
+    return pages or [page]
+
+
+def _frames_of(page) -> list:
+    try:
+        return list(page.frames)
+    except Exception:  # noqa: BLE001
+        return [page]
+
+
+def _url_of(obj) -> str:
+    try:
+        return (obj.url or "")[:70]
+    except Exception:  # noqa: BLE001
+        return ""
+
+
 def inspect_page(page, *, limit: int = 40) -> list[str]:
     """화면 요소 후보 목록(문자열 라인).
 
-    회계 화면이 iframe 안에 있는 경우가 많아 **모든 프레임**을 훑고, 어느 프레임에서
-    나온 요소인지 함께 표시한다. 값(value)·거래처명 같은 데이터는 읽지 않는다.
+    회계 모듈이 **새 탭**으로 열리고 화면이 **iframe** 안에 있는 경우가 많아,
+    같은 브라우저의 모든 탭 × 모든 프레임을 훑는다. 어디서 나온 요소인지 함께
+    표시한다. 값(value)·거래처명 같은 데이터는 읽지 않는다.
     """
     out = ["", "── 현재 화면의 후보 요소 (selector 보정용) ──",
            "※ 아래 id/name/class 를 config/fetch/wehago.yaml 에 적으세요.",
            "   예) period_from_input: \"#dateFrom\"  또는  \"input[name='fromDt']\"", ""]
 
-    try:
-        frames = list(page.frames)
-    except Exception:  # noqa: BLE001
-        frames = [page]
-    if len(frames) > 1:
-        out.append(f"프레임 {len(frames)}개 발견 — 회계 화면은 보통 iframe 안에 있습니다.")
-        out.append("")
+    pages = _pages(page)
+    inventory = []
+    for pi, pg in enumerate(pages):
+        frames = _frames_of(pg)
+        inventory.append((pi, pg, frames))
+    out.append(f"[화면 목록] 탭 {len(pages)}개")
+    for pi, pg, frames in inventory:
+        out.append(f"   탭#{pi} (프레임 {len(frames)}개) {_url_of(pg)}")
+        for fi, fr in enumerate(frames[1:], start=1):
+            out.append(f"      └ iframe#{fi} {_url_of(fr)}")
+    out.append("")
 
     found = False
-    for i, fr in enumerate(frames):
-        try:
-            url = (fr.url or "")[:70]
-        except Exception:  # noqa: BLE001
-            url = ""
-        label = "메인" if i == 0 else f"iframe#{i}: {url}"
-        lines = _inspect_frame(fr, label, limit)
-        if lines:
-            found = True
-            out += lines
-        out += _deep_scan(fr, label)
+    for pi, pg, frames in inventory:
+        for fi, fr in enumerate(frames):
+            where = f"탭#{pi}" if fi == 0 else f"탭#{pi}·iframe#{fi}: {_url_of(fr)}"
+            lines = _inspect_frame(fr, where, limit)
+            if lines:
+                found = True
+                out += lines
+            out += _deep_scan(fr, where)
     if not found:
-        out.append("(요소를 찾지 못했습니다 — 화면이 다 뜬 뒤 엔터를 눌러 보세요)")
+        out.append("(요소를 찾지 못했습니다 — 회계 화면이 다른 탭/창에 있거나 아직 로딩 중일 수 "
+                   "있습니다. 위 [화면 목록] 의 주소를 확인해 주세요.)")
     out.append("★ 표시는 '엑셀/다운로드/조회/거래처/기간' 같은 단어가 걸린 항목입니다.")
     return out
