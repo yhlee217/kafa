@@ -32,7 +32,7 @@ def _clients_from(arg: str) -> list[str]:
     return [c.strip() for c in arg.split(",") if c.strip()]
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(argv: list[str] | None = None, *, input_fn=input) -> int:
     ap = argparse.ArgumentParser(
         prog="kafa-fetch",
         description="감독형 수집 — 로그인은 사람이, 반복 다운로드는 자동으로")
@@ -56,6 +56,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--goto",
                     help="--inspect 시 로그인 후 이 주소로 이동한 뒤 살펴본다"
                          "(수임처 마스터의 '접속 URL' 하나를 넣으면 신용카드 화면으로 바로 감)")
+    ap.add_argument("--no-keep-open", action="store_true",
+                    help="작업이 끝나면 묻지 않고 브라우저를 닫는다(무인 실행용)")
     args = ap.parse_args(argv)
 
     from kafa.fetch.plan import build_plan, months_between, recent_months
@@ -78,13 +80,22 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 wait_for_human("브라우저에서 로그인하고, 보정할 화면을 열어 두세요.\n"
                                + str(cfg.get("start_hint", "")))
-            lines = inspect_page(page)
-        for line in lines:
-            print(line)
-        # 붙여넣기/전달이 쉽도록 파일로도 남긴다(화면 구조만 — 입력값·거래처명 없음).
-        out = Path(args.inspect_out or "kafa-inspect.txt")
-        out.write_text("\n".join(lines), encoding="utf-8")
-        print(f"\n[저장] {out.resolve()}  ← 이 파일을 보내주시면 selector 를 채워 드립니다.")
+            # 붙여넣기/전달이 쉽도록 파일로도 남긴다(화면 구조만 — 입력값·거래처명 없음).
+            out = Path(args.inspect_out or "kafa-inspect.txt")
+            while True:
+                lines = inspect_page(page)
+                for line in lines:
+                    print(line)
+                out.write_text("\n".join(lines), encoding="utf-8")
+                print(f"\n[저장] {out.resolve()}"
+                      "  ← 이 파일을 보내주시면 selector 를 채워 드립니다.")
+                if args.no_keep_open:
+                    break
+                # 화면을 잘못 잡았을 때 브라우저를 다시 띄우지 않고 그 자리에서 재시도한다.
+                ans = input_fn("\n브라우저는 열어 둔 채입니다. 화면을 옮긴 뒤 "
+                               "다시 살펴보려면 r + 엔터, 끝내려면 그냥 엔터: ")
+                if (ans or "").strip().lower() not in ("r", "ㄱ", "다시"):
+                    break
         return 0
 
     urls: dict = {}
@@ -142,6 +153,8 @@ def main(argv: list[str] | None = None) -> int:
         except NotCalibrated as e:
             print(f"\n[중단] {e}", file=sys.stderr)
             return 2
+        if not args.no_keep_open:
+            input_fn("\n브라우저는 열어 둔 채입니다. 확인이 끝나면 엔터를 누르세요... ")
 
     print(f"\n저장 {len(res.saved)}건 / 실패 {len(res.failures)}건 / 생략 {res.skipped}건")
     for k, v in res.failures.items():

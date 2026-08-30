@@ -104,3 +104,69 @@ def test_survives_broken_elements():
 
     out = inspect_page(_Page(_BadFrame({"button:visible": [_Bad()]})))
     assert "요소를 찾지 못했습니다" in "\n".join(out)
+
+
+# ── CLI: 작업 뒤 브라우저를 바로 닫지 않는다 ──
+
+def test_cli_inspect_keeps_browser_open_until_enter(tmp_path, monkeypatch):
+    """살펴보기가 끝나도 컨텍스트를 빠져나가기 전에 사람에게 먼저 묻는다."""
+    import contextlib
+
+    from kafa.fetch import cli as fetch_cli
+    from kafa.fetch import inspect as fetch_inspect
+    from kafa.fetch import session as fetch_session
+
+    order = []
+
+    @contextlib.contextmanager
+    def _fake_browser(**_kw):
+        try:
+            yield object()
+        finally:
+            order.append("closed")
+
+    monkeypatch.setattr(fetch_session, "browser_page", _fake_browser)
+    monkeypatch.setattr(fetch_session, "wait_for_human", lambda *a, **k: None)
+    monkeypatch.setattr(fetch_inspect, "inspect_page", lambda _p: ["[화면 목록] 탭 1개"])
+
+    out = tmp_path / "kafa-inspect.txt"
+    answers = iter(["r", ""])          # 한 번 다시 살펴본 뒤 종료
+
+    def _input(prompt=""):
+        order.append("asked")
+        return next(answers)
+
+    rc = fetch_cli.main(["--inspect", "--inspect-out", str(out)], input_fn=_input)
+    assert rc == 0
+    assert out.read_text(encoding="utf-8").startswith("[화면 목록]")
+    # 두 번 묻고(재시도 1회 포함) 그 다음에 닫혔다
+    assert order == ["asked", "asked", "closed"]
+
+
+def test_cli_inspect_no_keep_open_closes_immediately(tmp_path, monkeypatch):
+    import contextlib
+
+    from kafa.fetch import cli as fetch_cli
+    from kafa.fetch import inspect as fetch_inspect
+    from kafa.fetch import session as fetch_session
+
+    order = []
+
+    @contextlib.contextmanager
+    def _fake_browser(**_kw):
+        try:
+            yield object()
+        finally:
+            order.append("closed")
+
+    monkeypatch.setattr(fetch_session, "browser_page", _fake_browser)
+    monkeypatch.setattr(fetch_session, "wait_for_human", lambda *a, **k: None)
+    monkeypatch.setattr(fetch_inspect, "inspect_page", lambda _p: ["x"])
+
+    def _input(prompt=""):
+        order.append("asked")
+        return ""
+
+    rc = fetch_cli.main(["--inspect", "--no-keep-open",
+                         "--inspect-out", str(tmp_path / "o.txt")], input_fn=_input)
+    assert rc == 0 and order == ["closed"]

@@ -177,7 +177,11 @@ def _pages(page) -> list:
         pages = [pg for pg in page.context.pages if not pg.is_closed()]
     except Exception:  # noqa: BLE001 — context 가 없는 구현(테스트 더블 등)
         pages = []
-    if page not in pages:
+    try:
+        closed = bool(page.is_closed())
+    except Exception:  # noqa: BLE001
+        closed = False
+    if not closed and page not in pages:
         pages.insert(0, page)
     return pages or [page]
 
