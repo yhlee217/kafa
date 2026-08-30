@@ -53,6 +53,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--inspect", action="store_true",
                     help="현재 화면의 후보 요소를 출력(selector 보정용)")
     ap.add_argument("--inspect-out", help="보정용 출력 저장 경로(기본 kafa-inspect.txt)")
+    ap.add_argument("--goto",
+                    help="--inspect 시 로그인 후 이 주소로 이동한 뒤 살펴본다"
+                         "(수임처 마스터의 '접속 URL' 하나를 넣으면 신용카드 화면으로 바로 감)")
     args = ap.parse_args(argv)
 
     from kafa.fetch.plan import build_plan, months_between, recent_months
@@ -67,8 +70,14 @@ def main(argv: list[str] | None = None) -> int:
         print(TOS_NOTICE)
         with browser_page(profile_dir=args.profile,
                           attach_port=args.attach_port) as page:
-            wait_for_human("브라우저에서 로그인하고, 보정할 화면을 열어 두세요.\n"
-                           + str(cfg.get("start_hint", "")))
+            if args.goto:
+                wait_for_human("브라우저에서 **로그인만** 해 주세요. "
+                               "엔터를 누르면 신용카드 화면으로 이동합니다.")
+                page.goto(args.goto, timeout=int(cfg.get("timeout_ms", 20000)))
+                wait_for_human("화면이 다 뜨면 엔터를 눌러 주세요(표·버튼이 보일 때까지 기다렸다가).")
+            else:
+                wait_for_human("브라우저에서 로그인하고, 보정할 화면을 열어 두세요.\n"
+                               + str(cfg.get("start_hint", "")))
             lines = inspect_page(page)
         for line in lines:
             print(line)
