@@ -109,3 +109,96 @@ def write_csv(path, known: dict, template: str = "") -> Path:
                 row.append(template.replace("{cno}", cno))
             w.writerow(row)
     return out
+
+
+# ── 자동 넘기기: 사람이 페이지를 넘기지 않아도 되게 ──
+
+_SCROLL_JS = r"""
+(sel) => {
+  const el = sel ? document.querySelector(sel) : null;
+  const target = el || document.scrollingElement || document.body;
+  const before = target.scrollTop;
+  target.scrollTop = target.scrollHeight;
+  window.scrollTo(0, document.body.scrollHeight);
+  return target.scrollTop !== before;
+}
+"""
+
+
+def _try_click(pg, selector: str, timeout_ms: int) -> bool:
+    try:
+        pg.click(selector, timeout=timeout_ms)
+        return True
+    except Exception:  # noqa: BLE001 — 없는 버튼이면 다음 방법으로
+        return False
+
+
+def _scroll(pg, container) -> bool:
+    try:
+        return bool(pg.evaluate(_SCROLL_JS, container))
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def advance(page, cfg: dict, next_no: int) -> str:
+    """다음 페이지로 넘긴다. 넘긴 방법을 돌려주고, 못 넘기면 빈 문자열.
+
+    화면마다 방식이 달라 ① 쪽번호 버튼 ② '다음' 버튼 ③ 스크롤 순서로 시도한다.
+    """
+    from kafa.fetch.wehago import _as_list
+
+    d = (cfg or {}).get("discover", {}) or {}
+    t = int(d.get("click_timeout_ms", 2500))
+    for pg in pages_of(page):
+        for tmpl in _as_list(d.get("page_number_button")):
+            if _try_click(pg, tmpl.replace("{n}", str(next_no)), t):
+                return f"쪽번호 {next_no}"
+        for cand in _as_list(d.get("next_buttons")):
+            if _try_click(pg, cand, t):
+                return "다음 버튼"
+        if d.get("scroll", True) and _scroll(pg, d.get("scroll_container")):
+            return "스크롤"
+    return ""
+
+
+def auto_collect(page, cfg: dict, *, on_event=None, sleep=None,
+                 known: dict | None = None) -> dict:
+    """페이지를 스스로 넘기며 전체 수임처를 모은다.
+
+    화면이 알려주는 담당 수임처 수에 도달하거나, 더 이상 늘지 않으면 멈춘다.
+    이름은 돌려주는 dict 에만 담기고 화면에는 건수만 출력한다(보안 제0원칙).
+    """
+    import time as _time
+
+    say = on_event or (lambda _m: None)
+    sleep = sleep or _time.sleep
+    d = (cfg or {}).get("discover", {}) or {}
+    max_pages = int(d.get("max_pages", 40))
+    wait = float(d.get("wait_seconds", 1.5))
+    known = known if known is not None else {}
+
+    total = expected_total(page)
+    if total:
+        say(f"화면 표시: 담당 수임처 {total}곳")
+    next_no, stale = 2, 0
+    for _ in range(max_pages):
+        added = merge(known, collect_clients(page))
+        left = f" / 남은 것 약 {max(0, total - len(known))}곳" if total else ""
+        say(f"모은 수임처 {len(known)}곳 (+{added}){left}")
+        if total and len(known) >= total:
+            say("전부 모았습니다.")
+            return known
+        stale = stale + 1 if added == 0 else 0
+        if stale >= 2:
+            say("더 이상 새로 나오지 않아 멈춥니다.")
+            return known
+        how = advance(page, cfg, next_no)
+        if not how:
+            say("더 넘길 방법이 없어 멈춥니다.")
+            return known
+        if how.startswith("쪽번호"):
+            next_no += 1
+        say(f"다음 페이지로 ({how})")
+        sleep(wait)
+    say(f"최대 {max_pages}쪽까지만 봅니다.")
+    return known

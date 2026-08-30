@@ -102,3 +102,66 @@ def test_expected_total_zero_when_absent():
     tab = _T("https://x/")
     tab.context = _Ctx([tab])
     assert expected_total(tab) == 0
+
+
+# ── 자동 넘기기 ──
+
+class _Paged:
+    """쪽번호 버튼을 누르면 다음 묶음이 나오는 가짜 목록 화면."""
+    def __init__(self, pages, total_text="담당 수임처4"):
+        self.pages, self.i, self.clicks = pages, 0, []
+        self.total_text = total_text
+        self.context = None
+        self.url = "https://x/main"
+
+    def is_closed(self):
+        return False
+
+    def evaluate(self, js, arg=None):
+        if "innerText" in js:
+            return self.total_text
+        if "scrollTop" in js:
+            return False
+        return self.pages[self.i]
+
+    def click(self, sel, **kw):
+        self.clicks.append(sel)
+        if sel.startswith("button:text-is") and self.i + 1 < len(self.pages):
+            self.i += 1
+            return
+        raise TimeoutError("없음")
+
+
+_CFG_D = {"discover": {"max_pages": 10, "wait_seconds": 0, "click_timeout_ms": 10,
+                       "page_number_button": ['button:text-is("{n}")'],
+                       "next_buttons": [], "scroll": True}}
+
+
+def test_auto_collect_pages_through_until_total():
+    from kafa.fetch.discover import auto_collect
+    pg = _Paged([[{"cno": "1", "name": "가"}, {"cno": "2", "name": "나"}],
+                 [{"cno": "3", "name": "다"}, {"cno": "4", "name": "라"}]])
+    pg.context = _Ctx([pg])
+    known = auto_collect(pg, _CFG_D, sleep=lambda _s: None)
+    assert len(known) == 4
+    assert 'button:text-is("2")' in pg.clicks
+
+
+def test_auto_collect_stops_when_nothing_new():
+    from kafa.fetch.discover import auto_collect
+    pg = _Paged([[{"cno": "1", "name": "가"}]], total_text="표시 없음")
+    pg.context = _Ctx([pg])
+    events = []
+    known = auto_collect(pg, _CFG_D, on_event=events.append, sleep=lambda _s: None)
+    assert len(known) == 1
+    assert any("멈춥니다" in e for e in events)
+
+
+def test_auto_collect_reports_counts_only():
+    """진행 출력에 수임처 이름이 새어나가면 안 된다(보안 제0원칙)."""
+    from kafa.fetch.discover import auto_collect
+    pg = _Paged([[{"cno": "1", "name": "비밀상사"}]], total_text="표시 없음")
+    pg.context = _Ctx([pg])
+    events = []
+    auto_collect(pg, _CFG_D, on_event=events.append, sleep=lambda _s: None)
+    assert not any("비밀상사" in e for e in events)

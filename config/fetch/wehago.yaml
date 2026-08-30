@@ -94,3 +94,20 @@ selectors:
 
 # 기간 입력 형식(calendar 모드에서만 쓰임).
 period_format: "%Y-%m"
+
+# 수임처 목록 자동 넘기기(kafa-fetch --discover)
+# 화면마다 방식이 달라 쪽번호 → '다음' 버튼 → 스크롤 순서로 시도한다.
+discover:
+  max_pages: 40
+  wait_seconds: 1.5
+  click_timeout_ms: 2500
+  page_number_button:
+    - "button:text-is(\"{n}\")"
+    - "a:text-is(\"{n}\")"
+  next_buttons:
+    - "button[title=\"다음\"]"
+    - "button[aria-label=\"다음\"]"
+    - "button:text-is(\"다음\")"
+    - "a:text-is(\"다음\")"
+  scroll: true
+  scroll_container: null
