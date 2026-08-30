@@ -272,3 +272,12 @@ def test_here_mode_does_not_navigate(tmp_path):
 def test_here_mode_needs_no_search_selectors():
     cfg = {**_CFG_SCREEN}
     assert missing_selectors(cfg, url_mode=True) == []
+
+
+def test_here_mode_passes_calibration_guard_in_run_fetch(tmp_path):
+    """--here 는 화면 검색을 하지 않으므로 검색 selector 를 요구하면 안 된다."""
+    from dataclasses import replace
+    plan = build_plan(tmp_path, ["행복상사"], ["2026"])
+    plan.tasks[:] = [replace(t, here=True) for t in plan.tasks]
+    res = run_fetch(_UrlPage(), plan, tmp_path, cfg=_CFG_SCREEN, sleep=lambda _: None)
+    assert res.ok and (tmp_path / "행복상사" / "2026.xlsx").exists()

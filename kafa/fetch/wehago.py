@@ -160,7 +160,8 @@ def run_fetch(page, plan: DownloadPlan, inbox, *, cfg: Optional[dict] = None,
     import time
 
     cfg = cfg or load_fetch_config()
-    url_mode = all(t.url for t in plan.tasks) and bool(plan.tasks)
+    # here(열어 둔 화면 그대로) 도 화면 검색이 필요 없다 — URL 모드와 같게 본다.
+    url_mode = bool(plan.tasks) and all(t.url or t.here for t in plan.tasks)
     miss = missing_selectors(cfg, url_mode=url_mode)
     if miss:
         raise NotCalibrated(
