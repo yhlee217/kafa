@@ -161,10 +161,28 @@ def _step(what: str, selector: str, action):
 
 
 def fetch_one(page, cfg: dict, task: DownloadTask, dest: Path,
-              on_step=None) -> Path:
-    """한 거래처·한 기간을 받아 dest 에 저장. 실패 시 어느 단계인지 밝혀 예외."""
+              on_step=None, resolve=None) -> Path:
+    """한 거래처·한 기간을 받아 dest 에 저장. 실패 시 어느 단계인지 밝혀 예외.
+
+    resolve 를 주면 **단계마다 살아 있는 탭을 다시 고른다**. 위하고는 광고 탭이
+    수시로 열리고 닫혀 붙잡아 둔 page 가 죽는 일이 있다(TargetClosedError).
+    """
     sel = cfg["selectors"]
     say = on_step or (lambda _m: None)
+
+    def P():
+        if resolve is None:
+            return page
+        try:
+            return resolve()
+        except Exception:  # noqa: BLE001 — 못 고르면 원래 것으로
+            return page
+
+    page = P()
+    try:
+        say(f"대상 탭 {(page.url or '')[:70]}")
+    except Exception:  # noqa: BLE001
+        pass
     timeout = int(cfg.get("timeout_ms", 20000))
     fmt = cfg.get("period_format", "%Y-%m")
 
@@ -174,9 +192,9 @@ def fetch_one(page, cfg: dict, task: DownloadTask, dest: Path,
         say("이동 생략(열어 둔 화면 그대로)")
     elif task.url:
         say("주소로 이동")
-        page.goto(task.url, timeout=timeout)
+        P().goto(task.url, timeout=timeout)
         marker = (cfg.get("selectors", {}) or {}).get("login_marker")
-        if marker and page.query_selector(marker):
+        if marker and P().query_selector(marker):
             raise SessionExpired("로그인 화면이 나타났습니다(세션 만료).")
     else:
         say("수임처 검색")
@@ -187,7 +205,7 @@ def fetch_one(page, cfg: dict, task: DownloadTask, dest: Path,
         _step("수임처 선택", item, lambda: page.click(item, timeout=timeout))
 
     # 2) 구분(매입/매출) — 화면에 선택 목록이 있으면 매입으로 맞춘다
-    _select_kind(page, cfg, timeout, say)
+    _select_kind(P(), cfg, timeout, say)
 
     # 3) 기간 설정
     if str(cfg.get("period_mode", "calendar")).strip().lower() != "screen":
@@ -202,7 +220,7 @@ def fetch_one(page, cfg: dict, task: DownloadTask, dest: Path,
     # 4) 조회
     say("조회")
     _step("조회", sel["search_button"],
-          lambda: page.click(sel["search_button"], timeout=timeout))
+          lambda: P().click(sel["search_button"], timeout=timeout))
 
     # 5) 엑셀 다운로드 → 지정 경로에 저장
     say("엑셀 변환·다운로드")
@@ -211,8 +229,9 @@ def fetch_one(page, cfg: dict, task: DownloadTask, dest: Path,
     expect = str(cfg.get("expect_filename_contains", "")).strip()
 
     def _download():
-        with page.expect_download(timeout=timeout) as dl:
-            page.click(sel["excel_download_button"], timeout=timeout)
+        pg = P()
+        with pg.expect_download(timeout=timeout) as dl:
+            pg.click(sel["excel_download_button"], timeout=timeout)
         name = getattr(dl.value, "suggested_filename", "") or ""
         # 구분을 못 맞췄을 수 있으니 **받은 파일 이름**으로 매입 자료인지 확인한다.
         if expect and name and expect not in name:
@@ -227,7 +246,7 @@ def fetch_one(page, cfg: dict, task: DownloadTask, dest: Path,
     confirm = sel.get("download_confirm")
     if confirm and not is_todo(confirm):
         try:
-            page.click(confirm, timeout=int(cfg.get("confirm_timeout_ms", 5000)))
+            P().click(confirm, timeout=int(cfg.get("confirm_timeout_ms", 5000)))
         except Exception:  # noqa: BLE001 — 알림이 없을 수도 있다
             pass
     return dest
@@ -266,6 +285,10 @@ def _select_kind(page, cfg: dict, timeout: int, say=None) -> None:
                 return
         except Exception:  # noqa: BLE001 — 확인 실패는 치명적이지 않다
             pass
+
+    if not cfg.get("kind_autoselect", False):
+        say(f"구분이 '{kind}' 인지 확인해 주세요(자동 선택 꺼짐) — 받은 파일 이름으로 검증합니다")
+        return
 
     target = option.replace("{kind}", kind)
     tries = int(cfg.get("kind_try_timeout_ms", 4000))
@@ -312,13 +335,15 @@ def run_fetch(page, plan: DownloadPlan, inbox, *, cfg: Optional[dict] = None,
         try:
             try:
                 dest = fetch_one(pick_page(page, cfg), cfg, task,
-                                 target_path(inbox, task), on_step=on_step)
+                                 target_path(inbox, task), on_step=on_step,
+                                 resolve=lambda: pick_page(page, cfg))
             except SessionExpired:
                 if on_session_expired is None:
                     raise
                 on_session_expired()          # 사람이 다시 로그인
                 dest = fetch_one(pick_page(page, cfg), cfg, task,
-                                 target_path(inbox, task), on_step=on_step)
+                                 target_path(inbox, task), on_step=on_step,
+                                 resolve=lambda: pick_page(page, cfg))
             res.saved.append(dest)
             if on_progress:
                 on_progress(task, "저장")

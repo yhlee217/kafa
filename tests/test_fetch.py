@@ -221,9 +221,11 @@ _CFG_SCREEN = {"period_mode": "screen",
 
 def test_screen_mode_skips_calendar_and_picks_purchase(tmp_path):
     from kafa.fetch.wehago import fetch_one
-    page = _UrlPage()      # 현재 구분이 매입이 아님 → 목록을 열어 고른다
+    # kind_autoselect 를 켜면 목록을 열어 매입을 고른다(기본은 꺼짐 — 아래 별도 테스트)
+    cfg = {**_CFG_SCREEN, "kind_autoselect": True}
+    page = _UrlPage()
     task = DownloadTask("행복상사", "2026", url="https://x/1")
-    fetch_one(page, _CFG_SCREEN, task, tmp_path / "행복상사" / "2026.xlsx")
+    fetch_one(page, cfg, task, tmp_path / "행복상사" / "2026.xlsx")
     kinds = [e for e in page.log if e[0] == "click"]
     assert ("click", "#kindopen") in kinds
     assert ("click", 'li a:has-text("2. 매입")') in kinds
@@ -412,8 +414,8 @@ def test_kind_tries_candidates_in_order(tmp_path):
             super().click(sel, **kw)
 
     page = _FirstFails()
-    fetch_one(page, _CFG_KIND, DownloadTask("A", "2026", here=True),
-              tmp_path / "A" / "2026.xlsx")
+    fetch_one(page, {**_CFG_KIND, "kind_autoselect": True},
+              DownloadTask("A", "2026", here=True), tmp_path / "A" / "2026.xlsx")
     assert ("click", "#kindopen") in page.log
 
 
@@ -440,3 +442,25 @@ def test_kind_failure_does_not_block_but_filename_is_checked(tmp_path):
         assert not dest.exists()          # 잘못된 파일은 남기지 않는다
     else:
         raise AssertionError("StepFailed 가 나와야 한다")
+
+
+def test_kind_autoselect_off_by_default_touches_nothing(tmp_path):
+    """기본값에서는 드롭다운을 전혀 누르지 않는다(엉뚱한 클릭 방지)."""
+    from kafa.fetch.wehago import fetch_one
+    page = _UrlPage()          # 현재 구분을 확인할 수 없는 상태
+    fetch_one(page, _CFG_KIND, DownloadTask("A", "2026", here=True),
+              tmp_path / "A" / "2026.xlsx")
+    assert not [e for e in page.log if e[1] in ("#nope", "#kindopen")]
+
+
+def test_steps_use_freshly_resolved_page(tmp_path):
+    """붙잡아 둔 탭이 죽어도 단계마다 살아 있는 탭을 다시 골라 진행한다."""
+    from kafa.fetch.wehago import fetch_one
+
+    dead = _UrlPage()
+    dead.click = lambda *a, **k: (_ for _ in ()).throw(
+        RuntimeError("Target page, context or browser has been closed"))
+    alive = _UrlPage()
+    fetch_one(dead, _CFG_KIND, DownloadTask("A", "2026", here=True),
+              tmp_path / "A" / "2026.xlsx", resolve=lambda: alive)
+    assert ("click", "#go") in alive.log and ("click", "#xls") in alive.log
