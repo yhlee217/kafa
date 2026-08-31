@@ -167,6 +167,7 @@ class FetchResult:
     skipped: int = 0
     empty: list[str] = field(default_factory=list)           # 조회 결과가 없던 곳
     retried: int = 0                                         # 다시 시도한 횟수
+    probed: dict = field(default_factory=dict)               # 점검 모드: 라벨 → 결과
 
     @property
     def ok(self) -> bool:
@@ -295,7 +296,7 @@ def _step(what: str, selector: str, action):
 
 
 def fetch_one(page, cfg: dict, task: DownloadTask, dest: Path,
-              on_step=None, resolve=None, sleep=None) -> Path:
+              on_step=None, resolve=None, sleep=None, download: bool = True):
     """한 거래처·한 기간을 받아 dest 에 저장. 실패 시 어느 단계인지 밝혀 예외.
 
     resolve 를 주면 **단계마다 살아 있는 탭을 다시 고른다**. 위하고는 광고 탭이
@@ -366,6 +367,12 @@ def fetch_one(page, cfg: dict, task: DownloadTask, dest: Path,
         _dismiss_popup(P(), cfg)
         raise NoData(empty)
 
+    if not download:
+        # 점검 모드 — 여기까지 왔으면 받을 자료가 있다는 뜻. 다운로드는 하지 않는다.
+        say("자료 있음(점검 모드라 받지 않음)")
+        _close_ledger(P, cfg, task, say)
+        return None
+
     # 6) 엑셀 다운로드 → 지정 경로에 저장
     say("엑셀 변환·다운로드")
     dest.parent.mkdir(parents=True, exist_ok=True)
@@ -420,13 +427,65 @@ def fetch_one(page, cfg: dict, task: DownloadTask, dest: Path,
             pass
 
     # 7) 여러 수임처를 도는 중이면 회계 탭을 닫는다(탭이 쌓이면 다음 건이 헷갈린다)
-    if cfg.get("close_ledger_after") and not task.here:
-        try:
-            say("회계 탭 닫기")
-            P().close()
-        except Exception:  # noqa: BLE001 — 못 닫아도 계속
-            pass
+    _close_ledger(P, cfg, task, say)
     return dest
+
+
+def _failure_kind(exc: Exception) -> str:
+    """실패를 사람이 읽을 수 있는 갈래로 — 예외 목록을 만들 때 쓴다."""
+    text = str(exc)
+    if isinstance(exc, NotReady):
+        return "화면 준비 안 됨"
+    if isinstance(exc, NoAppPage):
+        return "탭을 못 찾음"
+    if isinstance(exc, SessionExpired):
+        return "로그인 만료"
+    if isinstance(exc, StepFailed):
+        head = text.split("]", 1)[0].lstrip("[")
+        return f"막힘: {head}" if head and len(head) < 24 else "막힘"
+    return f"오류: {type(exc).__name__}"
+
+
+def _close_ledger(P, cfg: dict, task: DownloadTask, say) -> None:
+    if not cfg.get("close_ledger_after") or task.here:
+        return
+    try:
+        say("회계 탭 닫기")
+        P().close()
+    except Exception:  # noqa: BLE001 — 못 닫아도 계속
+        pass
+
+
+# 수임처 목록에서 **그 수임처 행의 '회계' 버튼**을 누른다.
+# 이름 링크를 누르면 수임처 정보 화면으로 가버린다(2026-08-30 확인).
+# 행을 CSS 로 집기 어려워, 이름 링크에서 위로 올라가며 같은 행 안의 버튼을 찾는다.
+# 위로 올라가다 **처음** 만나는 것이 그 행의 버튼이므로 다른 수임처를 열 위험이 없다.
+_OPEN_CLIENT_JS = r"""
+([cno, name, label]) => {
+  let a = null;
+  if (cno) a = document.getElementById('tooltip_' + cno);
+  if (!a && name) {
+    for (const el of document.querySelectorAll('a[id^="tooltip_"]')) {
+      if ((el.textContent || '').trim() === name) { a = el; break; }
+    }
+  }
+  if (!a) return 'no-anchor';
+  let el = a;
+  for (let d = 0; el && d < 8; d++, el = el.parentElement) {
+    for (const b of el.querySelectorAll('button, a')) {
+      if ((b.textContent || '').trim() === label) { b.click(); return 'ok'; }
+    }
+  }
+  return 'no-button';
+}
+"""
+
+
+def _click_row_button(pg, cno: str, name: str, label: str) -> str:
+    try:
+        return str(pg.evaluate(_OPEN_CLIENT_JS, [cno, name, label]))
+    except Exception as e:  # noqa: BLE001
+        return f"error:{type(e).__name__}"
 
 
 def _open_client(page, cfg: dict, task: DownloadTask, timeout: int, say, resolve):
@@ -442,6 +501,26 @@ def _open_client(page, cfg: dict, task: DownloadTask, timeout: int, say, resolve
     if search_input:
         _step("수임처 검색", search_input,
               lambda: dash.fill(search_input, task.client, timeout=timeout))
+    # 그 수임처 행의 '회계' 버튼 — 검색 결과가 그려질 때까지 잠깐 기다린다.
+    label = str(cfg.get("client_open_button_text", "")).strip()
+    if label:
+        import time as _time
+
+        deadline = _time.monotonic() + int(cfg.get("ready_timeout_ms", 30000)) / 1000
+        last = ""
+        while True:
+            last = _click_row_button(dash, task.cno, task.client, label)
+            if last == "ok":
+                say(f"수임처 행의 '{label}' 버튼 클릭")
+                return
+            if _time.monotonic() >= deadline:
+                break
+            _time.sleep(0.5)
+            dash = pick_page(page, cfg, want="dashboard") if resolve else dash
+        raise StepFailed(f"[수임처 선택] 목록에서 '{label}' 버튼을 못 찾았습니다({last}). "
+                         "검색 결과가 안 떴거나 수임처코드가 다를 수 있습니다.")
+
+    # (설정을 비우면) 예전 방식 — 이름 링크를 누른다
     if task.cno:
         item = _first_selector(sel.get("client_result_by_cno")) \
             .replace("{cno}", task.cno)
@@ -506,7 +585,8 @@ def run_fetch(page, plan: DownloadPlan, inbox, *, cfg: Optional[dict] = None,
               on_progress: Optional[Callable[[DownloadTask, str], None]] = None,
               on_session_expired: Optional[Callable[[], None]] = None,
               on_step: Optional[Callable[[str], None]] = None,
-              on_failure: Optional[Callable[[DownloadTask, Exception], None]] = None
+              on_failure: Optional[Callable[[DownloadTask, Exception], None]] = None,
+              download: bool = True
               ) -> FetchResult:
     """계획대로 순회 수집. 한 건 실패해도 계속 진행한다.
 
@@ -534,7 +614,8 @@ def run_fetch(page, plan: DownloadPlan, inbox, *, cfg: Optional[dict] = None,
     def _once(task):
         return fetch_one(pick_page(page, cfg), cfg, task,
                          target_path(inbox, task), on_step=on_step,
-                         resolve=lambda: pick_page(page, cfg), sleep=sleep)
+                         resolve=lambda: pick_page(page, cfg), sleep=sleep,
+                         download=download)
 
     for i, task in enumerate(plan.tasks):
         label = f"{task.client}/{task.period}"
@@ -548,14 +629,17 @@ def run_fetch(page, plan: DownloadPlan, inbox, *, cfg: Optional[dict] = None,
                         raise
                     on_session_expired()          # 사람이 다시 로그인
                     dest = _once(task)
-                res.saved.append(dest)
+                if download:
+                    res.saved.append(dest)
+                res.probed[label] = "자료 있음"
                 if on_progress:
-                    on_progress(task, "저장")
+                    on_progress(task, "자료 있음" if not download else "저장")
                 last = None
                 break
             except NoData as e:
                 # 자료가 없는 달·수임처는 실패가 아니다. 다시 시도하지 않는다.
                 res.empty.append(label)
+                res.probed[label] = "자료 없음"
                 if on_progress:
                     on_progress(task, "자료 없음")
                 last = None
@@ -570,6 +654,7 @@ def run_fetch(page, plan: DownloadPlan, inbox, *, cfg: Optional[dict] = None,
                     sleep(retry_wait)
         if last is not None:
             res.failures[label] = f"{type(last).__name__}: {last}"
+            res.probed[label] = _failure_kind(last)
             if on_progress:
                 on_progress(task, f"실패({type(last).__name__})")
             if on_failure:
