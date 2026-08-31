@@ -296,7 +296,8 @@ def _step(what: str, selector: str, action):
 
 
 def fetch_one(page, cfg: dict, task: DownloadTask, dest: Path,
-              on_step=None, resolve=None, sleep=None, download: bool = True):
+              on_step=None, resolve=None, sleep=None, download: bool = True,
+              on_capture=None):
     """한 거래처·한 기간을 받아 dest 에 저장. 실패 시 어느 단계인지 밝혀 예외.
 
     resolve 를 주면 **단계마다 살아 있는 탭을 다시 고른다**. 위하고는 광고 탭이
@@ -364,12 +365,16 @@ def fetch_one(page, cfg: dict, task: DownloadTask, dest: Path,
     empty = _watch_for_empty(P, cfg, sleep)
     if empty:
         say(f"조회 결과 없음 — {empty}")
+        if on_capture:
+            on_capture(P(), "자료없음")      # 팝업이 뜬 화면을 그대로 남긴다
         _dismiss_popup(P(), cfg)
         raise NoData(empty)
 
     if not download:
         # 점검 모드 — 여기까지 왔으면 받을 자료가 있다는 뜻. 다운로드는 하지 않는다.
         say("자료 있음(점검 모드라 받지 않음)")
+        if on_capture:
+            on_capture(P(), "자료있음")
         _close_ledger(P, cfg, task, say)
         return None
 
@@ -427,6 +432,8 @@ def fetch_one(page, cfg: dict, task: DownloadTask, dest: Path,
             pass
 
     # 7) 여러 수임처를 도는 중이면 회계 탭을 닫는다(탭이 쌓이면 다음 건이 헷갈린다)
+    if on_capture:
+        on_capture(P(), "저장")
     _close_ledger(P, cfg, task, say)
     return dest
 
@@ -586,7 +593,8 @@ def run_fetch(page, plan: DownloadPlan, inbox, *, cfg: Optional[dict] = None,
               on_session_expired: Optional[Callable[[], None]] = None,
               on_step: Optional[Callable[[str], None]] = None,
               on_failure: Optional[Callable[[DownloadTask, Exception], None]] = None,
-              download: bool = True
+              download: bool = True,
+              on_capture: Optional[Callable] = None
               ) -> FetchResult:
     """계획대로 순회 수집. 한 건 실패해도 계속 진행한다.
 
@@ -615,7 +623,9 @@ def run_fetch(page, plan: DownloadPlan, inbox, *, cfg: Optional[dict] = None,
         return fetch_one(pick_page(page, cfg), cfg, task,
                          target_path(inbox, task), on_step=on_step,
                          resolve=lambda: pick_page(page, cfg), sleep=sleep,
-                         download=download)
+                         download=download,
+                         on_capture=(lambda pg, kind: on_capture(pg, task, kind))
+                         if on_capture else None)
 
     for i, task in enumerate(plan.tasks):
         label = f"{task.client}/{task.period}"
@@ -636,7 +646,7 @@ def run_fetch(page, plan: DownloadPlan, inbox, *, cfg: Optional[dict] = None,
                     on_progress(task, "자료 있음" if not download else "저장")
                 last = None
                 break
-            except NoData as e:
+            except NoData:
                 # 자료가 없는 달·수임처는 실패가 아니다. 다시 시도하지 않는다.
                 res.empty.append(label)
                 res.probed[label] = "자료 없음"
@@ -654,7 +664,14 @@ def run_fetch(page, plan: DownloadPlan, inbox, *, cfg: Optional[dict] = None,
                     sleep(retry_wait)
         if last is not None:
             res.failures[label] = f"{type(last).__name__}: {last}"
-            res.probed[label] = _failure_kind(last)
+            kind = _failure_kind(last)
+            res.probed[label] = kind
+            if on_capture:
+                # 실패한 화면이야말로 눈으로 봐야 한다(처음 보는 팝업·안내 등).
+                try:
+                    on_capture(pick_page(page, cfg), task, kind)
+                except Exception:  # noqa: BLE001 — 사진 실패가 수집을 막지 않는다
+                    pass
             if on_progress:
                 on_progress(task, f"실패({type(last).__name__})")
             if on_failure:

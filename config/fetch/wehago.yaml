@@ -142,3 +142,10 @@ discover:
     - "a:text-is(\"다음\")"
   scroll: true
   scroll_container: null
+
+# 화면 사진(--shots)을 찍을 때 흐리게 가릴 영역 — 값이 보이는 곳.
+# 화면 구조·버튼·팝업 글자는 그대로 남아 판단에는 지장이 없다(보안 제0원칙).
+shot_mask_selectors:
+  - "div#GRID_TOP"
+  - "canvas"
+  - "table tbody"
