@@ -39,7 +39,11 @@ Mac에서 도는 Claude(Cowork/로컬 에이전트)에게 수집 작업을 맡�
    크롬이 열리면 나에게 로그인을 요청하고, 내가 엔터를 누를 때까지 기다린다.
 3. 3곳이 저장되면 `--clients` 를 빼고 전체를 돌린다. 134곳이라 20~40분 걸린다.
    중간에 끊겨도 이미 받은 건 건너뛰니 그냥 다시 실행하면 된다.
-4. 수집이 끝나면 파이프라인을 돌린다:
+4. 수임처 속성(개인/법인)을 마스터에서 채운다. **파이프라인 전에** 해야 한다
+   (개인 수임처는 상대계정이 인출금이라 처리가 다르다):
+   `PYTHONPATH=$PWD .venv/bin/python -m kafa.clients_cli from-master "[마스터 경로]"`
+   → 개인/법인 건수만 알려줘. 여러 번 돌려도 사람이 적은 값은 지워지지 않는다.
+5. 파이프라인을 돌린다:
    `PYTHONPATH=$PWD .venv/bin/python -m kafa.pipeline.cli ~/kafa-inbox ~/kafa-out`
    → 처리 건수·미해소 건수만 알려줘.
 
@@ -80,6 +84,9 @@ PYTHONPATH=$PWD .venv/bin/python -m kafa.fetch.cli --inbox ~/kafa-inbox --master
 
 # 전체
 PYTHONPATH=$PWD .venv/bin/python -m kafa.fetch.cli --inbox ~/kafa-inbox --master "$MASTER" --whole --profile ~/.kafa-chrome
+
+# 수임처 속성(개인/법인) 채우기 — 파이프라인 전에
+PYTHONPATH=$PWD .venv/bin/python -m kafa.clients_cli from-master "$MASTER"
 
 # 처리
 PYTHONPATH=$PWD .venv/bin/python -m kafa.pipeline.cli ~/kafa-inbox ~/kafa-out
