@@ -269,12 +269,15 @@ def main(argv: list[str] | None = None, *, input_fn=input) -> int:
             cnos = client_cnos(args.master)
         except Exception as e:  # noqa: BLE001 — 사람이 고칠 수 있게 짧게 알린다
             ap.error(f"수임처 마스터를 읽지 못했습니다: {type(e).__name__}: {e}")
-        # 주소 전체는 수임처마다 다른 값이 섞여 있어 쓰지 않는다 — 코드만 쓴다.
-        urls = {}
+        # 마스터에는 수임처마다 **완전한 주소**가 들어 있다 — 그대로 쓰면 목록 검색·
+        # 회계 클릭·신용카드 클릭이 전부 없어진다. (cno 만 바꾼 '틀' 은 만들 수 없지만
+        # 각자의 주소는 그대로 쓸 수 있다.) 주소가 없는 곳만 목록에서 연다.
+        if urls:
+            print(f"수임처 마스터: 접속 URL {len(urls)}곳 (주소로 바로 이동)")
         if cnos:
             print(f"수임처 마스터: 수임처코드 {len(cnos)}곳 "
-                  "(목록에서 코드로 정확히 열기)")
-        else:
+                  "(주소가 없거나 안 통하면 목록에서 코드로 열기)")
+        if not urls and not cnos:
             ap.error("수임처 마스터에서 수임처코드를 못 찾았습니다.\n"
                      "       엑셀이면 '접속 URL' 칸에 cno=... 가 들어 있어야 하고,\n"
                      "       CSV 면 '수임처코드' 칸이 있어야 합니다.")
