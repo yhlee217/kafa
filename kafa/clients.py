@@ -315,6 +315,53 @@ def parse_template(path) -> dict[str, dict]:
     return out
 
 
+def profiles_from_master(path) -> dict[str, dict]:
+    """수임처 마스터 엑셀 → {client_id: {client_type, name}}.
+
+    마스터의 '구분'(개인/법인)만 옮긴다. **직원 유무는 넣지 않는다** — 자료로는 알 수
+    없는 사실이라 담당자가 조사표로 답해야 한다(docs/domain_notes.md).
+    client_id 는 파이프라인의 고객 폴더명과 같아야 하므로 safe_name 을 쓴다.
+    """
+    from kafa.fetch.plan import safe_name
+
+    out: dict[str, dict] = {}
+    for r in profiles_from_excel(path):
+        name = r.get("name") or ""
+        if not name:
+            continue
+        prof: dict = {"name": name}
+        t = (r.get("client_type") or "").strip()
+        if t in _INDIVIDUAL:
+            prof["client_type"] = "individual"
+        elif t in _CORPORATE:
+            prof["client_type"] = "corporate"
+        out[safe_name(name)] = prof
+    return out
+
+
+def load_yaml_profiles(path) -> tuple[dict, dict]:
+    """기존 clients.yaml → (defaults, clients). 없으면 빈 값."""
+    import yaml
+
+    p = Path(path)
+    if not p.exists():
+        return {}, {}
+    data = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
+    return (data.get("defaults") or {}), (data.get("clients") or {})
+
+
+def merge_profiles(existing: dict, new: dict) -> dict:
+    """기존에 사람이 적어 둔 값(직원 유무·비고)을 지우지 않고 합친다.
+
+    마스터에서 온 값(구분·이름)은 덮어쓰고, 사람이 답한 항목은 그대로 둔다.
+    """
+    out = {k: dict(v or {}) for k, v in (existing or {}).items()}
+    for cid, prof in (new or {}).items():
+        cur = out.setdefault(cid, {})
+        cur.update({k: v for k, v in prof.items() if v is not None})
+    return out
+
+
 def to_yaml(profiles: dict[str, dict], *, defaults: dict | None = None) -> str:
     """조사표 결과 → clients.yaml 텍스트."""
     import yaml
@@ -324,7 +371,7 @@ def to_yaml(profiles: dict[str, dict], *, defaults: dict | None = None) -> str:
         "clients": profiles,
     }
     header = (
-        "# config/clients.yaml — 수임처 속성 (kafa-clients import 로 생성)\n"
+        "# config/clients.yaml — 수임처 속성 (kafa-clients 로 생성)\n"
         "# 담당자만 아는 사실이라 조사표(엑셀)로 받아 변환한다.\n"
         "# 배경·근거: docs/domain_notes.md\n\n"
     )
