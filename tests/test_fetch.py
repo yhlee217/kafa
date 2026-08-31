@@ -982,3 +982,71 @@ def test_capture_runs_on_failure_too(tmp_path):
               sleep=lambda _: None, download=False,
               on_capture=lambda pg, task, kind: shots.append(kind))
     assert shots and shots[0].startswith("막힘")
+
+
+# ── 주소로 바로 이동 + '신용카드' 한 번 더 누르기 ──
+
+_CFG_URLNAV = {**_CFG_FULL,
+               "selectors": {**_CFG_FULL["selectors"],
+                             "ledger_menu": ['a:text-is("신용카드")']},
+               "ledger_quick_ms": 50, "ready_timeout_ms": 300}
+
+
+def test_url_goes_straight_without_touching_the_list(tmp_path):
+    from kafa.fetch.wehago import fetch_one
+    page = _UrlPage(present={"div#GRID_TOP canvas"})
+    fetch_one(page, _CFG_URLNAV,
+              DownloadTask("가", "2026", url="https://x/card?cno=1", cno="1"),
+              tmp_path / "가" / "2026.xlsx", resolve=lambda: page,
+              sleep=lambda _s: None)
+    assert page.goto_urls == ["https://x/card?cno=1"]
+    assert not [e for e in page.log if e[1] == "#s"]        # 검색 안 함
+    assert not [e for e in page.log if "신용카드" in str(e[1])]  # 메뉴도 안 누름
+
+
+def test_clicks_credit_card_menu_when_accounting_home_opens(tmp_path):
+    """회계 첫 화면이 뜨면 '신용카드' 를 눌러 조회 화면으로 들어간다."""
+    from kafa.fetch.wehago import fetch_one
+
+    class _Home(_UrlPage):
+        def __init__(self):
+            super().__init__(present={"div#GRID_TOP canvas"})
+            self.present.discard("#go")
+
+        def click(self, sel, **kw):
+            if sel == 'a:text-is("신용카드")':
+                self.present.add("#go")      # 메뉴를 누르면 조회 화면이 뜬다
+            super().click(sel, **kw)
+
+    page = _Home()
+    fetch_one(page, _CFG_URLNAV,
+              DownloadTask("가", "2026", url="https://x/acct", cno="1"),
+              tmp_path / "가" / "2026.xlsx", resolve=lambda: page,
+              sleep=lambda _s: None)
+    assert ("click", 'a:text-is("신용카드")') in page.log
+    assert ("click", "#xls") in page.log
+
+
+def test_falls_back_to_list_when_url_does_not_work(tmp_path):
+    """주소가 안 통하면 목록에서 여는 길로 되돌아간다."""
+    from kafa.fetch.wehago import fetch_one
+
+    class _BadUrl(_UrlPage):
+        def __init__(self):
+            super().__init__(present={"div#GRID_TOP canvas"})
+            self.present.discard("#go")
+            self.js = []
+
+        def evaluate(self, js, arg=None):
+            self.js.append(arg)
+            self.present.add("#go")          # 목록에서 열면 화면이 뜬다
+            return "ok"
+
+    cfg = {**_CFG_URLNAV, "client_open_button_text": "회계",
+           "selectors": {**_CFG_URLNAV["selectors"], "ledger_menu": []}}
+    page = _BadUrl()
+    fetch_one(page, cfg, DownloadTask("가", "2026", url="https://x/bad", cno="7"),
+              tmp_path / "가" / "2026.xlsx", resolve=lambda: page,
+              sleep=lambda _s: None)
+    assert page.goto_urls == ["https://x/bad"]
+    assert page.js and page.js[0] == ["7", "가", "회계"]   # 목록에서 회계 버튼

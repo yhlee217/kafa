@@ -18,6 +18,7 @@ confirm_timeout_ms: 5000
 
 # 느린 수임처 대비 — 화면이 뜰 때까지 기다리고, 안 되면 다시 시도한다.
 ready_timeout_ms: 30000        # 회계 화면·조회 결과 표가 나타날 때까지
+ledger_quick_ms: 6000          # 신용카드 화면이 바로 떴는지 먼저 짧게 확인
 after_search_seconds: 1.5      # 조회 누른 뒤 결과가 그려질 시간
 menu_retries: 3                # 우클릭 메뉴가 안 뜨면 다시 시도할 횟수
 menu_retry_seconds: 2.0
@@ -87,6 +88,12 @@ selectors:
     - "div.LS_saoinput div.LS_ngh_select2 div.fake_inputbox div.fakebutton:visible"
     - "div.LS_ngh_select2 div.fake_inputbox div.fakebutton:visible"
   kind_option: "li.LSnghSelectResult_listitem a:has-text(\"{kind}\")"
+
+  # 회계 첫 화면이 뜨면 여기를 눌러 신용카드 조회 화면으로 들어간다.
+  # (수임처 주소로 바로 가면 대개 필요 없지만, 목록에서 '회계' 로 연 경우 필요하다)
+  ledger_menu:
+    - "a:text-is(\"신용카드\")"
+    - "text=\"신용카드\""
 
   # 조회 — '휴폐업조회' 와 구분하려고 조회 영역 안의 버튼으로 한정한다
   search_button:

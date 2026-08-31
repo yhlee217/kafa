@@ -338,11 +338,17 @@ def fetch_one(page, cfg: dict, task: DownloadTask, dest: Path,
     else:
         _open_client(page, cfg, task, timeout, say, resolve)
 
-    # 2) 화면이 뜰 때까지 기다린다 — 수임처에 따라 로딩이 한참 걸린다
+    # 2) 신용카드 조회 화면이 뜰 때까지. 회계 첫 화면이 뜨면 '신용카드' 를 눌러 들어간다.
     if not task.here:
-        _wait_ready(P, sel.get("search_button"),
-                    int(cfg.get("ready_timeout_ms", 30000)), "회계 화면",
-                    sleep=sleep, say=say)
+        try:
+            _ensure_ledger_screen(P, cfg, sleep, say)
+        except NotReady:
+            # 주소가 안 통하면(화면 개편·권한 등) 목록에서 여는 길로 되돌아간다.
+            if not task.url or not (task.cno or task.client):
+                raise
+            say("주소로 못 들어갔습니다 — 수임처 목록에서 여는 길로 바꿉니다")
+            _open_client(P(), cfg, task, timeout, say, resolve)
+            _ensure_ledger_screen(P, cfg, sleep, say)
 
     # 3) 구분(매입/매출) — 화면에 선택 목록이 있으면 매입으로 맞춘다
     _select_kind(P(), cfg, timeout, say)
@@ -436,6 +442,34 @@ def fetch_one(page, cfg: dict, task: DownloadTask, dest: Path,
         on_capture(P(), "저장")
     _close_ledger(P, cfg, task, say)
     return dest
+
+
+def _ensure_ledger_screen(P, cfg: dict, sleep, say) -> None:
+    """신용카드 조회 화면까지 확실히 들어간다.
+
+    수임처 주소로 바로 가면 대개 이 화면이 뜬다. 회계 첫 화면이 뜨는 경우
+    (또는 목록에서 '회계' 버튼으로 새 탭이 열린 경우)에는 **'신용카드' 를 한 번 더**
+    눌러야 조회 화면이 나온다(2026-08-30 확인).
+    """
+    sel = cfg.get("selectors", {}) or {}
+    full = int(cfg.get("ready_timeout_ms", 30000))
+    quick = int(cfg.get("ledger_quick_ms", 6000))
+    try:
+        _wait_ready(P, sel.get("search_button"), quick, "신용카드 화면",
+                    sleep=sleep, say=say)
+        return
+    except NotReady:
+        pass
+
+    menu = _as_list(sel.get("ledger_menu"))
+    if menu:
+        say("회계 첫 화면 — '신용카드' 로 들어갑니다")
+        try:
+            _click_any(P(), menu, quick, "신용카드 메뉴")
+        except Exception as e:  # noqa: BLE001 — 못 눌러도 아래에서 한 번 더 기다린다
+            say(f"'신용카드' 메뉴를 못 눌렀습니다({type(e).__name__})")
+    _wait_ready(P, sel.get("search_button"), full, "신용카드 화면",
+                sleep=sleep, say=say)
 
 
 def _failure_kind(exc: Exception) -> str:
