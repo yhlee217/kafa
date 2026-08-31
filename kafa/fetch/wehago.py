@@ -305,7 +305,6 @@ def fetch_one(page, cfg: dict, task: DownloadTask, dest: Path,
     """
     import time as _time
 
-    sel = cfg["selectors"]
     say = on_step or (lambda _m: None)
     sleep = sleep or _time.sleep
 
@@ -322,6 +321,24 @@ def fetch_one(page, cfg: dict, task: DownloadTask, dest: Path,
         say(f"대상 탭 {(page.url or '')[:70]}")
     except Exception:  # noqa: BLE001
         pass
+
+    try:
+        return _fetch_steps(P, cfg, task, dest, say, sleep, download, on_capture)
+    except NoData:
+        raise                       # 자료없음은 이미 그 화면을 찍었다
+    except Exception as e:  # noqa: BLE001 — 막힌 그 순간의 화면을 남기고 다시 던진다
+        if on_capture:
+            try:
+                on_capture(P(), _failure_kind(e))
+            except Exception:  # noqa: BLE001 — 사진 실패가 원인을 가리지 않게
+                pass
+        raise
+
+
+def _fetch_steps(P, cfg: dict, task: DownloadTask, dest: Path, say, sleep,
+                 download: bool, on_capture):
+    """실제 단계들. 예외는 위에서 잡아 화면을 남긴 뒤 다시 던진다."""
+    sel = cfg["selectors"]
     timeout = int(cfg.get("timeout_ms", 20000))
     fmt = cfg.get("period_format", "%Y-%m")
 
@@ -336,7 +353,7 @@ def fetch_one(page, cfg: dict, task: DownloadTask, dest: Path,
         if marker and P().query_selector(marker):
             raise SessionExpired("로그인 화면이 나타났습니다(세션 만료).")
     else:
-        _open_client(page, cfg, task, timeout, say, resolve)
+        _open_client(P, cfg, task, timeout, say)
 
     # 2) 신용카드 조회 화면이 뜰 때까지. 회계 첫 화면이 뜨면 '신용카드' 를 눌러 들어간다.
     if not task.here:
@@ -347,7 +364,7 @@ def fetch_one(page, cfg: dict, task: DownloadTask, dest: Path,
             if not task.url or not (task.cno or task.client):
                 raise
             say("주소로 못 들어갔습니다 — 수임처 목록에서 여는 길로 바꿉니다")
-            _open_client(P(), cfg, task, timeout, say, resolve)
+            _open_client(P, cfg, task, timeout, say)
             _ensure_ledger_screen(P, cfg, sleep, say)
 
     # 3) 구분(매입/매출) — 화면에 선택 목록이 있으면 매입으로 맞춘다
@@ -358,9 +375,9 @@ def fetch_one(page, cfg: dict, task: DownloadTask, dest: Path,
         p = format_period(task.period, fmt)
         say(f"기간 입력 {p}")
         _step("기간 시작", sel["period_from_input"],
-              lambda: page.fill(sel["period_from_input"], p, timeout=timeout))
+              lambda: P().fill(sel["period_from_input"], p, timeout=timeout))
         _step("기간 종료", sel["period_to_input"],
-              lambda: page.fill(sel["period_to_input"], p, timeout=timeout))
+              lambda: P().fill(sel["period_to_input"], p, timeout=timeout))
     # screen 모드면 화면에 이미 잡혀 있는 기간(기수 전체)을 그대로 쓴다.
 
     # 5) 조회
@@ -529,14 +546,21 @@ def _click_row_button(pg, cno: str, name: str, label: str) -> str:
         return f"error:{type(e).__name__}"
 
 
-def _open_client(page, cfg: dict, task: DownloadTask, timeout: int, say, resolve):
+def _open_client(P, cfg: dict, task: DownloadTask, timeout: int, say):
     """수임처 목록에서 검색해 해당 수임처의 회계 화면을 연다.
 
     목록 링크는 `a#tooltip_<수임처코드>` 라서 코드가 있으면 이름 중복과 무관하게
     정확히 집을 수 있다. 코드가 없으면 이름으로 찾는다.
     """
     sel = cfg.get("selectors", {}) or {}
-    dash = pick_page(page, cfg, want="dashboard") if resolve else page
+
+    def _dash():
+        try:
+            return pick_page(P(), cfg, want="dashboard")
+        except Exception:  # noqa: BLE001 — 목록 탭을 못 고르면 지금 탭으로
+            return P()
+
+    dash = _dash()
     say("수임처 목록에서 검색")
     search_input = _first_selector(sel.get("client_search_input"))
     if search_input:
@@ -557,7 +581,7 @@ def _open_client(page, cfg: dict, task: DownloadTask, timeout: int, say, resolve
             if _time.monotonic() >= deadline:
                 break
             _time.sleep(0.5)
-            dash = pick_page(page, cfg, want="dashboard") if resolve else dash
+            dash = _dash()
         raise StepFailed(f"[수임처 선택] 목록에서 '{label}' 버튼을 못 찾았습니다({last}). "
                          "검색 결과가 안 떴거나 수임처코드가 다를 수 있습니다.")
 
@@ -700,8 +724,10 @@ def run_fetch(page, plan: DownloadPlan, inbox, *, cfg: Optional[dict] = None,
             res.failures[label] = f"{type(last).__name__}: {last}"
             kind = _failure_kind(last)
             res.probed[label] = kind
-            if on_capture:
-                # 실패한 화면이야말로 눈으로 봐야 한다(처음 보는 팝업·안내 등).
+            # 화면 사진은 fetch_one 이 **막힌 그 순간** 찍는다(여기서 찍으면 이미
+            # 화면이 바뀐 뒤라 원인이 안 보인다). 다만 fetch_one 에 들어가기도 전에
+            # 실패한 경우(탭을 못 찾음 등)는 여기서 한 번 남긴다.
+            if on_capture and isinstance(last, NoAppPage):
                 try:
                     on_capture(pick_page(page, cfg), task, kind)
                 except Exception:  # noqa: BLE001 — 사진 실패가 수집을 막지 않는다
