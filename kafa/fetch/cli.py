@@ -104,6 +104,12 @@ def main(argv: list[str] | None = None, *, input_fn=input) -> int:
                          "수임처마다 자료가 있는지·어디서 막히는지 표로 정리해 준다")
     ap.add_argument("--probe-out", default="kafa-probe.csv",
                     help="--probe 결과 저장 경로(수임처 실명 포함 — 로컬 전용)")
+    ap.add_argument("--shots", nargs="?", const="kafa-shots", metavar="폴더",
+                    help="수임처마다 화면 사진을 남긴다(기본 kafa-shots). "
+                         "거래 내역·거래처 이름은 흐리게 처리해 찍는다")
+    ap.add_argument("--shots-raw", action="store_true",
+                    help="사진을 가리지 않고 원본 그대로 찍는다. 거래처 실명·금액이 "
+                         "그대로 남으므로 사람이 눈으로만 볼 것")
     ap.add_argument("--inspect", action="store_true",
                     help="현재 화면의 후보 요소를 출력(selector 보정용)")
     ap.add_argument("--inspect-out", help="보정용 출력 저장 경로(기본 kafa-inspect.txt)")
@@ -361,9 +367,20 @@ def main(argv: list[str] | None = None, *, input_fn=input) -> int:
             except Exception as e:  # noqa: BLE001 — 덤프 실패가 수집을 막지 않게
                 print(f"     ↳ 화면 저장 실패: {e}", file=sys.stderr)
 
+        shots = None
+        if args.shots:
+            from kafa.fetch.shots import ShotIndex, capture
+            shots = ShotIndex(args.shots, raw=args.shots_raw)
+
+            def _on_capture(pg, task, kind):
+                path = shots.add(task.client, task.period, kind)
+                capture(pg, path, cfg, mask_texts=[task.client],
+                        raw=args.shots_raw)
+
         try:
             res = run_fetch(
                 page, plan, args.inbox, cfg=cfg, download=not args.probe,
+                on_capture=_on_capture if shots else None,
                 on_progress=lambda t, s: print(f"  [{s}] {t.client}/{t.period}"),
                 on_step=lambda m: print(f"     · {m}"),
                 on_failure=_on_failure,
@@ -374,6 +391,13 @@ def main(argv: list[str] | None = None, *, input_fn=input) -> int:
             return 2
         if not args.no_keep_open:
             input_fn("\n브라우저는 열어 둔 채입니다. 확인이 끝나면 엔터를 누르세요... ")
+
+    if shots:
+        idx = shots.write()
+        print(f"\n[사진] {Path(args.shots).resolve()}  — {len(shots.rows)}장"
+              + ("  (원본 그대로 — 실명·금액 포함)" if args.shots_raw
+                 else "  (거래내역·거래처명 흐림 처리)"))
+        print(f"       번호↔수임처 대응표: {idx.name} (실명 포함 — 로컬 전용)")
 
     if args.probe:
         return _report_probe(res, args.probe_out)

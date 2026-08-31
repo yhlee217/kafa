@@ -936,3 +936,49 @@ def test_missing_accounting_button_is_reported(tmp_path):
         assert "회계" in str(e) and "no-button" in str(e)
     else:
         raise AssertionError("StepFailed 가 나와야 한다")
+
+
+# ── 화면 사진: 결과마다 한 장씩 ──
+
+def test_capture_called_for_each_outcome(tmp_path):
+    """자료있음·자료없음·막힘 모두 사진 대상이다(처음 보는 화면을 놓치지 않게)."""
+    from kafa.fetch.wehago import run_fetch
+
+    shots = []
+
+    class _Mixed(_UrlPage):
+        def query_selector(self, sel):
+            if sel == 'text="없음"' and any("tooltip_2" in str(e) or
+                                           e[1] == "a#tooltip_2"
+                                           for e in self.log):
+                return object()
+            return super().query_selector(sel)
+
+    cfg = {**_CFG_FULL, "empty_result_texts": ["없음"],
+           "client_open_button_text": "", "task_retries": 0}
+    page = _Mixed(present={"div#GRID_TOP canvas"})
+    plan = build_plan(tmp_path, ["가", "나"], ["2026"],
+                      cnos={"가": "1", "나": "2"})
+    run_fetch(page, plan, tmp_path, cfg=cfg, sleep=lambda _: None,
+              download=False,
+              on_capture=lambda pg, task, kind: shots.append((task.client, kind)))
+    assert ("가", "자료있음") in shots
+    assert ("나", "자료없음") in shots
+
+
+def test_capture_runs_on_failure_too(tmp_path):
+    from kafa.fetch.wehago import run_fetch
+
+    class _Stuck(_UrlPage):
+        def click(self, sel, **kw):
+            if sel == "#go":
+                raise TimeoutError("안 눌림")
+            super().click(sel, **kw)
+
+    shots = []
+    cfg = {**_CFG_FULL, "task_retries": 0, "client_open_button_text": ""}
+    plan = build_plan(tmp_path, ["가"], ["2026"], cnos={"가": "1"})
+    run_fetch(_Stuck(present={"div#GRID_TOP canvas"}), plan, tmp_path, cfg=cfg,
+              sleep=lambda _: None, download=False,
+              on_capture=lambda pg, task, kind: shots.append(kind))
+    assert shots and shots[0].startswith("막힘")
