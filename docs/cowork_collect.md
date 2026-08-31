@@ -30,7 +30,18 @@ Mac에서 도는 Claude(Cowork/로컬 에이전트)에게 수집 작업을 맡�
 4. 받은 파일을 열어서 내용을 대화에 출력하지 않는다. 행 수·컬럼명까지만.
 5. 브라우저 창을 임의로 닫지 않는다.
 
-## 순서
+## 순서 (짧은 길)
+대부분은 이 한 명령이면 된다 — 수집 → 수임처 속성 반영 → 분류·업로드본까지 이어서 돈다.
+
+```
+PYTHONPATH=$PWD .venv/bin/python -m kafa.run_cli --master "[마스터 경로]" --profile ~/.kafa-chrome
+```
+
+크롬이 뜨면 나에게 로그인을 요청하고 기다린다. 두 번째부터는 `--master` 없이
+`python -m kafa.run_cli` 만 하면 된다(경로를 기억한다). 중간에 끊겨도 다시 실행하면
+아직 안 받은 수임처만 이어서 받는다. 단계별로 나눠 돌려야 할 때만 아래를 쓴다.
+
+## 순서 (단계별)
 1. 먼저 무엇을 받을지 확인:
    `PYTHONPATH=$PWD .venv/bin/python -m kafa.fetch.cli --inbox ~/kafa-inbox --master "[마스터 경로]" --whole --dry-run --profile ~/.kafa-chrome`
    → `수임처 마스터: 수임처코드 134곳` 과 받을 건수를 나에게 알려줘.
