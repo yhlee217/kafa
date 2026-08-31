@@ -50,6 +50,10 @@ def main(argv: list[str] | None = None, *, input_fn=input) -> int:
     ap.add_argument("--discover-manual", action="store_true",
                     help="--discover 시 페이지를 사람이 넘긴다(자동 넘기기가 안 될 때)")
     ap.add_argument("--fail-dump", help="실패 시 화면 덤프 저장 경로(기본 kafa-fail.txt)")
+    ap.add_argument("--screenshot-on-fail", action="store_true",
+                    help="실패 시 화면 사진도 남긴다(기본 kafa-fail.png). "
+                         "사진에는 거래처 실명·금액이 그대로 찍히므로 **로컬에서 눈으로만** "
+                         "보고, 어떤 AI/모델에도 올리지 말 것")
     ap.add_argument("--here", action="store_true",
                     help="이동하지 않고 **지금 열어 둔 화면** 그대로 한 건만 받는다"
                          "(한 곳 시험용). --clients 로 이름 하나를 함께 준다")
@@ -311,6 +315,14 @@ def main(argv: list[str] | None = None, *, input_fn=input) -> int:
                     + inspect_page(page)), encoding="utf-8")
                 print(f"     ↳ 실패 시점 화면을 저장했습니다: {fail_dump.resolve()}",
                       file=sys.stderr)
+                if args.screenshot_on_fail:
+                    shot = fail_dump.with_suffix(".png")
+                    from kafa.fetch.wehago import pick_page
+                    pick_page(page, cfg).screenshot(path=str(shot),
+                                                    full_page=False)
+                    print(f"     ↳ 화면 사진: {shot.resolve()}\n"
+                          "        (거래처 실명·금액이 찍혀 있습니다. "
+                          "눈으로만 보고 모델에 올리지 마세요.)", file=sys.stderr)
             except Exception as e:  # noqa: BLE001 — 덤프 실패가 수집을 막지 않게
                 print(f"     ↳ 화면 저장 실패: {e}", file=sys.stderr)
 

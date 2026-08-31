@@ -799,3 +799,43 @@ def test_kind_dropdown_opened_by_current_value_text(tmp_path):
               sleep=lambda _s: None)
     assert ("click", 'text="1. 매출"') in page.log
     assert ("click", 'li a:has-text("2. 매입")') in page.log
+
+
+def test_screenshot_is_opt_in(tmp_path, monkeypatch):
+    """사진에는 실명·금액이 찍히므로 옵션을 켤 때만 남긴다."""
+    import contextlib
+    import io
+
+    from kafa.fetch import cli as fetch_cli
+    from kafa.fetch import session as fetch_session
+
+    shots = []
+
+    class _Page(_UrlPage):
+        def screenshot(self, **kw):
+            shots.append(kw.get("path"))
+
+        def click(self, sel, **kw):
+            if sel == "#go":
+                raise TimeoutError("실패")
+            super().click(sel, **kw)
+
+    @contextlib.contextmanager
+    def _fake_browser(**_kw):
+        yield _Page(present={"#s"})
+
+    from kafa.fetch import wehago as fetch_wehago
+
+    fast = {**_CFG_FULL, "delay_seconds": 0, "retry_wait_seconds": 0,
+            "task_retries": 0, "after_search_seconds": 0}
+    monkeypatch.setattr(fetch_wehago, "load_fetch_config", lambda *a, **k: fast)
+    monkeypatch.setattr(fetch_session, "browser_page", _fake_browser)
+    monkeypatch.setattr(fetch_session, "wait_for_human", lambda *a, **k: None)
+    monkeypatch.chdir(tmp_path)
+
+    argv = ["--inbox", str(tmp_path / "in"), "--clients", "가", "--here",
+            "--whole", "--no-keep-open"]
+    with contextlib.redirect_stderr(io.StringIO()), \
+            contextlib.redirect_stdout(io.StringIO()):
+        fetch_cli.main(argv)
+    assert shots == []                       # 기본은 안 찍는다
