@@ -19,6 +19,13 @@ confirm_timeout_ms: 5000
 # 느린 수임처 대비 — 화면이 뜰 때까지 기다리고, 안 되면 다시 시도한다.
 ready_timeout_ms: 30000        # 회계 화면·조회 결과 표가 나타날 때까지
 ledger_quick_ms: 6000          # 신용카드 화면이 바로 떴는지 먼저 짧게 확인
+
+# 위하고는 **사업자 전환** 방식이라 전환이 안 되면 이전 수임처 화면이 그대로 남는다.
+# 그걸 모르고 받으면 남의 자료를 이 이름으로 저장하게 되므로 반드시 확인한다.
+verify_client_on_screen: true
+verify_timeout_ms: 10000
+# 주소가 해시(#/...)만 다르면 SPA 가 재로딩하지 않는다 → 빈 페이지를 거쳐 새로 읽는다.
+hard_navigate: true
 after_search_seconds: 1.5      # 조회 누른 뒤 결과가 그려질 시간
 menu_retries: 3                # 우클릭 메뉴가 안 뜨면 다시 시도할 횟수
 menu_retry_seconds: 2.0
@@ -91,6 +98,10 @@ selectors:
 
   # 회계 첫 화면이 뜨면 여기를 눌러 신용카드 조회 화면으로 들어간다.
   # (수임처 주소로 바로 가면 대개 필요 없지만, 목록에서 '회계' 로 연 경우 필요하다)
+  # 화면이 어느 수임처인지 보여주는 곳(없으면 탭 제목을 쓴다 — 제목에 회사명이 들어간다)
+  client_name_display:
+    - "button.btn_new_space"
+
   ledger_menu:
     - "a:text-is(\"신용카드\")"
     - "text=\"신용카드\""

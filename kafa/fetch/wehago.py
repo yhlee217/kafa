@@ -48,6 +48,10 @@ class SessionExpired(RuntimeError):
     """로그인 세션이 끊김 — 사람이 다시 로그인해야 한다(자동 로그인 하지 않음)."""
 
 
+class WrongClient(RuntimeError):
+    """화면이 다른 수임처다 — 그대로 받으면 남의 자료를 이 이름으로 저장하게 된다."""
+
+
 class NoData(RuntimeError):
     """조회 결과가 없다 — 실패가 아니라 '받을 게 없음'으로 센다."""
 
@@ -348,7 +352,7 @@ def _fetch_steps(P, cfg: dict, task: DownloadTask, dest: Path, say, sleep,
         say("이동 생략(열어 둔 화면 그대로)")
     elif task.url:
         say("주소로 이동")
-        P().goto(task.url, timeout=timeout)
+        _goto(P(), task.url, timeout, cfg)
         marker = (cfg.get("selectors", {}) or {}).get("login_marker")
         if marker and P().query_selector(marker):
             raise SessionExpired("로그인 화면이 나타났습니다(세션 만료).")
@@ -366,6 +370,19 @@ def _fetch_steps(P, cfg: dict, task: DownloadTask, dest: Path, say, sleep,
             say("주소로 못 들어갔습니다 — 수임처 목록에서 여는 길로 바꿉니다")
             _open_client(P, cfg, task, timeout, say)
             _ensure_ledger_screen(P, cfg, sleep, say)
+
+    # 2-1) **그 수임처 화면이 맞는지** 확인. 전환이 안 됐으면 목록으로 다시 연다.
+    if not task.here:
+        try:
+            _verify_client(P, cfg, task, sleep, say)
+        except WrongClient:
+            if not task.url or not (task.cno or task.client):
+                raise
+            say("다른 수임처 화면입니다 — 목록에서 다시 엽니다")
+            _open_client(P, cfg, task, timeout, say)
+            _ensure_ledger_screen(P, cfg, sleep, say)
+            _verify_client(P, cfg, task, sleep, say)
+        say(f"수임처 확인됨")
 
     # 3) 구분(매입/매출) — 화면에 선택 목록이 있으면 매입으로 맞춘다
     _select_kind(P(), cfg, timeout, say)
@@ -461,6 +478,81 @@ def _fetch_steps(P, cfg: dict, task: DownloadTask, dest: Path, say, sleep,
     return dest
 
 
+_COMPANY_NOISE = ("(주)", "㈜", "주식회사", "(유)", "유한회사", "(합)", "(재)", "(사)",
+                  "주식", "회사")
+
+
+def normalize_company(name: str) -> str:
+    """회사명 비교용 정규화 — 띄어쓰기·법인 표기 차이를 무시한다."""
+    t = (name or "").strip()
+    for w in _COMPANY_NOISE:
+        t = t.replace(w, "")
+    return "".join(t.split()).lower()
+
+
+def same_client(expected: str, on_screen: str) -> bool:
+    """화면에 뜬 이름이 받으려는 수임처인가(한쪽이 다른 쪽을 포함하면 같다고 본다)."""
+    a, b = normalize_company(expected), normalize_company(on_screen)
+    if not a or not b:
+        return False
+    return a in b or b in a
+
+
+def _screen_client_name(pg, cfg: dict) -> str:
+    """화면이 보여주는 회사명. 지정한 곳이 없으면 탭 제목을 쓴다."""
+    sel = (cfg.get("selectors", {}) or {}).get("client_name_display")
+    for cand in _as_list(sel):
+        try:
+            el = pg.query_selector(cand)
+            if el:
+                text = (el.inner_text() or "").strip()
+                if text:
+                    return text
+        except Exception:  # noqa: BLE001
+            continue
+    try:
+        return pg.title() or ""
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def _verify_client(P, cfg: dict, task: DownloadTask, sleep, say) -> None:
+    """화면이 **그 수임처**로 바뀌었는지 확인한다.
+
+    위하고는 사업자를 전환하는 방식이라, 전환이 안 되면 이전 수임처 화면이 그대로
+    남는다. 그걸 모르고 받으면 남의 자료를 이 이름으로 저장하게 된다.
+    """
+    if not cfg.get("verify_client_on_screen", True) or task.here:
+        return
+    import time as _time
+
+    deadline = _time.monotonic() + int(cfg.get("verify_timeout_ms", 10000)) / 1000
+    seen = ""
+    while True:
+        seen = _screen_client_name(P(), cfg)
+        if same_client(task.client, seen):
+            return
+        if _time.monotonic() >= deadline:
+            break
+        sleep(0.5)
+    raise WrongClient(
+        "화면이 받으려는 수임처로 바뀌지 않았습니다(사업자 전환 실패로 보입니다). "
+        "그대로 받으면 다른 수임처 자료가 섞입니다.")
+
+
+def _goto(pg, url: str, timeout: int, cfg: dict) -> None:
+    """주소로 이동. 해시만 다른 주소는 SPA 가 재로딩하지 않아 화면이 안 바뀐다.
+
+    그래서 빈 페이지를 한 번 거쳐 **항상 새로 읽게** 한다(hard_navigate).
+    """
+    if cfg.get("hard_navigate", True):
+        try:
+            pg.goto("about:blank", timeout=timeout)
+        except Exception:  # noqa: BLE001 — 못 거쳐도 아래에서 그대로 시도
+            pass
+    pg.goto(url, timeout=timeout)
+
+
 def _ensure_ledger_screen(P, cfg: dict, sleep, say) -> None:
     """신용카드 조회 화면까지 확실히 들어간다.
 
@@ -492,6 +584,8 @@ def _ensure_ledger_screen(P, cfg: dict, sleep, say) -> None:
 def _failure_kind(exc: Exception) -> str:
     """실패를 사람이 읽을 수 있는 갈래로 — 예외 목록을 만들 때 쓴다."""
     text = str(exc)
+    if isinstance(exc, WrongClient):
+        return "다른 수임처 화면"
     if isinstance(exc, NotReady):
         return "화면 준비 안 됨"
     if isinstance(exc, NoAppPage):
