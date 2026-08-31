@@ -103,7 +103,7 @@ _CFG = {"selectors": {"client_search_input": "#s", "client_result_item": "#r-{cl
                       "search_button": "#go", "excel_download_button": "#xls"},
         "delay_seconds": 0, "timeout_ms": 100, "period_format": "%Y-%m",
         "ready_timeout_ms": 200, "after_search_seconds": 0,
-        "menu_retry_seconds": 0}
+        "menu_retry_seconds": 0, "verify_client_on_screen": False}
 
 
 class _FakeDownload:
@@ -178,7 +178,7 @@ _CFG_URL = {"selectors": {"period_from_input": "#f", "period_to_input": "#t",
                           "login_marker": "#login"},
             "delay_seconds": 0, "timeout_ms": 100, "period_format": "%Y-%m",
         "ready_timeout_ms": 200, "after_search_seconds": 0,
-        "menu_retry_seconds": 0}
+        "menu_retry_seconds": 0, "verify_client_on_screen": False}
 
 
 class _UrlPage(_FakePage):
@@ -189,6 +189,11 @@ class _UrlPage(_FakePage):
         self.login_hits = login_hits
     def goto(self, url, **kw):
         self.goto_urls.append(url)
+
+    @property
+    def real_gotos(self):
+        """about:blank 는 SPA 재로딩용 경유지 — 실제 이동만 본다."""
+        return [u for u in self.goto_urls if u != "about:blank"]
     def query_selector(self, sel):
         if sel == "#login" and self.login_hits > 0:
             self.login_hits -= 1
@@ -206,7 +211,7 @@ def test_url_mode_navigates_directly_and_skips_search_selectors(tmp_path):
     plan = build_plan(tmp_path, ["행복상사"], ["2026-01"],
                       urls={"행복상사": "https://x/acct?cno=1"})
     res = run_fetch(page, plan, tmp_path, cfg=_CFG_URL, sleep=lambda _: None)
-    assert res.ok and page.goto_urls == ["https://x/acct?cno=1"]
+    assert res.ok and page.real_gotos == ["https://x/acct?cno=1"]
     assert ("fill", "#s", "행복상사") not in page.log      # 검색창 안 씀
 
 
@@ -218,7 +223,7 @@ def test_session_expiry_asks_human_then_retries(tmp_path):
     res = run_fetch(page, plan, tmp_path, cfg=_CFG_URL, sleep=lambda _: None,
                     on_session_expired=lambda: asked.append(True))
     assert asked == [True] and res.ok       # 사람이 재로그인 후 성공
-    assert len(page.goto_urls) == 2         # 재시도
+    assert len(page.real_gotos) == 2        # 재시도
 
 
 def test_session_expiry_without_handler_is_a_failure(tmp_path):
@@ -240,7 +245,7 @@ _CFG_SCREEN = {"period_mode": "screen",
                    "download_confirm": "#confirm"},
                "delay_seconds": 0, "timeout_ms": 100,
                "ready_timeout_ms": 200, "after_search_seconds": 0,
-               "menu_retry_seconds": 0}
+               "menu_retry_seconds": 0, "verify_client_on_screen": False}
 
 
 def test_screen_mode_skips_calendar_and_picks_purchase(tmp_path):
@@ -999,7 +1004,7 @@ def test_url_goes_straight_without_touching_the_list(tmp_path):
               DownloadTask("가", "2026", url="https://x/card?cno=1", cno="1"),
               tmp_path / "가" / "2026.xlsx", resolve=lambda: page,
               sleep=lambda _s: None)
-    assert page.goto_urls == ["https://x/card?cno=1"]
+    assert page.real_gotos == ["https://x/card?cno=1"]
     assert not [e for e in page.log if e[1] == "#s"]        # 검색 안 함
     assert not [e for e in page.log if "신용카드" in str(e[1])]  # 메뉴도 안 누름
 
@@ -1048,7 +1053,7 @@ def test_falls_back_to_list_when_url_does_not_work(tmp_path):
     fetch_one(page, cfg, DownloadTask("가", "2026", url="https://x/bad", cno="7"),
               tmp_path / "가" / "2026.xlsx", resolve=lambda: page,
               sleep=lambda _s: None)
-    assert page.goto_urls == ["https://x/bad"]
+    assert page.real_gotos == ["https://x/bad"]
     assert page.js and page.js[0] == ["7", "가", "회계"]   # 목록에서 회계 버튼
 
 
@@ -1091,3 +1096,117 @@ def test_capture_on_every_attempt_not_just_the_last(tmp_path):
               cfg=cfg, sleep=lambda _: None, download=False,
               on_capture=lambda pg, task, kind: shots.append(kind))
     assert len(shots) == 3 and all(k.startswith("막힘") for k in shots)
+
+
+# ── 사업자 전환이 됐는지 확인 (안 하면 남의 자료를 이 이름으로 저장한다) ──
+
+_CFG_VERIFY = {**_CFG_URLNAV, "verify_client_on_screen": True,
+               "verify_timeout_ms": 50, "client_open_button_text": "회계"}
+
+
+class _NamedPage(_UrlPage):
+    """탭 제목으로 '지금 어느 수임처 화면인지' 를 알려주는 가짜 페이지."""
+    def __init__(self, name, present=("div#GRID_TOP canvas",)):
+        super().__init__(present=set(present))
+        self.screen_name = name
+
+    def title(self):
+        return f"신용카드(2기) - {self.screen_name}"
+
+
+def test_accepts_screen_when_client_matches(tmp_path):
+    from kafa.fetch.wehago import fetch_one
+    page = _NamedPage("(주)행복상사")
+    dest = tmp_path / "행복상사" / "2026.xlsx"
+    fetch_one(page, _CFG_VERIFY,
+              DownloadTask("(주) 행복상사", "2026", url="https://x/a", cno="1"),
+              dest, resolve=lambda: page, sleep=lambda _s: None)
+    assert dest.exists()          # 띄어쓰기 차이는 같은 곳으로 본다
+
+
+def test_reopens_from_list_when_screen_is_another_client(tmp_path):
+    """전환이 안 돼 이전 수임처가 남아 있으면 목록에서 다시 연다."""
+    from kafa.fetch.wehago import fetch_one
+
+    class _Stale(_NamedPage):
+        def __init__(self):
+            super().__init__("(주)이전상사")
+            self.js = []
+
+        def evaluate(self, js, arg=None):
+            self.js.append(arg)
+            self.screen_name = "(주)행복상사"     # 목록에서 열면 제대로 바뀐다
+            return "ok"
+
+    page = _Stale()
+    dest = tmp_path / "행복상사" / "2026.xlsx"
+    fetch_one(page, _CFG_VERIFY,
+              DownloadTask("(주)행복상사", "2026", url="https://x/a", cno="9"),
+              dest, resolve=lambda: page, sleep=lambda _s: None)
+    assert page.js and page.js[0] == ["9", "(주)행복상사", "회계"]
+    assert dest.exists()
+
+
+def test_refuses_to_save_when_still_another_client(tmp_path):
+    """끝내 전환이 안 되면 받지 않는다 — 자료가 섞이는 것보다 실패가 낫다."""
+    from kafa.fetch.wehago import WrongClient, fetch_one
+
+    class _NeverSwitches(_NamedPage):
+        def __init__(self):
+            super().__init__("(주)이전상사")
+
+        def evaluate(self, js, arg=None):
+            return "ok"           # 목록에서 눌러도 화면은 그대로
+
+    dest = tmp_path / "행복상사" / "2026.xlsx"
+    page = _NeverSwitches()
+    try:
+        fetch_one(page, _CFG_VERIFY,
+                  DownloadTask("(주)행복상사", "2026", url="https://x/a", cno="9"),
+                  dest, resolve=lambda: page, sleep=lambda _s: None)
+    except WrongClient as e:
+        assert "다른 수임처" in str(e) or "바뀌지 않았습니다" in str(e)
+        assert not dest.exists()
+    else:
+        raise AssertionError("WrongClient 가 나와야 한다")
+
+
+def test_wrong_client_is_its_own_failure_kind(tmp_path):
+    from kafa.fetch.wehago import run_fetch
+
+    class _NeverSwitches(_NamedPage):
+        def __init__(self):
+            super().__init__("(주)이전상사")
+
+        def evaluate(self, js, arg=None):
+            return "ok"
+
+    shots = []
+    cfg = {**_CFG_VERIFY, "task_retries": 0}
+    plan = build_plan(tmp_path, ["(주)행복상사"], ["2026"],
+                      urls={"(주)행복상사": "https://x/a"},
+                      cnos={"(주)행복상사": "9"})
+    res = run_fetch(_NeverSwitches(), plan, tmp_path, cfg=cfg,
+                    sleep=lambda _: None, download=False,
+                    on_capture=lambda pg, task, kind: shots.append(kind))
+    assert res.probed["(주)행복상사/2026"] == "다른 수임처 화면"
+    assert shots == ["다른 수임처 화면"]
+
+
+def test_hard_navigate_forces_reload_for_hash_urls(tmp_path):
+    """해시만 다른 주소는 SPA 가 재로딩하지 않으므로 빈 페이지를 거친다."""
+    from kafa.fetch.wehago import fetch_one
+    page = _NamedPage("가")
+    fetch_one(page, {**_CFG_VERIFY, "hard_navigate": True},
+              DownloadTask("가", "2026", url="https://x/#/a?cno=1", cno="1"),
+              tmp_path / "가" / "2026.xlsx", resolve=lambda: page,
+              sleep=lambda _s: None)
+    assert page.goto_urls == ["about:blank", "https://x/#/a?cno=1"]
+
+
+def test_company_name_matching_ignores_form_and_spacing():
+    from kafa.fetch.wehago import same_client
+    assert same_client("(주) 서경디엔시", "신용카드(2기) - (주)서경디엔시")
+    assert same_client("행복상사", "신용카드(1기) - 행복상사")
+    assert not same_client("행복상사", "신용카드(2기) - (주)튼튼상사")
+    assert not same_client("행복상사", "")
