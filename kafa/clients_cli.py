@@ -25,12 +25,54 @@ def main(argv: list[str] | None = None) -> int:
     t.add_argument("--from-list", help="한 줄에 하나씩 적은 텍스트 파일")
     t.add_argument("--from-db", help="이미 처리한 수임처(out/kafa.db)")
 
+    m = sub.add_parser("from-master",
+                       help="수임처 마스터 엑셀의 '구분'(개인/법인)으로 clients.yaml 채우기")
+    m.add_argument("path", help="수임처 마스터 엑셀(.xlsx)")
+    m.add_argument("--out", default="config/clients.yaml", help="저장 경로")
+    m.add_argument("--replace", action="store_true",
+                   help="기존 내용을 지우고 새로 쓴다(기본은 사람이 적은 값 보존)")
+
     i = sub.add_parser("import", help="채워진 조사표 → clients.yaml")
     i.add_argument("path", help="채워진 조사표(.xlsx)")
     i.add_argument("--out", default="config/clients.yaml", help="저장 경로")
 
     args = ap.parse_args(argv)
     from kafa.clients import parse_template, to_yaml, write_template
+
+    if args.cmd == "from-master":
+        from kafa.clients import (load_yaml_profiles, merge_profiles,
+                                  profiles_from_master)
+        src = Path(args.path)
+        if not src.exists():
+            print(f"[중단] 파일이 없습니다: {src}", file=sys.stderr)
+            return 2
+        new_profiles = profiles_from_master(src)
+        if not new_profiles:
+            print("[중단] 수임처를 읽지 못했습니다(회사명 칸을 찾을 수 없음).",
+                  file=sys.stderr)
+            return 2
+        defaults, existing = load_yaml_profiles(args.out)
+        merged = (new_profiles if args.replace
+                  else merge_profiles(existing, new_profiles))
+        out = Path(args.out)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(to_yaml(merged, defaults=defaults or None),
+                       encoding="utf-8")
+
+        def _count(kind):
+            return sum(1 for v in merged.values() if v.get("client_type") == kind)
+
+        unknown = sum(1 for v in merged.values() if not v.get("client_type"))
+        known_emp = sum(1 for v in merged.values() if "has_employees" in v)
+        print(f"clients.yaml 갱신: {out.resolve()}  — 수임처 {len(merged)}곳")
+        print(f"  개인 {_count('individual')} / 법인 {_count('corporate')}"
+              + (f" / 구분없음 {unknown}" if unknown else ""))
+        print(f"  직원 유무 확인됨 {known_emp}곳"
+              f" — 나머지는 기본값(직원 있음)으로 봅니다.")
+        if known_emp < len(merged):
+            print("  직원 유무는 자료로 알 수 없습니다. 조사표로 받으세요:")
+            print(f"    kafa-clients template 조사표.xlsx --from-excel \"{src}\"")
+        return 0
 
     if args.cmd == "template":
         from kafa.clients import (names_from_inbox, names_from_text,

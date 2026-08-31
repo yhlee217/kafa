@@ -157,3 +157,79 @@ def test_client_codes_extracted_from_master_urls(tmp_path):
 
     assert client_cnos_from_excel(path) == {"행복상사": "10049328"}
     assert client_cnos(path) == {"행복상사": "10049328"}
+
+
+# ── 수임처 마스터 → clients.yaml 자동 채우기 ──
+
+def _master(tmp_path, rows):
+    import openpyxl
+    path = tmp_path / "master.xlsx"
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.append(["회사명", "구분", "접속 URL"])
+    for name, gubun in rows:
+        ws.append([name, gubun, "https://x/?cno=1"])
+    wb.save(path)
+    return path
+
+
+def test_master_fills_client_type(tmp_path):
+    from kafa.clients import profiles_from_master
+    path = _master(tmp_path, [("행복상사", "법인"), ("김아무개", "개인")])
+    got = profiles_from_master(path)
+    assert got["행복상사"]["client_type"] == "corporate"
+    assert got["김아무개"]["client_type"] == "individual"
+    # 직원 유무는 자료로 알 수 없다 — 넣지 않는다
+    assert "has_employees" not in got["행복상사"]
+
+
+def test_master_key_matches_inbox_folder_name(tmp_path):
+    """client_id 는 파이프라인 고객 폴더명(safe_name)과 같아야 한다."""
+    from kafa.clients import profiles_from_master
+    from kafa.fetch.plan import safe_name
+    path = _master(tmp_path, [("가/나 상사", "법인")])
+    key = next(iter(profiles_from_master(path)))
+    assert key == safe_name("가/나 상사") and "/" not in key
+
+
+def test_merge_keeps_human_answers(tmp_path):
+    """다시 돌려도 담당자가 적은 직원 유무·비고를 지우지 않는다."""
+    from kafa.clients import merge_profiles
+    existing = {"행복상사": {"client_type": "corporate", "has_employees": False,
+                          "note": "1인 사업자"}}
+    merged = merge_profiles(existing, {"행복상사": {"client_type": "individual",
+                                                "name": "행복상사"}})
+    assert merged["행복상사"]["has_employees"] is False
+    assert merged["행복상사"]["note"] == "1인 사업자"
+    assert merged["행복상사"]["client_type"] == "individual"   # 마스터 값은 갱신
+
+
+def test_cli_from_master_writes_yaml(tmp_path):
+    from kafa.clients_cli import main
+    path = _master(tmp_path, [("행복상사", "법인"), ("김아무개", "개인")])
+    out = tmp_path / "clients.yaml"
+    assert main(["from-master", str(path), "--out", str(out)]) == 0
+    import yaml
+    data = yaml.safe_load(out.read_text(encoding="utf-8"))
+    assert data["clients"]["김아무개"]["client_type"] == "individual"
+    assert data["defaults"]["client_type"] == "corporate"
+
+
+def test_cli_from_master_is_rerunnable(tmp_path):
+    """두 번 돌려도 사람이 채운 값이 살아 있다."""
+    from kafa.clients_cli import main
+    path = _master(tmp_path, [("행복상사", "법인")])
+    out = tmp_path / "clients.yaml"
+    main(["from-master", str(path), "--out", str(out)])
+    import yaml
+    data = yaml.safe_load(out.read_text(encoding="utf-8"))
+    data["clients"]["행복상사"]["has_employees"] = False
+    out.write_text(yaml.safe_dump(data, allow_unicode=True), encoding="utf-8")
+    main(["from-master", str(path), "--out", str(out)])
+    again = yaml.safe_load(out.read_text(encoding="utf-8"))
+    assert again["clients"]["행복상사"]["has_employees"] is False
+
+
+def test_cli_from_master_missing_file(tmp_path):
+    from kafa.clients_cli import main
+    assert main(["from-master", str(tmp_path / "없음.xlsx")]) == 2
