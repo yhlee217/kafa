@@ -839,3 +839,100 @@ def test_screenshot_is_opt_in(tmp_path, monkeypatch):
             contextlib.redirect_stdout(io.StringIO()):
         fetch_cli.main(argv)
     assert shots == []                       # 기본은 안 찍는다
+
+
+# ── 점검 모드: 다 돌아보되 받지는 않는다 ──
+
+def test_probe_reports_data_present_without_downloading(tmp_path):
+    from kafa.fetch.wehago import run_fetch
+    page = _UrlPage(present={"div#GRID_TOP canvas"})
+    plan = build_plan(tmp_path, ["가", "나"], ["2026"],
+                      cnos={"가": "1", "나": "2"})
+    res = run_fetch(page, plan, tmp_path, cfg=_CFG_FULL, sleep=lambda _: None,
+                    download=False)
+    assert res.ok and res.saved == []                    # 받지 않았다
+    assert res.probed == {"가/2026": "자료 있음", "나/2026": "자료 있음"}
+    assert not (tmp_path / "가" / "2026.xlsx").exists()
+    assert not [e for e in page.log if e[1] == "#xls"]   # 엑셀은 안 눌렀다
+
+
+def test_probe_marks_empty_and_stuck_separately(tmp_path):
+    from kafa.fetch.wehago import run_fetch
+
+    class _Mixed(_UrlPage):
+        def query_selector(self, sel):
+            # '나' 를 열 때만 자료 없음 팝업이 뜬 것으로 흉내
+            if sel == 'text="없음"' and self.log and any(
+                    "tooltip_2" in str(e) for e in self.log):
+                return object()
+            return super().query_selector(sel)
+
+    cfg = {**_CFG_FULL, "empty_result_texts": ["없음"],
+           "client_open_button_text": ""}
+    page = _Mixed(present={"div#GRID_TOP canvas"})
+    plan = build_plan(tmp_path, ["가", "나"], ["2026"],
+                      cnos={"가": "1", "나": "2"})
+    res = run_fetch(page, plan, tmp_path, cfg=cfg, sleep=lambda _: None,
+                    download=False)
+    assert res.probed["가/2026"] == "자료 있음"
+    assert res.probed["나/2026"] == "자료 없음"
+
+
+def test_probe_records_failure_kind(tmp_path):
+    from kafa.fetch.wehago import run_fetch
+
+    class _Stuck(_UrlPage):
+        def click(self, sel, **kw):
+            if sel == "#go":
+                raise TimeoutError("안 눌림")
+            super().click(sel, **kw)
+
+    cfg = {**_CFG_FULL, "task_retries": 0, "client_open_button_text": ""}
+    plan = build_plan(tmp_path, ["가"], ["2026"], cnos={"가": "1"})
+    res = run_fetch(_Stuck(present={"div#GRID_TOP canvas"}), plan, tmp_path,
+                    cfg=cfg, sleep=lambda _: None, download=False)
+    assert res.probed["가/2026"].startswith("막힘")
+
+
+# ── 목록에서 '회계' 버튼 누르기 ──
+
+def test_opens_accounting_button_of_that_row(tmp_path):
+    from kafa.fetch.wehago import fetch_one
+
+    class _Dash(_UrlPage):
+        def __init__(self):
+            super().__init__(present={"div#GRID_TOP canvas"})
+            self.js = []
+
+        def evaluate(self, js, arg=None):
+            self.js.append(arg)
+            return "ok"
+
+    cfg = {**_CFG_FULL, "client_open_button_text": "회계"}
+    page = _Dash()
+    fetch_one(page, cfg, DownloadTask("행복상사", "2026", cno="10049328"),
+              tmp_path / "행복상사" / "2026.xlsx", resolve=lambda: page,
+              sleep=lambda _s: None)
+    assert page.js and page.js[0] == ["10049328", "행복상사", "회계"]
+    # 이름 링크는 누르지 않는다(수임처 정보 화면으로 새는 것 방지)
+    assert not [e for e in page.log if "tooltip_" in str(e[1])]
+
+
+def test_missing_accounting_button_is_reported(tmp_path):
+    from kafa.fetch.wehago import StepFailed, fetch_one
+
+    class _NoButton(_UrlPage):
+        def evaluate(self, js, arg=None):
+            return "no-button"
+
+    cfg = {**_CFG_FULL, "client_open_button_text": "회계",
+           "ready_timeout_ms": 10}
+    page = _NoButton(present={"div#GRID_TOP canvas"})
+    try:
+        fetch_one(page, cfg, DownloadTask("가", "2026", cno="1"),
+                  tmp_path / "가" / "2026.xlsx", resolve=lambda: page,
+                  sleep=lambda _s: None)
+    except StepFailed as e:
+        assert "회계" in str(e) and "no-button" in str(e)
+    else:
+        raise AssertionError("StepFailed 가 나와야 한다")

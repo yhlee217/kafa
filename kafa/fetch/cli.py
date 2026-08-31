@@ -32,6 +32,36 @@ def _clients_from(arg: str) -> list[str]:
     return [c.strip() for c in arg.split(",") if c.strip()]
 
 
+def _report_probe(res, out_path) -> int:
+    """점검 결과 — 화면에는 갈래별 건수만, 수임처 이름은 로컬 CSV 에만."""
+    import csv
+    from collections import Counter
+
+    counts = Counter(res.probed.values())
+    print("\n── 점검 결과 ──")
+    for kind, n in counts.most_common():
+        print(f"  {kind:<20} {n}곳")
+    print(f"  {'합계':<20} {sum(counts.values())}곳")
+
+    out = Path(out_path)
+    try:
+        with out.open("w", encoding="utf-8-sig", newline="") as fh:
+            w = csv.writer(fh)
+            w.writerow(["수임처/기간", "결과", "자세히"])
+            for label, kind in res.probed.items():
+                w.writerow([label, kind, res.failures.get(label, "")])
+        print(f"\n[저장] {out.resolve()}  — 수임처 실명이 들어 있어 로컬 전용입니다.")
+    except Exception as e:  # noqa: BLE001
+        print(f"[안내] 점검 결과 저장 실패: {e}", file=sys.stderr)
+
+    stuck = sum(n for k, n in counts.items() if k.startswith(("막힘", "오류", "화면", "탭")))
+    if stuck:
+        print(f"\n막힌 곳이 {stuck}곳 있습니다. 위 갈래를 알려주시면 원인을 잡겠습니다.")
+    else:
+        print("\n막힌 곳이 없습니다. --probe 를 빼고 실제 수집을 돌리세요.")
+    return 0
+
+
 def main(argv: list[str] | None = None, *, input_fn=input) -> int:
     ap = argparse.ArgumentParser(
         prog="kafa-fetch",
@@ -69,6 +99,11 @@ def main(argv: list[str] | None = None, *, input_fn=input) -> int:
     ap.add_argument("--attach-port", type=int,
                     help="이미 띄운 크롬에 붙기(--remote-debugging-port 값)")
     ap.add_argument("--dry-run", action="store_true", help="받을 목록만 출력")
+    ap.add_argument("--probe", action="store_true",
+                    help="다운로드하지 않고 **전부 한 바퀴 돌며 점검**한다. "
+                         "수임처마다 자료가 있는지·어디서 막히는지 표로 정리해 준다")
+    ap.add_argument("--probe-out", default="kafa-probe.csv",
+                    help="--probe 결과 저장 경로(수임처 실명 포함 — 로컬 전용)")
     ap.add_argument("--inspect", action="store_true",
                     help="현재 화면의 후보 요소를 출력(selector 보정용)")
     ap.add_argument("--inspect-out", help="보정용 출력 저장 경로(기본 kafa-inspect.txt)")
@@ -328,7 +363,7 @@ def main(argv: list[str] | None = None, *, input_fn=input) -> int:
 
         try:
             res = run_fetch(
-                page, plan, args.inbox, cfg=cfg,
+                page, plan, args.inbox, cfg=cfg, download=not args.probe,
                 on_progress=lambda t, s: print(f"  [{s}] {t.client}/{t.period}"),
                 on_step=lambda m: print(f"     · {m}"),
                 on_failure=_on_failure,
@@ -339,6 +374,9 @@ def main(argv: list[str] | None = None, *, input_fn=input) -> int:
             return 2
         if not args.no_keep_open:
             input_fn("\n브라우저는 열어 둔 채입니다. 확인이 끝나면 엔터를 누르세요... ")
+
+    if args.probe:
+        return _report_probe(res, args.probe_out)
 
     print(f"\n저장 {len(res.saved)}건 / 자료없음 {len(res.empty)}건 / "
           f"실패 {len(res.failures)}건 / 생략 {res.skipped}건"
