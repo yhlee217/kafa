@@ -1050,3 +1050,44 @@ def test_falls_back_to_list_when_url_does_not_work(tmp_path):
               sleep=lambda _s: None)
     assert page.goto_urls == ["https://x/bad"]
     assert page.js and page.js[0] == ["7", "가", "회계"]   # 목록에서 회계 버튼
+
+
+# ── 막힌 그 순간의 화면을 남긴다(조회 전 단계 포함) ──
+
+def test_capture_at_the_failing_step_before_search(tmp_path):
+    """주소 이동·신용카드 메뉴·구분 선택 등 조회 **전** 실패도 사진에 남는다."""
+    from kafa.fetch.wehago import run_fetch
+
+    class _NoLedger(_UrlPage):
+        def __init__(self):
+            super().__init__(present={"div#GRID_TOP canvas"})
+            self.present.discard("#go")      # 신용카드 화면이 끝내 안 뜬다
+
+    shots = []
+    cfg = {**_CFG_URLNAV, "task_retries": 0,
+           "selectors": {**_CFG_URLNAV["selectors"], "ledger_menu": []}}
+    plan = build_plan(tmp_path, ["가"], ["2026"], urls={"가": "https://x/a"})
+    run_fetch(_NoLedger(), plan, tmp_path, cfg=cfg, sleep=lambda _: None,
+              download=False,
+              on_capture=lambda pg, task, kind: shots.append(kind))
+    assert shots == ["화면 준비 안 됨"]
+
+
+def test_capture_on_every_attempt_not_just_the_last(tmp_path):
+    """재시도마다 남긴다 — 매번 다른 화면일 수 있다."""
+    from kafa.fetch.wehago import run_fetch
+
+    class _AlwaysStuck(_UrlPage):
+        def click(self, sel, **kw):
+            if sel == "#go":
+                raise TimeoutError("안 눌림")
+            super().click(sel, **kw)
+
+    shots = []
+    cfg = {**_CFG_URLNAV, "task_retries": 2, "retry_wait_seconds": 0,
+           "client_open_button_text": ""}
+    plan = build_plan(tmp_path, ["가"], ["2026"], urls={"가": "https://x/a"})
+    run_fetch(_AlwaysStuck(present={"div#GRID_TOP canvas"}), plan, tmp_path,
+              cfg=cfg, sleep=lambda _: None, download=False,
+              on_capture=lambda pg, task, kind: shots.append(kind))
+    assert len(shots) == 3 and all(k.startswith("막힘") for k in shots)
