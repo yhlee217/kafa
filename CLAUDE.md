@@ -52,6 +52,7 @@ kafa/
   agent/              세무대리인 보조(신고전점검·사업자번호검증·원천징수·자료수취·대사)
   fetch/              감독형 수집(RPA) — 사람이 로그인, 반복 클릭만 자동화(plan/session/wehago) + CLI(kafa-fetch)
   clients.py          수임처 속성 조사표(엑셀) ↔ config/clients.yaml + CLI(kafa-clients)
+  run_cli.py          kafa-run — 수집→속성→처리를 한 명령으로(설정은 ~/.kafa/run.json)
   learn/              처리 이력 → 보류 규칙 추정(infer, 자동적용 금지·근거 제시) + CLI(kafa-learn)
   store/              베이스 데이터 SQLite 누적(VoucherStore, 멱등 upsert) — 로컬 단일 원본
   pipeline/           inbox 일괄 처리(runner)·폴더 감시(watch)·알림(notify)·진행 보드(summary) + CLI(kafa-pipeline/kafa-watch/kafa-board)
@@ -88,6 +89,9 @@ python -m pytest -q         # 단위테스트
 python -m kafa.cli <입력폴더|파일.xlsx> <출력폴더> \
     [--client-type corporate|individual] [--dup-store dup.json] [--truth 정답.csv]
 python -m kafa.mcp_server   # MCP 서버(콘솔 스크립트 kafa-mcp). 담당자 사용법: docs/usage.md
+
+kafa-run --master 수임처마스터.xlsx   # 수집→수임처속성→분류·업로드본, 한 명령(경로 기억)
+kafa-run                              # 그다음부터는 이것만(사람은 로그인 한 번)
 ```
 Claude Desktop: `claude_desktop_config.json` 에 `{"mcpServers":{"kafa":{"command":"kafa-mcp"}}}`.
 도구 `convert`/`preview` 는 raw PII 없이 **마스킹 요약만** 반환(데이터 변환은 결정론적 코드).
