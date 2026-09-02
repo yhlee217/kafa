@@ -7,6 +7,7 @@ selector 는 config/fetch/wehago.yaml 에서 읽는다(추측 금지 — 보정 
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Optional
@@ -310,6 +311,52 @@ _DIALOG_JS = r"""
 """
 
 
+# 화면에 적힌 건수를 읽는다 — 문구보다 숫자가 흔들리지 않는다.
+_TEXT_JS = r"""
+(selectors) => {
+  for (const sel of selectors) {
+    let els = [];
+    try { els = document.querySelectorAll(sel); } catch (e) { continue; }
+    for (const el of els) {
+      try {
+        if (el.checkVisibility && !el.checkVisibility({checkOpacity: true,
+                                                       checkVisibilityCSS: true})) {
+          continue;
+        }
+      } catch (e) {}
+      const t = (el.innerText || el.textContent || '').replace(/\s+/g, ' ').trim();
+      if (t) return t.slice(0, 4000);
+    }
+  }
+  return '';
+}
+"""
+
+
+def result_count(pg, cfg: dict):
+    """조회 결과 건수. 못 읽으면 None.
+
+    '미처리 전표 건 수 401 건' 처럼 화면에 적힌 숫자를 읽는다. 0 이면 받을 게 없다.
+    어디를 읽고 어떤 모양인지는 config 로 뺀다(화면이 바뀌면 여기만 고친다).
+    """
+    spec = (cfg or {}).get("result_count") or {}
+    pattern = str(spec.get("pattern") or "").strip()
+    if not pattern:
+        return None
+    sels = list(spec.get("selectors") or ["body"])
+    try:
+        text = pg.evaluate(_TEXT_JS, sels) or ""
+    except Exception:  # noqa: BLE001
+        return None
+    m = re.search(pattern, str(text))
+    if not m:
+        return None
+    try:
+        return int(m.group(1).replace(",", ""))
+    except (ValueError, IndexError):
+        return None
+
+
 def _has_any_text(pg, texts, cfg: dict | None = None) -> str:
     """조회 결과가 없다는 알림이 떠 있으면 그 글자를 돌려준다.
 
@@ -359,6 +406,24 @@ def _watch_for_empty(get_page, cfg: dict, sleep, baseline: str = "") -> str:
             return found
         if _time.monotonic() >= deadline:
             return ""
+        sleep(0.3)
+
+
+def _watch_result_count(get_page, cfg: dict, sleep):
+    """조회 직후 건수가 화면에 반영될 때까지 잠깐 지켜본다. 못 읽으면 None."""
+    import time as _time
+
+    spec = (cfg or {}).get("result_count") or {}
+    if not spec.get("pattern"):
+        return None
+    deadline = _time.monotonic() + float(spec.get("wait_seconds", 3.0))
+    last = None
+    while True:
+        last = result_count(get_page(), cfg)
+        if last is not None:
+            return last
+        if _time.monotonic() >= deadline:
+            return None
         sleep(0.3)
 
 
@@ -502,6 +567,16 @@ def _fetch_steps(P, cfg: dict, task: DownloadTask, dest: Path, say, sleep,
         say("조회 전부터 같은 안내문이 떠 있습니다(판정에서 제외)")
     say("조회")
     _click_any(P(), sel["search_button"], timeout, "조회")
+
+    # 화면에 적힌 건수를 먼저 본다 — 문구보다 숫자가 흔들리지 않는다.
+    n = _watch_result_count(P, cfg, sleep)
+    if n is not None:
+        say(f"조회 결과 {n}건")
+        if n == 0:
+            if on_capture:
+                on_capture(P(), "자료없음")
+            _dismiss_popup(P(), cfg)
+            raise NoData("조회 결과 0건")
 
     # 결과가 없으면 팝업이 뜬다. 팝업이 나타날 시간을 주고, 뜨면 닫고 넘어간다.
     empty = _watch_for_empty(P, cfg, sleep, baseline=before)
