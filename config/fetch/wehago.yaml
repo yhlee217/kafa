@@ -40,6 +40,13 @@ result_count:
   selectors: ["body"]
   wait_seconds: 3.0
 
+# 조회 후 이 요소가 안 생기면 자료가 없는 것으로 본다.
+# 자료가 없으면 결과 표(canvas)가 아예 그려지지 않는다(실측 2026-09-02).
+# 글자 판정이 다 어긋나도 이 구조적 신호는 남는다.
+empty_when_missing:
+  - "div#GRID_TOP canvas"
+grid_wait_seconds: 6.0
+
 # 조회 결과가 없다는 알림이 뜨는지 지켜보는 시간(팝업이 늦게 뜨는 곳이 있다)
 empty_wait_seconds: 4.0
 # 알림창을 찾을 곳 — 여기 안의 글자에 아래 문구가 들어 있으면 '자료 없음' 으로 본다.

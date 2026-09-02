@@ -409,6 +409,27 @@ def _watch_for_empty(get_page, cfg: dict, sleep, baseline: str = "") -> str:
         sleep(0.3)
 
 
+def _wait_present(get_page, selectors, seconds: float, sleep) -> bool:
+    """이 요소들 중 하나라도 나타나는지 잠깐 기다린다(없으면 False)."""
+    import time as _time
+
+    cands = _as_list(selectors)
+    if not cands:
+        return True
+    deadline = _time.monotonic() + max(0.0, seconds)
+    while True:
+        pg = get_page()
+        for cand in cands:
+            try:
+                if pg.query_selector(cand):
+                    return True
+            except Exception:  # noqa: BLE001
+                pass
+        if _time.monotonic() >= deadline:
+            return False
+        sleep(0.3)
+
+
 def _watch_result_count(get_page, cfg: dict, sleep):
     """조회 직후 건수가 화면에 반영될 때까지 잠깐 지켜본다. 못 읽으면 None."""
     import time as _time
@@ -570,7 +591,9 @@ def _fetch_steps(P, cfg: dict, task: DownloadTask, dest: Path, say, sleep,
 
     # 화면에 적힌 건수를 먼저 본다 — 문구보다 숫자가 흔들리지 않는다.
     n = _watch_result_count(P, cfg, sleep)
-    if n is not None:
+    if n is None:
+        say("조회 결과 건수를 읽지 못했습니다(다른 신호로 판정)")
+    else:
         say(f"조회 결과 {n}건")
         if n == 0:
             if on_capture:
@@ -586,6 +609,17 @@ def _fetch_steps(P, cfg: dict, task: DownloadTask, dest: Path, say, sleep,
             on_capture(P(), "자료없음")      # 팝업이 뜬 화면을 그대로 남긴다
         _dismiss_popup(P(), cfg)
         raise NoData(empty)
+
+    # **표가 그려졌는가** — 자료가 없으면 결과 표(canvas)가 아예 생기지 않는다.
+    # 글자 판정이 모두 어긋나도 이 구조적 신호는 남는다(실측 2026-09-02).
+    need = _as_list(cfg.get("empty_when_missing"))
+    if need and not _wait_present(P, need,
+                                  float(cfg.get("grid_wait_seconds", 6.0)), sleep):
+        say("조회 결과 표가 그려지지 않았습니다 — 자료 없음으로 봅니다")
+        if on_capture:
+            on_capture(P(), "자료없음")
+        _dismiss_popup(P(), cfg)
+        raise NoData("조회 결과 표 없음")
 
     if not download:
         # 점검 모드 — 여기까지 왔으면 받을 자료가 있다는 뜻. 다운로드는 하지 않는다.
