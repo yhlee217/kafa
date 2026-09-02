@@ -1605,3 +1605,56 @@ def test_leftover_popup_is_dismissed_before_search(tmp_path):
                     download=False)
     assert res.probed["가/2026"] == "자료 없음"
     assert not [e for e in page.log if e[1] == "#xls"]   # 다운로드로 안 갔다
+
+
+def test_download_failure_with_notice_counts_as_no_data(tmp_path):
+    """못 받았는데 안내문이 떠 있으면 '실패' 가 아니라 '자료 없음' 이다.
+
+    글자로 미리 재는 것보다 **실제로 못 받았다** 는 사실이 확실한 근거다.
+    """
+    from kafa.fetch.wehago import run_fetch
+
+    class _NoFile(_NamedPage):
+        def __init__(self, name):
+            super().__init__(name)
+            self.searched = False
+
+        def click(self, sel, **kw):
+            if sel == "#go":
+                self.searched = True
+            if sel == "#xls":
+                raise TimeoutError("파일이 안 만들어짐")
+            super().click(sel, **kw)
+
+        def evaluate(self, js, arg=None):
+            if "checkVisibility" in js:
+                # 조회 후에만 안내문이 보인다(조회 전 판정은 통과시킨다)
+                return "조회 조건에 맞는 데이터가 없습니다." if self.searched else ""
+            return "ok"
+
+    cfg = {**_CFG_VERIFY, "empty_result_texts": ["조회조건에맞는데이터가없"],
+           "empty_wait_seconds": 0, "task_retries": 0, "menu_retries": 1,
+           "selectors": {**_CFG_VERIFY["selectors"], "popup_confirm": ["#ok"]}}
+    plan = build_plan(tmp_path, ["가"], ["2026"], urls={"가": "https://x/a"})
+    res = run_fetch(_NoFile("가"), plan, tmp_path, cfg=cfg, sleep=lambda _: None)
+    assert res.ok and res.empty == ["가/2026"] and res.failures == {}
+
+
+def test_download_failure_without_notice_stays_a_failure(tmp_path):
+    """안내문이 없는데 못 받았으면 그건 진짜 실패다(조용히 넘기지 않는다)."""
+    from kafa.fetch.wehago import run_fetch
+
+    class _Broken(_NamedPage):
+        def click(self, sel, **kw):
+            if sel == "#xls":
+                raise TimeoutError("메뉴가 안 뜸")
+            super().click(sel, **kw)
+
+        def evaluate(self, js, arg=None):
+            return "" if "checkVisibility" in js else "ok"
+
+    cfg = {**_CFG_VERIFY, "empty_result_texts": ["조회조건에맞는데이터가없"],
+           "empty_wait_seconds": 0, "task_retries": 0, "menu_retries": 1}
+    plan = build_plan(tmp_path, ["가"], ["2026"], urls={"가": "https://x/a"})
+    res = run_fetch(_Broken("가"), plan, tmp_path, cfg=cfg, sleep=lambda _: None)
+    assert not res.ok and "가/2026" in res.failures

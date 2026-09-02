@@ -563,7 +563,19 @@ def _fetch_steps(P, cfg: dict, task: DownloadTask, dest: Path, say, sleep,
                 f"화면의 구분을 '{cfg.get('kind_value')}' 으로 맞춘 뒤 다시 실행하세요.")
         dl.value.save_as(str(dest))
 
-    _step("엑셀 다운로드", sel["excel_download_button"], _download)
+    try:
+        _step("엑셀 다운로드", sel["excel_download_button"], _download)
+    except StepFailed:
+        # 못 받았다면 정말 자료가 없는 것일 수 있다. 화면을 다시 보고 판정한다.
+        # 글자로 미리 재는 것보다 **실제로 못 받았다** 는 사실이 확실한 근거다.
+        late = _has_any_text(P(), cfg.get("empty_result_texts") or [], cfg)
+        if late:
+            say(f"받지 못했고 안내문이 떠 있습니다 — 자료 없음으로 봅니다")
+            if on_capture:
+                on_capture(P(), "자료없음")
+            _dismiss_popup(P(), cfg)
+            raise NoData(late)
+        raise
 
     # 6) 변환 완료 알림이 뜨면 닫는다(안 닫으면 다음 건이 가려진다)
     confirm = sel.get("download_confirm")
