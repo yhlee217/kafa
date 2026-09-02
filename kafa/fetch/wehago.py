@@ -153,6 +153,11 @@ def pick_page(page, cfg: dict, *, want: str = "ledger"):
         return page                      # 아직 이동 전이면 원래 탭 그대로
     if candidates:
         return candidates[-1]            # 마지막으로 열린 탭
+    # 쓸 탭이 하나도 없으면 새로 연다(로그인 세션은 브라우저에 남아 있다).
+    try:
+        return page.context.new_page()
+    except Exception:  # noqa: BLE001
+        pass
     raise NoAppPage(
         "위하고 화면이 있는 탭을 찾지 못했습니다(원래 탭이 닫혔을 수 있습니다). "
         "신용카드 화면 탭을 열어 둔 채로 다시 실행해 주세요.")
@@ -599,11 +604,25 @@ def _failure_kind(exc: Exception) -> str:
 
 
 def _close_ledger(P, cfg: dict, task: DownloadTask, say) -> None:
-    if not cfg.get("close_ledger_after") or task.here:
+    """다 쓴 회계 탭을 닫는다 — **새 탭으로 열렸을 때만**.
+
+    주소로 이동하는 방식은 같은 탭 안에서 움직이므로, 닫으면 그게 유일한 탭이라
+    다음 수임처부터 전부 죽는다(실측 2026-08-31: 131곳이 '탭을 못 찾음'으로 실패).
+    """
+    if not cfg.get("close_ledger_after") or task.here or task.url:
         return
+    from kafa.fetch.inspect import pages_of
+
+    pg = P()
+    try:
+        others = [x for x in pages_of(pg) if _is_open(x) and x is not pg]
+    except Exception:  # noqa: BLE001
+        others = []
+    if not others:
+        return                      # 마지막 남은 탭은 닫지 않는다
     try:
         say("회계 탭 닫기")
-        P().close()
+        pg.close()
     except Exception:  # noqa: BLE001 — 못 닫아도 계속
         pass
 
@@ -692,6 +711,18 @@ def _open_client(P, cfg: dict, task: DownloadTask, timeout: int, say):
     _step("수임처 선택", item, lambda: dash.click(item, timeout=timeout))
 
 
+def _close_dropdown(page) -> None:
+    """열린 채로 남은 목록을 닫는다 — 안 닫으면 조회 버튼을 덮어 못 누른다.
+
+    실측(2026-08-31): 구분 선택에 실패한 수임처에서 곧바로 '[조회] 못 눌렀습니다' 가
+    이어졌다. 목록이 펼쳐진 채 버튼을 가린 것으로 보인다.
+    """
+    try:
+        page.keyboard.press("Escape")
+    except Exception:  # noqa: BLE001 — 키보드를 못 쓰면 그냥 넘어간다
+        pass
+
+
 def _select_kind(page, cfg: dict, timeout: int, say=None) -> None:
     """조회 구분을 '매입' 으로 맞춘다.
 
@@ -735,8 +766,10 @@ def _select_kind(page, cfg: dict, timeout: int, say=None) -> None:
             say(f"구분 선택 '{kind}'")
             return
         except Exception:  # noqa: BLE001 — 다음 후보로
+            _close_dropdown(page)
             continue
-    say(f"구분을 자동으로 못 맞췄습니다 — 받은 파일 이름으로 확인합니다")
+    _close_dropdown(page)
+    say("구분을 자동으로 못 맞췄습니다 — 받은 파일 이름으로 확인합니다")
 
 
 def run_fetch(page, plan: DownloadPlan, inbox, *, cfg: Optional[dict] = None,
