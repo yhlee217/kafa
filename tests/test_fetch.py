@@ -1498,7 +1498,8 @@ def test_reload_recovers_switch_before_touching_the_list(tmp_path):
               DownloadTask("(주)행복상사", "2026", url="https://x/a", cno="9"),
               dest, resolve=lambda: page, sleep=lambda _s: None)
     assert page.reloaded and dest.exists()
-    assert not page.js          # 목록까지 가지 않았다
+    # 목록까지 가지 않았다(목록 열기는 [코드, 이름, 라벨] 3개짜리 호출)
+    assert not [a for a in page.js if isinstance(a, list) and len(a) == 3]
 
 
 def test_goes_to_dashboard_when_no_list_tab(tmp_path):
@@ -1916,3 +1917,32 @@ def test_client_is_verified_again_right_before_download(tmp_path):
         assert not dest.exists()           # 남의 자료를 저장하지 않았다
     else:
         raise AssertionError("WrongClient 가 나와야 한다")
+
+
+# ── 매출건수·매입건수가 따로 있다 — 매입 숫자를 집어야 한다 ──
+
+def test_picks_purchase_count_not_the_total():
+    from kafa.fetch.wehago import load_fetch_config, result_count
+
+    class _Screen:
+        def __init__(self, text):
+            self.text = text
+
+        def evaluate(self, js, arg=None):
+            return self.text
+
+    cfg = load_fetch_config()
+    총합만 = "미전송현황 미처리 전표 건 수 401 건"
+    갈라짐 = "미처리 전표 건 수 401 건 매출건수 0 건 매입건수 401 건"
+    매출만 = "미처리 전표 건 수 5 건 매출건수 5 건 매입건수 0 건"
+
+    assert result_count(_Screen(총합만), cfg) == 401      # 갈라져 있지 않으면 합계
+    assert result_count(_Screen(갈라짐), cfg) == 401      # 매입 숫자
+    assert result_count(_Screen(매출만), cfg) == 0        # 매입이 0이면 0
+
+
+def test_count_context_is_logged_for_tuning():
+    from kafa.fetch.wehago import count_context, load_fetch_config
+    spec = load_fetch_config()["result_count"]
+    ctx = count_context("앞부분 미처리 전표 건 수 401 건 매입건수 401 건 뒷부분", spec)
+    assert "미처리" in ctx and "매입건수" in ctx

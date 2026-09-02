@@ -369,28 +369,61 @@ _TEXT_JS = r"""
 """
 
 
+def _count_patterns(spec: dict) -> list[str]:
+    """쓸 정규식들. 앞에 적힌 것부터 맞춰 본다(매입 숫자를 먼저 집게)."""
+    pats = [str(x) for x in (spec.get("patterns") or []) if str(x).strip()]
+    one = str(spec.get("pattern") or "").strip()
+    if one:
+        pats.append(one)
+    return pats
+
+
+def count_area_text(pg, cfg: dict) -> str:
+    """건수가 적힌 영역의 글자. 정규식을 맞출 때 근거로 쓴다(숫자·라벨뿐)."""
+    spec = (cfg or {}).get("result_count") or {}
+    sels = list(spec.get("selectors") or ["body"])
+    try:
+        return str(pg.evaluate(_TEXT_JS, sels) or "")
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def count_context(text: str, spec: dict) -> str:
+    """건수 근처 글자만 잘라낸다 — 어떤 라벨이 붙어 있는지 보려고."""
+    anchor = str(spec.get("anchor") or "미처리")
+    i = text.find(anchor)
+    if i < 0:
+        return ""
+    width = int(spec.get("context_chars", 120))
+    return text[max(0, i - 20):i + width].replace("\n", " ").strip()
+
+
 def result_count(pg, cfg: dict):
     """조회 결과 건수. 못 읽으면 None.
 
-    '미처리 전표 건 수 401 건' 처럼 화면에 적힌 숫자를 읽는다. 0 이면 받을 게 없다.
+    화면에 '미처리 전표 건 수' 근처로 **매출건수·매입건수**가 따로 적혀 있다
+    (담당자 확인 2026-09-02). 우리가 받는 것은 매입이므로 **매입 숫자를 먼저** 집는다.
     어디를 읽고 어떤 모양인지는 config 로 뺀다(화면이 바뀌면 여기만 고친다).
     """
     spec = (cfg or {}).get("result_count") or {}
-    pattern = str(spec.get("pattern") or "").strip()
-    if not pattern:
+    pats = _count_patterns(spec)
+    if not pats:
         return None
-    sels = list(spec.get("selectors") or ["body"])
-    try:
-        text = pg.evaluate(_TEXT_JS, sels) or ""
-    except Exception:  # noqa: BLE001
+    text = count_area_text(pg, cfg)
+    if not text:
         return None
-    m = re.search(pattern, str(text))
-    if not m:
-        return None
-    try:
-        return int(m.group(1).replace(",", ""))
-    except (ValueError, IndexError):
-        return None
+    for pattern in pats:
+        try:
+            m = re.search(pattern, text)
+        except re.error:
+            continue
+        if not m:
+            continue
+        try:
+            return int(m.group(1).replace(",", ""))
+        except (ValueError, IndexError):
+            continue
+    return None
 
 
 def _has_any_text(pg, texts, cfg: dict | None = None) -> str:
@@ -634,10 +667,15 @@ def _fetch_steps(P, cfg: dict, task: DownloadTask, dest: Path, say, sleep,
 
     # 화면에 적힌 건수를 먼저 본다 — 문구보다 숫자가 흔들리지 않는다.
     n = _watch_result_count(P, cfg, sleep)
+    spec = cfg.get("result_count") or {}
+    if spec.get("log_context", True):
+        # 어떤 라벨이 붙어 있는지 한 줄 남긴다 — 정규식을 정확히 맞추는 근거.
+        ctx = count_context(count_area_text(P(), cfg), spec)
+        if ctx:
+            say(f"건수 영역: {ctx}")
     if n is not None:
-        decides = bool((cfg.get("result_count") or {}).get("decide"))
-        say(f"화면 표시 건수 {n}"
-            + ("" if decides else " (참고용 — 판정은 표 유무로)"))
+        say(f"매입 건수 {n}"
+            + ("" if spec.get("decide") else " (참고용 — 판정은 표 유무로)"))
         # 이 숫자는 매출·매입이 섞여 있어(실측 2026-09-02) 그대로 믿으면 안 된다.
         # 매출이 0이고 매입만 있는 수임처가 '자료 없음' 으로 잘못 처리됐다.
         # 어느 숫자가 매입인지 확정되기 전까지는 **기록만** 한다.
