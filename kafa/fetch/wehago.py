@@ -260,7 +260,16 @@ def _wait_ready(get_page, selectors, timeout_ms: int, what: str, *,
 # text="..." 완전일치는 마침표 하나만 달라도 안 걸려서 놓쳤다(실측 2026-09-02).
 _DIALOG_JS = r"""
 ([selectors, words]) => {
-  const out = [];
+  // 띄어쓰기·줄바꿈을 모두 지우고 비교한다.
+  // 실제 문구가 '조회 조건에 맞는 데이터가 없습니다.' 처럼 띄어쓰기가 들어가 있어
+  // 조각을 그대로 비교하면 놓친다(실측 2026-09-02).
+  const squash = (x) => (x || '').replace(/\s+/g, '');
+  const keys = words.map(squash).filter(Boolean);
+  const hit = (raw) => {
+    const t = squash(raw);
+    for (const k of keys) if (t.includes(k)) return true;
+    return false;
+  };
   for (const sel of selectors) {
     let els = [];
     try { els = document.querySelectorAll(sel); } catch (e) { continue; }
@@ -268,14 +277,22 @@ _DIALOG_JS = r"""
       let r;
       try { r = el.getBoundingClientRect(); } catch (e) { continue; }
       if (r.width <= 0 || r.height <= 0) continue;
-      out.push((el.textContent || '').replace(/\s+/g, ' ').trim());
+      const raw = (el.textContent || '').replace(/\s+/g, ' ').trim();
+      if (hit(raw)) return raw.slice(0, 120);
     }
   }
-  for (const t of out) {
-    for (const w of words) {
-      if (w && t.includes(w)) return t.slice(0, 100);
+  // 알림창 selector 가 안 맞을 수도 있다. 화면에 **보이는 글자** 전체에서 한 번 더.
+  // innerText 는 숨은 요소를 포함하지 않아 예전 팝업이 잘못 걸리지 않는다.
+  try {
+    const body = (document.body && document.body.innerText) || '';
+    if (hit(body)) {
+      const squashed = squash(body);
+      for (const k of keys) {
+        const i = squashed.indexOf(k);
+        if (i >= 0) return body.replace(/\s+/g, ' ').trim().slice(0, 120);
+      }
     }
-  }
+  } catch (e) {}
   return '';
 }
 """

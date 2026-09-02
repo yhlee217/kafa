@@ -1371,3 +1371,34 @@ def test_falls_back_to_partial_text_selector(tmp_path):
             return object() if sel == "text=데이터가 없습니다" else None
 
     assert _has_any_text(_NoJs(), ["데이터가 없습니다"], {}) == "데이터가 없습니다"
+
+
+def test_empty_matching_ignores_spacing(tmp_path):
+    """화면은 '조회 조건', 설정은 '조회조건' — 띄어쓰기 차이를 무시한다."""
+    from kafa.fetch.wehago import _has_any_text
+
+    real = ("조회 조건에 맞는 데이터가 없습니다. "
+            "메뉴 상단 [수집하러가기] 버튼을 클릭하여 자동 전표를 수집하거나 "
+            "수집한 기간에 맞춰 조회 조건을 다시 설정해 주시기 바랍니다.")
+
+    class _Dialog:
+        def evaluate(self, js, arg=None):
+            selectors, words = arg
+            squash = lambda x: "".join(x.split())
+            keys = [squash(w) for w in words if w]
+            return real if any(k in squash(real) for k in keys) else ""
+
+        def query_selector(self, sel):
+            return None
+
+    found = _has_any_text(_Dialog(), ["조회조건에맞는데이터가없"], {})
+    assert found.startswith("조회 조건에 맞는 데이터가 없습니다")
+
+
+def test_shipped_empty_texts_match_the_real_popup():
+    """배포 설정의 문구가 실제 팝업(띄어쓰기 포함)과 맞아야 한다."""
+    from kafa.fetch.wehago import load_fetch_config
+    real = "조회 조건에 맞는 데이터가 없습니다. 메뉴 상단 [수집하러가기] 버튼을"
+    squashed = "".join(real.split())
+    words = load_fetch_config()["empty_result_texts"]
+    assert any("".join(str(w).split()) in squashed for w in words)
