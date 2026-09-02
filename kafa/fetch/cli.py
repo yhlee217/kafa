@@ -32,6 +32,38 @@ def _clients_from(arg: str) -> list[str]:
     return [c.strip() for c in arg.split(",") if c.strip()]
 
 
+class _RunLog:
+    """진행 로그를 파일로. 수임처 이름은 번호로 가린다(그대로 보내도 안전하게)."""
+
+    def __init__(self, path):
+        self.path = Path(path)
+        self.lines: list[str] = []
+        self.ids: dict = {}
+
+    def name_of(self, client: str) -> str:
+        if client not in self.ids:
+            self.ids[client] = f"#{len(self.ids) + 1}"
+        return self.ids[client]
+
+    def mask(self, text: str) -> str:
+        out = str(text)
+        # 긴 이름부터 바꿔야 부분 문자열이 먼저 걸리지 않는다
+        for name in sorted(self.ids, key=len, reverse=True):
+            if name:
+                out = out.replace(name, self.ids[name])
+        return out
+
+    def add(self, text: str) -> None:
+        self.lines.append(self.mask(text))
+
+    def write(self) -> Path:
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        head = ["# kafa 실행 로그 — 수임처 이름은 #번호로 가려져 있습니다.",
+                f"# 수임처 {len(self.ids)}곳", ""]
+        self.path.write_text("\n".join(head + self.lines), encoding="utf-8")
+        return self.path
+
+
 def _report_probe(res, out_path) -> int:
     """점검 결과 — 화면에는 갈래별 건수만, 수임처 이름은 로컬 CSV 에만."""
     import csv
@@ -80,6 +112,9 @@ def main(argv: list[str] | None = None, *, input_fn=input) -> int:
     ap.add_argument("--discover-manual", action="store_true",
                     help="--discover 시 페이지를 사람이 넘긴다(자동 넘기기가 안 될 때)")
     ap.add_argument("--fail-dump", help="실패 시 화면 덤프 저장 경로(기본 kafa-fail.txt)")
+    ap.add_argument("--log", nargs="?", const="kafa-run.log", metavar="파일",
+                    help="진행 로그를 파일로 남긴다(기본 kafa-run.log). "
+                         "수임처 이름은 번호(#1, #2 …)로 가려 그대로 보내도 안전하다")
     ap.add_argument("--screenshot-on-fail", action="store_true",
                     help="실패 시 화면 사진도 남긴다(기본 kafa-fail.png). "
                          "사진에는 거래처 실명·금액이 그대로 찍히므로 **로컬에서 눈으로만** "
@@ -349,6 +384,8 @@ def main(argv: list[str] | None = None, *, input_fn=input) -> int:
 
         def _on_failure(task, exc):
             print(f"     ↳ {exc}", file=sys.stderr)
+            if runlog:
+                runlog.add(f"     ↳ {exc}")
             if dumped:
                 return
             dumped.append(True)
@@ -370,6 +407,13 @@ def main(argv: list[str] | None = None, *, input_fn=input) -> int:
             except Exception as e:  # noqa: BLE001 — 덤프 실패가 수집을 막지 않게
                 print(f"     ↳ 화면 저장 실패: {e}", file=sys.stderr)
 
+        runlog = _RunLog(args.log) if args.log else None
+
+        def _say(text):
+            print(text)
+            if runlog:
+                runlog.add(text)
+
         shots = None
         if args.shots:
             from kafa.fetch.shots import ShotIndex, capture
@@ -384,8 +428,10 @@ def main(argv: list[str] | None = None, *, input_fn=input) -> int:
             res = run_fetch(
                 page, plan, args.inbox, cfg=cfg, download=not args.probe,
                 on_capture=_on_capture if shots else None,
-                on_progress=lambda t, s: print(f"  [{s}] {t.client}/{t.period}"),
-                on_step=lambda m: print(f"     · {m}"),
+                on_progress=lambda t, s: _say(
+                    f"  [{s}] {runlog.name_of(t.client) if runlog else t.client}"
+                    f"/{t.period}"),
+                on_step=lambda m: _say(f"     · {m}"),
                 on_failure=_on_failure,
                 on_session_expired=lambda: wait_for_human(
                     "로그인이 풀렸습니다. 브라우저에서 다시 로그인해 주세요."))
@@ -394,6 +440,17 @@ def main(argv: list[str] | None = None, *, input_fn=input) -> int:
             return 2
         if not args.no_keep_open:
             input_fn("\n브라우저는 열어 둔 채입니다. 확인이 끝나면 엔터를 누르세요... ")
+
+    if runlog:
+        # 요약도 남긴다 — 이 파일만 보면 전체 흐름이 보인다.
+        runlog.add("")
+        runlog.add(f"저장 {len(res.saved)} / 자료없음 {len(res.empty)} / "
+                   f"실패 {len(res.failures)} / 생략 {res.skipped} "
+                   f"(재시도 {res.retried})")
+        for label, why in res.failures.items():
+            runlog.add(f"  [실패] {label} → {why}")
+        lp = runlog.write()
+        print(f"\n[로그] {lp.resolve()}  — 이름이 번호로 가려져 있어 그대로 보내셔도 됩니다.")
 
     if shots:
         idx = shots.write()

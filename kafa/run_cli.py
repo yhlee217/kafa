@@ -53,6 +53,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--skip-fetch", action="store_true",
                     help="이미 받아둔 파일만 처리(브라우저 안 띄움)")
     ap.add_argument("--dry-run", action="store_true", help="무엇을 받을지만 보여준다")
+    ap.add_argument("--log", nargs="?", const="kafa-run.log", metavar="파일",
+                    help="진행 로그를 파일로 남긴다(이름은 번호로 가려짐)")
     ap.add_argument("--shots", nargs="?", const="kafa-shots", metavar="폴더",
                     help="수임처마다 화면 사진을 남긴다(거래내역·거래처명 흐림 처리)")
     ap.add_argument("--probe", action="store_true",
@@ -93,6 +95,8 @@ def main(argv: list[str] | None = None) -> int:
             argv_fetch.append("--probe")
         if args.shots:
             argv_fetch += ["--shots", args.shots]
+        if args.log:
+            argv_fetch += ["--log", args.log]
         rc = fetch_main(argv_fetch)
         if args.dry_run or args.probe:
             return rc
