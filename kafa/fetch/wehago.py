@@ -389,20 +389,28 @@ def count_area_text(pg, cfg: dict) -> str:
 
 
 def count_context(text: str, spec: dict) -> str:
-    """건수 근처 글자만 잘라낸다 — 어떤 라벨이 붙어 있는지 보려고."""
-    anchor = str(spec.get("anchor") or "미처리")
-    i = text.find(anchor)
-    if i < 0:
-        return ""
+    """건수 근처 글자만 잘라낸다 — 어떤 라벨이 붙어 있는지 보려고.
+
+    안내 영역에는 색상 범례까지 섞여 있어(여신금융·국세청·화물복지 …) 앞에서부터
+    자르면 지저분하다. **매출건수** 처럼 우리가 쓰는 라벨을 기준으로 잡는다.
+    """
+    anchors = spec.get("anchors")
+    if not anchors:
+        one = spec.get("anchor")
+        anchors = [one] if one else ["매출건수", "매출 건수", "미처리"]
     width = int(spec.get("context_chars", 120))
-    return text[max(0, i - 20):i + width].replace("\n", " ").strip()
+    for anchor in anchors:
+        i = text.find(str(anchor))
+        if i >= 0:
+            return text[max(0, i - 10):i + width].replace("\n", " ").strip()
+    return ""
 
 
 def result_count(pg, cfg: dict):
     """조회 결과 건수. 못 읽으면 None.
 
-    화면에 '미처리 전표 건 수' 근처로 **매출건수·매입건수**가 따로 적혀 있다
-    (담당자 확인 2026-09-02). 우리가 받는 것은 매입이므로 **매입 숫자를 먼저** 집는다.
+    화면 '미전송현황' 영역에 **매출건수·매입건수**가 따로 적혀 있다.
+    담당자 판단(2026-09-02): **매출건수가 1건 이상일 때만** 받으러 간다.
     어디를 읽고 어떤 모양인지는 config 로 뺀다(화면이 바뀌면 여기만 고친다).
     """
     spec = (cfg or {}).get("result_count") or {}
@@ -504,7 +512,7 @@ def _watch_result_count(get_page, cfg: dict, sleep):
     import time as _time
 
     spec = (cfg or {}).get("result_count") or {}
-    if not spec.get("pattern"):
+    if not _count_patterns(spec):
         return None
     deadline = _time.monotonic() + float(spec.get("wait_seconds", 3.0))
     last = None
@@ -674,7 +682,7 @@ def _fetch_steps(P, cfg: dict, task: DownloadTask, dest: Path, say, sleep,
         if ctx:
             say(f"건수 영역: {ctx}")
     if n is not None:
-        say(f"매입 건수 {n}"
+        say(f"매출 건수 {n}"
             + ("" if spec.get("decide") else " (참고용 — 판정은 표 유무로)"))
         # 이 숫자는 매출·매입이 섞여 있어(실측 2026-09-02) 그대로 믿으면 안 된다.
         # 매출이 0이고 매입만 있는 수임처가 '자료 없음' 으로 잘못 처리됐다.
@@ -683,7 +691,7 @@ def _fetch_steps(P, cfg: dict, task: DownloadTask, dest: Path, say, sleep,
             if on_capture:
                 on_capture(P(), "자료없음")
             _dismiss_popup(P(), cfg)
-            raise NoData("조회 결과 0건")
+            raise NoData("매출건수 0건")
 
     # 결과가 없으면 팝업이 뜬다. 팝업이 나타날 시간을 주고, 뜨면 닫고 넘어간다.
     empty = _watch_for_empty(P, cfg, sleep, baseline=before)
