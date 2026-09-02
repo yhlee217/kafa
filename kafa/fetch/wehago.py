@@ -108,7 +108,7 @@ def _first_selector(value) -> str:
     return cands[0] if cands else ""
 
 
-def pick_page(page, cfg: dict, *, want: str = "ledger"):
+def pick_page(page, cfg: dict, *, want: str = "ledger", prefer=None):
     """조작할 탭을 고른다(want='ledger' 전표화면 / 'dashboard' 수임처 목록).
 
     회계 모듈이 새 창으로 열리고 처음 탭이 닫히는 일이 있어, 붙잡아 둔 page 객체가
@@ -134,6 +134,12 @@ def pick_page(page, cfg: dict, *, want: str = "ledger"):
     best, best_score = None, -1
     for pg in candidates:
         score = 0
+        # 한 번 쓰기 시작한 탭을 계속 쓴다 — 탭을 닫지 않으니 smarta 탭이 여러 개
+        # 남을 수 있고, 그때 서로 다른 탭을 오가면 전환이 어긋난다.
+        if prefer is not None and pg is prefer:
+            score += 4
+        elif pg is page:
+            score += 1            # 동점이면 지금 쓰던 탭을 그대로
         if hint and hint in _url_lower(pg):
             score += 2
         if marker:
@@ -903,13 +909,25 @@ def run_fetch(page, plan: DownloadPlan, inbox, *, cfg: Optional[dict] = None,
     attempts = max(1, int(cfg.get("task_retries", 2)) + 1)
     retry_wait = float(cfg.get("retry_wait_seconds", 5.0))
 
+    stick: dict = {"page": None}      # 계속 쓸 탭(작업 사이에도 유지)
+
+    def _resolve():
+        pg = pick_page(page, cfg, prefer=stick["page"])
+        stick["page"] = pg
+        return pg
+
+    def _forget_stick():
+        stick["page"] = None
+
     def _once(task):
-        return fetch_one(pick_page(page, cfg), cfg, task,
+        return fetch_one(_resolve(), cfg, task,
                          target_path(inbox, task), on_step=on_step,
-                         resolve=lambda: pick_page(page, cfg), sleep=sleep,
+                         resolve=_resolve, sleep=sleep,
                          download=download,
                          on_capture=(lambda pg, kind: on_capture(pg, task, kind))
                          if on_capture else None)
+
+
 
     for i, task in enumerate(plan.tasks):
         label = f"{task.client}/{task.period}"
@@ -940,6 +958,8 @@ def run_fetch(page, plan: DownloadPlan, inbox, *, cfg: Optional[dict] = None,
                 break
             except Exception as e:  # noqa: BLE001 — 한 건 실패가 전체를 막지 않음
                 last = e
+                if isinstance(e, NoAppPage):
+                    _forget_stick()       # 그 탭은 이제 없다 — 다시 고르게 한다
                 if attempt < attempts - 1:
                     res.retried += 1
                     if on_progress:
