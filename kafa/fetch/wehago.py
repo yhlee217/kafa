@@ -265,34 +265,40 @@ _DIALOG_JS = r"""
   // 조각을 그대로 비교하면 놓친다(실측 2026-09-02).
   const squash = (x) => (x || '').replace(/\s+/g, '');
   const keys = words.map(squash).filter(Boolean);
-  const hit = (raw) => {
-    const t = squash(raw);
-    for (const k of keys) if (t.includes(k)) return true;
-    return false;
+
+  // 크기만 보면 안 된다 — visibility:hidden 인 요소도 자리를 차지한다.
+  // 숨어 있는 안내문을 팝업으로 오인해 전부 '자료 없음' 이 됐다(실측 2026-09-02).
+  const visible = (el) => {
+    try {
+      if (el.checkVisibility) {
+        return el.checkVisibility({checkOpacity: true, checkVisibilityCSS: true});
+      }
+    } catch (e) {}
+    let r;
+    try { r = el.getBoundingClientRect(); } catch (e) { return false; }
+    if (r.width <= 0 || r.height <= 0) return false;
+    let cur = el, depth = 0;
+    while (cur && depth < 12) {
+      const st = getComputedStyle(cur);
+      if (st.display === 'none' || st.visibility === 'hidden') return false;
+      if (parseFloat(st.opacity || '1') <= 0.05) return false;
+      cur = cur.parentElement; depth++;
+    }
+    return true;
   };
+
   for (const sel of selectors) {
     let els = [];
     try { els = document.querySelectorAll(sel); } catch (e) { continue; }
     for (const el of els) {
-      let r;
-      try { r = el.getBoundingClientRect(); } catch (e) { continue; }
-      if (r.width <= 0 || r.height <= 0) continue;
+      if (!visible(el)) continue;
       const raw = (el.textContent || '').replace(/\s+/g, ' ').trim();
-      if (hit(raw)) return raw.slice(0, 120);
-    }
-  }
-  // 알림창 selector 가 안 맞을 수도 있다. 화면에 **보이는 글자** 전체에서 한 번 더.
-  // innerText 는 숨은 요소를 포함하지 않아 예전 팝업이 잘못 걸리지 않는다.
-  try {
-    const body = (document.body && document.body.innerText) || '';
-    if (hit(body)) {
-      const squashed = squash(body);
+      const t = squash(raw);
       for (const k of keys) {
-        const i = squashed.indexOf(k);
-        if (i >= 0) return body.replace(/\s+/g, ' ').trim().slice(0, 120);
+        if (t.includes(k)) return raw.slice(0, 120);
       }
     }
-  } catch (e) {}
+  }
   return '';
 }
 """
@@ -317,7 +323,7 @@ def _has_any_text(pg, texts, cfg: dict | None = None) -> str:
     except Exception:  # noqa: BLE001 — 아래 방식으로 한 번 더
         pass
     for t in words:
-        for sel in (f"text={t}", f'text="{t}"'):
+        for sel in (f"text={t}:visible", f'text="{t}":visible'):
             try:
                 if pg.query_selector(sel):
                     return t
@@ -326,8 +332,12 @@ def _has_any_text(pg, texts, cfg: dict | None = None) -> str:
     return ""
 
 
-def _watch_for_empty(get_page, cfg: dict, sleep) -> str:
-    """조회 직후 '자료 없음' 팝업이 뜨는지 잠깐 지켜본다. 뜨면 그 문구를 돌려준다."""
+def _watch_for_empty(get_page, cfg: dict, sleep, baseline: str = "") -> str:
+    """조회 직후 '자료 없음' 팝업이 뜨는지 잠깐 지켜본다. 뜨면 그 문구를 돌려준다.
+
+    baseline: 조회 **전**에 이미 보이던 같은 문구. 화면에 상시 떠 있는 안내문을
+    팝업으로 오인하지 않도록, 조회 전과 달라졌을 때만 '자료 없음' 으로 본다.
+    """
     import time as _time
 
     texts = cfg.get("empty_result_texts") or []
@@ -339,7 +349,7 @@ def _watch_for_empty(get_page, cfg: dict, sleep) -> str:
     deadline = _time.monotonic() + wait
     while True:
         found = _has_any_text(get_page(), texts, cfg)
-        if found:
+        if found and found != baseline:
             return found
         if _time.monotonic() >= deadline:
             return ""
@@ -463,12 +473,13 @@ def _fetch_steps(P, cfg: dict, task: DownloadTask, dest: Path, say, sleep,
               lambda: P().fill(sel["period_to_input"], p, timeout=timeout))
     # screen 모드면 화면에 이미 잡혀 있는 기간(기수 전체)을 그대로 쓴다.
 
-    # 5) 조회
+    # 5) 조회 — 누르기 전에 같은 문구가 이미 떠 있는지 봐 둔다(상시 안내문 구분용)
+    before = _has_any_text(P(), cfg.get("empty_result_texts") or [], cfg)
     say("조회")
     _click_any(P(), sel["search_button"], timeout, "조회")
 
     # 결과가 없으면 팝업이 뜬다. 팝업이 나타날 시간을 주고, 뜨면 닫고 넘어간다.
-    empty = _watch_for_empty(P, cfg, sleep)
+    empty = _watch_for_empty(P, cfg, sleep, baseline=before)
     if empty:
         say(f"조회 결과 없음 — {empty}")
         if on_capture:
