@@ -1725,3 +1725,41 @@ def test_count_pattern_reads_the_real_screen_text():
             return real
 
     assert result_count(_Real(), load_fetch_config()) == 401
+
+
+# ── 표가 안 그려지면 자료 없음 (자료가 없으면 canvas 가 생기지 않는다) ──
+
+def test_missing_result_grid_is_no_data(tmp_path):
+    from kafa.fetch.wehago import run_fetch
+
+    class _NoGrid(_NamedPage):
+        def __init__(self, name):
+            super().__init__(name)
+            self.present.discard("div#GRID_TOP canvas")   # 표가 안 생긴다
+
+        def evaluate(self, js, arg=None):
+            return "" if "checkVisibility" in js else "ok"
+
+    cfg = {**_CFG_VERIFY, "empty_when_missing": ["div#GRID_TOP canvas"],
+           "grid_wait_seconds": 0.05, "empty_wait_seconds": 0, "task_retries": 0}
+    plan = build_plan(tmp_path, ["가"], ["2026"], urls={"가": "https://x/a"})
+    page = _NoGrid("가")
+    res = run_fetch(page, plan, tmp_path, cfg=cfg, sleep=lambda _: None)
+    assert res.ok and res.empty == ["가/2026"] and res.failures == {}
+    # 우클릭·엑셀 클릭을 아예 시도하지 않는다(3번 재시도로 시간 버리지 않게)
+    assert not [e for e in page.log if e[1] == "#xls"]
+
+
+def test_present_grid_proceeds(tmp_path):
+    from kafa.fetch.wehago import run_fetch
+    cfg = {**_CFG_VERIFY, "empty_when_missing": ["div#GRID_TOP canvas"],
+           "grid_wait_seconds": 0.05, "empty_wait_seconds": 0, "task_retries": 0}
+    plan = build_plan(tmp_path, ["가"], ["2026"], urls={"가": "https://x/a"})
+    res = run_fetch(_NamedPage("가"), plan, tmp_path, cfg=cfg, sleep=lambda _: None)
+    assert res.ok and len(res.saved) == 1
+
+
+def test_shipped_config_marks_empty_by_missing_grid():
+    from kafa.fetch.wehago import _as_list, load_fetch_config
+    assert "div#GRID_TOP canvas" in _as_list(
+        load_fetch_config().get("empty_when_missing"))
