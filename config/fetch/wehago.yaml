@@ -29,6 +29,15 @@ hard_navigate: true
 after_search_seconds: 1.5      # 조회 누른 뒤 결과가 그려질 시간
 menu_retries: 3                # 우클릭 메뉴가 안 뜨면 다시 시도할 횟수
 menu_retry_seconds: 2.0
+menu_open_seconds: 0.4         # 우클릭 후 메뉴가 그려질 시간
+menu_probe_ms: 1500            # 한 위치를 시도해 보는 시간(짧게 — 다음 위치로 넘어감)
+# 메뉴는 **데이터 행**에서 우클릭해야 뜬다. 표 한가운데는 빈 공간일 수 있어
+# 표 왼쪽 위부터 몇 군데를 짚어 본다(요소 기준 상대 좌표, 픽셀).
+context_click_positions:
+  - {x: 120, y: 24}
+  - {x: 120, y: 48}
+  - {x: 60, y: 24}
+  - {x: 240, y: 80}
 task_retries: 2                # 한 수임처를 통째로 다시 시도할 횟수
 retry_wait_seconds: 5.0
 

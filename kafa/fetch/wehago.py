@@ -199,7 +199,8 @@ def _as_list(value) -> list[str]:
             if v is not None and str(v).strip() and not is_todo(v)]
 
 
-def _click_any(page, selectors, timeout: int, what: str, *, button: str = "left"):
+def _click_any(page, selectors, timeout: int, what: str, *, button: str = "left",
+               position=None):
     """후보 selector 를 차례로 눌러 본다. 하나라도 되면 그 selector 를 돌려준다.
 
     화면에 비슷한 요소가 많거나 위하고가 화면 구조를 조금 바꿔도 견디게 하기 위함.
@@ -212,11 +213,13 @@ def _click_any(page, selectors, timeout: int, what: str, *, button: str = "left"
     for i, cand in enumerate(cands):
         # 마지막 후보에는 남은 시간을 다 준다(앞 후보는 짧게 훑고 넘어간다).
         t = timeout if i == len(cands) - 1 else min(timeout, 5000)
+        kw = {"timeout": t}
+        if button != "left":
+            kw["button"] = button
+        if position:
+            kw["position"] = dict(position)
         try:
-            if button == "left":
-                page.click(cand, timeout=t)
-            else:
-                page.click(cand, timeout=t, button=button)
+            page.click(cand, **kw)
             return cand
         except Exception as e:  # noqa: BLE001 — 다음 후보로
             errors.append(f"{cand} → {type(e).__name__}")
@@ -224,9 +227,10 @@ def _click_any(page, selectors, timeout: int, what: str, *, button: str = "left"
                      + " | ".join(errors))
 
 
-def _click_any_right(page, selectors, timeout: int, what: str):
+def _click_any_right(page, selectors, timeout: int, what: str, *, position=None):
     """오른쪽 클릭으로 컨텍스트 메뉴를 연다(후보를 차례로 시도)."""
-    return _click_any(page, selectors, timeout, what, button="right")
+    return _click_any(page, selectors, timeout, what, button="right",
+                      position=position)
 
 
 def _wait_ready(get_page, selectors, timeout_ms: int, what: str, *,
@@ -640,22 +644,54 @@ def _fetch_steps(P, cfg: dict, task: DownloadTask, dest: Path, say, sleep,
     ctx_target = _as_list(sel.get("excel_context_target"))
 
     tries = max(1, int(cfg.get("menu_retries", 3)))
+    # 표 한가운데는 행이 없는 빈 공간일 수 있다. 메뉴는 **데이터 행**에서 우클릭해야
+    # 뜨므로, 표 위쪽부터 몇 군데를 짚어 본다(실측 2026-09-02).
+    spots = list(cfg.get("context_click_positions") or
+                 [{"x": 120, "y": 24}, {"x": 120, "y": 48},
+                  {"x": 60, "y": 24}, {"x": 240, "y": 80}])
+    menu_items = _as_list(sel["excel_download_button"])
+    short = int(cfg.get("menu_probe_ms", 1500))
+
+    def _menu_open(pg) -> bool:
+        for cand in menu_items:
+            try:
+                if pg.query_selector(cand):
+                    return True
+            except Exception:  # noqa: BLE001
+                pass
+        return False
 
     def _open_menu_and_pick(pg):
-        """우클릭 → 메뉴에서 '엑셀변환'. 표가 아직 안 그려졌으면 다시 시도한다."""
+        """행을 골라 우클릭 → 메뉴에서 '엑셀변환'.
+
+        위치를 바꿔 가며 시도한다. 우클릭 전에 좌클릭으로 행을 고르는데,
+        기록된 사람 동작도 그러했다(표는 canvas 라 행을 DOM 으로 집을 수 없다).
+        """
         last = None
         for i in range(tries):
-            try:
-                if ctx_target:
-                    _click_any_right(pg, ctx_target, timeout, "엑셀 메뉴 열기")
-                _click_any(pg, sel["excel_download_button"],
-                           timeout if i == tries - 1 else 5000, "엑셀 다운로드")
-                return
-            except Exception as e:  # noqa: BLE001 — 표가 늦게 뜨는 경우
-                last = e
-                say(f"엑셀 메뉴가 아직 안 떠서 다시 시도합니다 ({i + 1}/{tries})")
-                sleep(float(cfg.get("menu_retry_seconds", 2.0)))
-        raise last
+            for spot in (spots or [None]):
+                try:
+                    if ctx_target:
+                        # 행 선택 → 우클릭. 좌클릭 실패는 치명적이지 않다.
+                        try:
+                            _click_any(pg, ctx_target, short, "행 선택",
+                                       position=spot)
+                        except Exception:  # noqa: BLE001
+                            pass
+                        _click_any_right(pg, ctx_target, short, "엑셀 메뉴 열기",
+                                         position=spot)
+                        sleep(float(cfg.get("menu_open_seconds", 0.4)))
+                    # 메뉴가 보이면 넉넉히, 안 보이면 짧게만 시도하고 다음 위치로.
+                    # (보이는지 확인이 실패해도 눌러는 본다 — 확인 자체가 불확실하다)
+                    _click_any(pg, menu_items,
+                               timeout if _menu_open(pg) else short,
+                               "엑셀 다운로드")
+                    return
+                except Exception as e:  # noqa: BLE001 — 다음 위치/회차로
+                    last = e
+            say(f"엑셀 메뉴가 아직 안 떠서 다시 시도합니다 ({i + 1}/{tries})")
+            sleep(float(cfg.get("menu_retry_seconds", 2.0)))
+        raise last or StepFailed("[엑셀 메뉴 열기] 표에서 메뉴를 열지 못했습니다")
 
     def _download():
         pg = P()
