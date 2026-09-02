@@ -227,6 +227,38 @@ def _click_any(page, selectors, timeout: int, what: str, *, button: str = "left"
                      + " | ".join(errors))
 
 
+def context_spots(cfg: dict) -> list[dict]:
+    """표에서 우클릭해 볼 자리들. 컬럼 헤더 바로 아래부터 아래로 훑는다.
+
+    행이 몇 줄 없는 수임처에서는 아래쪽이 빈 공간이라 메뉴가 안 뜬다. 헤더 높이는
+    화면마다 다를 수 있어 좌표를 고정하지 않고 **사다리처럼 내려가며** 찾는다.
+    """
+    spots: list[dict] = []
+    seen: set = set()
+
+    def add(x, y):
+        key = (int(x), int(y))
+        if key not in seen:
+            seen.add(key)
+            spots.append({"x": key[0], "y": key[1]})
+
+    for spot in (cfg or {}).get("context_click_positions") or []:
+        try:
+            add(spot["x"], spot["y"])
+        except (KeyError, TypeError):
+            continue
+    scan = (cfg or {}).get("context_click_scan") or {}
+    if scan:
+        x = int(scan.get("x", 120))
+        y = int(scan.get("y_start", 40))
+        step = max(1, int(scan.get("y_step", 12)))
+        y_max = int(scan.get("y_max", 160))
+        while y <= y_max:
+            add(x, y)
+            y += step
+    return spots
+
+
 def _click_any_right(page, selectors, timeout: int, what: str, *, position=None):
     """오른쪽 클릭으로 컨텍스트 메뉴를 연다(후보를 차례로 시도)."""
     return _click_any(page, selectors, timeout, what, button="right",
@@ -645,10 +677,8 @@ def _fetch_steps(P, cfg: dict, task: DownloadTask, dest: Path, say, sleep,
 
     tries = max(1, int(cfg.get("menu_retries", 3)))
     # 표 한가운데는 행이 없는 빈 공간일 수 있다. 메뉴는 **데이터 행**에서 우클릭해야
-    # 뜨므로, 표 위쪽부터 몇 군데를 짚어 본다(실측 2026-09-02).
-    spots = list(cfg.get("context_click_positions") or
-                 [{"x": 120, "y": 24}, {"x": 120, "y": 48},
-                  {"x": 60, "y": 24}, {"x": 240, "y": 80}])
+    # 뜨므로, **컬럼 바로 아래부터 아래로 훑어 내려간다**(실측 2026-09-02).
+    spots = context_spots(cfg)
     menu_items = _as_list(sel["excel_download_button"])
     short = int(cfg.get("menu_probe_ms", 1500))
 
