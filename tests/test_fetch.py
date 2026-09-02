@@ -1569,3 +1569,39 @@ def test_sticks_to_the_same_tab_across_clients(tmp_path):
                     download=False)
     assert res.ok and res.probed == {"가/2026": "자료 있음", "나/2026": "자료 있음"}
     assert stray.real_gotos == []          # 엉뚱한 탭은 건드리지 않았다
+
+
+def test_leftover_popup_is_dismissed_before_search(tmp_path):
+    """앞 수임처의 알림창이 남아 있으면 그 글자가 '원래 있던 것' 으로 잡혀
+    자료가 없는데도 다운로드로 넘어갔다. 조회 전에 닫아 둔다."""
+    from kafa.fetch.wehago import run_fetch
+
+    class _Sticky(_NamedPage):
+        """알림창이 한 번 뜨면 '확인' 을 눌러야 사라진다."""
+        def __init__(self, name):
+            super().__init__(name)
+            self.popup = True          # 앞 건에서 남은 알림창
+            self.searched = False
+
+        def click(self, sel, **kw):
+            if sel == "#ok":
+                self.popup = False
+            if sel == "#go":
+                self.searched = True
+                self.popup = True      # 조회 결과가 없어 다시 뜬다
+            super().click(sel, **kw)
+
+        def evaluate(self, js, arg=None):
+            if "checkVisibility" in js:
+                return "조회 조건에 맞는 데이터가 없습니다." if self.popup else ""
+            return "ok"
+
+    cfg = {**_CFG_VERIFY, "empty_result_texts": ["조회조건에맞는데이터가없"],
+           "empty_wait_seconds": 0.05, "task_retries": 0,
+           "selectors": {**_CFG_VERIFY["selectors"], "popup_confirm": ["#ok"]}}
+    page = _Sticky("가")
+    plan = build_plan(tmp_path, ["가"], ["2026"], urls={"가": "https://x/a"})
+    res = run_fetch(page, plan, tmp_path, cfg=cfg, sleep=lambda _: None,
+                    download=False)
+    assert res.probed["가/2026"] == "자료 없음"
+    assert not [e for e in page.log if e[1] == "#xls"]   # 다운로드로 안 갔다

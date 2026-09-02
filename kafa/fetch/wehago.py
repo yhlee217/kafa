@@ -492,8 +492,14 @@ def _fetch_steps(P, cfg: dict, task: DownloadTask, dest: Path, say, sleep,
               lambda: P().fill(sel["period_to_input"], p, timeout=timeout))
     # screen 모드면 화면에 이미 잡혀 있는 기간(기수 전체)을 그대로 쓴다.
 
-    # 5) 조회 — 누르기 전에 같은 문구가 이미 떠 있는지 봐 둔다(상시 안내문 구분용)
+    # 5) 조회
+    #   ① 앞 수임처에서 남은 알림창을 먼저 닫는다. 안 닫으면 그 글자가 '원래 있던 것'
+    #      으로 잡혀, 정작 자료가 없는데도 있는 줄 알고 다운로드로 넘어간다.
+    #   ② 닫고도 남아 있는 문구만 '상시 안내문' 으로 보고 판정에서 제외한다.
+    _dismiss_popup(P(), cfg)
     before = _has_any_text(P(), cfg.get("empty_result_texts") or [], cfg)
+    if before:
+        say("조회 전부터 같은 안내문이 떠 있습니다(판정에서 제외)")
     say("조회")
     _click_any(P(), sel["search_button"], timeout, "조회")
 
