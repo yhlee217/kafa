@@ -1665,7 +1665,8 @@ def test_download_failure_without_notice_stays_a_failure(tmp_path):
 
 _CFG_COUNT = {**_CFG_VERIFY,
               "result_count": {"pattern": r"미처리\s*전표\s*건\s*수\s*([0-9,]+)",
-                               "selectors": ["body"], "wait_seconds": 0.05}}
+                               "selectors": ["body"], "wait_seconds": 0.05,
+                               "decide": True}}
 
 
 class _CountPage(_NamedPage):
@@ -1864,3 +1865,19 @@ def test_shipped_config_scans_from_just_below_header():
     spots = context_spots(load_fetch_config())
     assert len(spots) >= 8                     # 헤더 높이가 달라도 찾도록 촘촘히
     assert min(s["y"] for s in spots) <= 40     # 컬럼 바로 아래부터
+
+
+def test_count_zero_does_not_decide_by_default(tmp_path):
+    """그 숫자는 매출·매입이 섞여 있어 그대로 믿으면 안 된다(기록만)."""
+    from kafa.fetch.wehago import run_fetch
+    cfg = {**_CFG_COUNT,
+           "result_count": {**_CFG_COUNT["result_count"], "decide": False}}
+    page = _CountPage("가", 0)
+    plan = build_plan(tmp_path, ["가"], ["2026"], urls={"가": "https://x/a"})
+    res = run_fetch(page, plan, tmp_path, cfg=cfg, sleep=lambda _: None)
+    assert res.ok and len(res.saved) == 1 and res.empty == []
+
+
+def test_shipped_config_does_not_decide_on_count():
+    from kafa.fetch.wehago import load_fetch_config
+    assert not (load_fetch_config().get("result_count") or {}).get("decide")
