@@ -1658,3 +1658,70 @@ def test_download_failure_without_notice_stays_a_failure(tmp_path):
     plan = build_plan(tmp_path, ["가"], ["2026"], urls={"가": "https://x/a"})
     res = run_fetch(_Broken("가"), plan, tmp_path, cfg=cfg, sleep=lambda _: None)
     assert not res.ok and "가/2026" in res.failures
+
+
+# ── 화면의 건수로 판정 (문구보다 숫자가 안 흔들린다) ──
+
+_CFG_COUNT = {**_CFG_VERIFY,
+              "result_count": {"pattern": r"미처리\s*전표\s*건\s*수\s*([0-9,]+)",
+                               "selectors": ["body"], "wait_seconds": 0.05}}
+
+
+class _CountPage(_NamedPage):
+    """조회하면 화면에 '미처리 전표 건 수 N 건' 이 뜬다."""
+    def __init__(self, name, count):
+        super().__init__(name)
+        self.count, self.searched = count, False
+
+    def click(self, sel, **kw):
+        if sel == "#go":
+            self.searched = True
+        super().click(sel, **kw)
+
+    def evaluate(self, js, arg=None):
+        if "innerText" in js and "checkVisibility" in js:
+            return (f"미전송현황 미처리 전표 건 수 {self.count} 건"
+                    if self.searched else "")
+        if "checkVisibility" in js:
+            return ""
+        return "ok"
+
+
+def test_zero_count_is_no_data(tmp_path):
+    from kafa.fetch.wehago import run_fetch
+    page = _CountPage("가", 0)
+    plan = build_plan(tmp_path, ["가"], ["2026"], urls={"가": "https://x/a"})
+    res = run_fetch(page, plan, tmp_path, cfg=_CFG_COUNT, sleep=lambda _: None)
+    assert res.ok and res.empty == ["가/2026"]
+    assert not [e for e in page.log if e[1] == "#xls"]   # 다운로드로 안 갔다
+
+
+def test_positive_count_proceeds_to_download(tmp_path):
+    from kafa.fetch.wehago import run_fetch
+    page = _CountPage("가", "1,234")
+    plan = build_plan(tmp_path, ["가"], ["2026"], urls={"가": "https://x/a"})
+    res = run_fetch(page, plan, tmp_path, cfg=_CFG_COUNT, sleep=lambda _: None)
+    assert res.ok and len(res.saved) == 1
+
+
+def test_missing_count_falls_back_to_notice(tmp_path):
+    """건수를 못 읽으면 예전처럼 문구로 판정한다."""
+    from kafa.fetch.wehago import result_count
+
+    class _NoCount:
+        def evaluate(self, js, arg=None):
+            return "그런 표시 없음"
+
+    assert result_count(_NoCount(), _CFG_COUNT) is None
+
+
+def test_count_pattern_reads_the_real_screen_text():
+    from kafa.fetch.wehago import load_fetch_config, result_count
+
+    real = "안내 미전송현황 미처리 전표 건 수 401 건 녹색 매출 …"
+
+    class _Real:
+        def evaluate(self, js, arg=None):
+            return real
+
+    assert result_count(_Real(), load_fetch_config()) == 401
