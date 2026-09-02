@@ -1878,6 +1878,41 @@ def test_count_zero_does_not_decide_by_default(tmp_path):
     assert res.ok and len(res.saved) == 1 and res.empty == []
 
 
-def test_shipped_config_does_not_decide_on_count():
+def test_shipped_config_stops_on_zero_count():
+    """건수 0이면 받지 않는다 — 덜 받는 것보다 남의 자료가 섞이는 게 훨씬 나쁘다."""
     from kafa.fetch.wehago import load_fetch_config
-    assert not (load_fetch_config().get("result_count") or {}).get("decide")
+    assert (load_fetch_config().get("result_count") or {}).get("decide") is True
+
+
+def test_client_is_verified_again_right_before_download(tmp_path):
+    """조회 결과가 없을 때 앞 수임처의 표가 남아 있으면 그걸 받게 된다 — 직전에 재확인."""
+    from kafa.fetch.wehago import WrongClient, fetch_one
+
+    class _DriftsAway(_NamedPage):
+        """조회까지는 맞다가, 조회 뒤 화면이 다른 수임처 것으로 남아 있다."""
+        def __init__(self):
+            super().__init__("(주)행복상사")
+            self.searched = False
+
+        def click(self, sel, **kw):
+            if sel == "#go":
+                self.searched = True
+                self.screen_name = "(주)남의회사"
+            super().click(sel, **kw)
+
+        def evaluate(self, js, arg=None):
+            return "" if "checkVisibility" in js else "ok"
+
+    dest = tmp_path / "행복상사" / "2026.xlsx"
+    page = _DriftsAway()
+    cfg = {**_CFG_VERIFY, "empty_wait_seconds": 0, "verify_timeout_ms": 20,
+           "menu_open_seconds": 0, "context_click_positions": [{"x": 1, "y": 1}],
+           "context_click_scan": {}}
+    try:
+        fetch_one(page, cfg,
+                  DownloadTask("(주)행복상사", "2026", url="https://x/a"),
+                  dest, resolve=lambda: page, sleep=lambda _s: None)
+    except WrongClient:
+        assert not dest.exists()           # 남의 자료를 저장하지 않았다
+    else:
+        raise AssertionError("WrongClient 가 나와야 한다")
