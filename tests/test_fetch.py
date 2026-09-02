@@ -1537,3 +1537,35 @@ def test_goes_to_dashboard_when_no_list_tab(tmp_path):
 def test_shipped_config_has_dashboard_url():
     from kafa.fetch.wehago import load_fetch_config
     assert str(load_fetch_config().get("dashboard_url", "")).startswith("http")
+
+
+def test_sticks_to_the_same_tab_across_clients(tmp_path):
+    """탭을 닫지 않으니 smarta 탭이 여러 개 남는다 — 쓰던 탭을 계속 써야 한다."""
+    from kafa.fetch.wehago import run_fetch
+
+    used = _NamedPage("가")
+    stray = _NamedPage("남의회사")          # 다른 수임처가 열려 있는 탭
+
+    class _Ctx:
+        pages = [stray, used]              # 목록 순서상 stray 가 먼저
+
+    used.context = _Ctx()
+    stray.context = _Ctx()
+
+    def _name_for(url):
+        return {"https://x/1": "가", "https://x/2": "나"}[url]
+
+    orig_goto = used.goto
+
+    def _goto(url, **kw):
+        orig_goto(url, **kw)
+        if url != "about:blank":
+            used.screen_name = _name_for(url)
+
+    used.goto = _goto
+    plan = build_plan(tmp_path, ["가", "나"], ["2026"],
+                      urls={"가": "https://x/1", "나": "https://x/2"})
+    res = run_fetch(used, plan, tmp_path, cfg=_CFG_VERIFY, sleep=lambda _: None,
+                    download=False)
+    assert res.ok and res.probed == {"가/2026": "자료 있음", "나/2026": "자료 있음"}
+    assert stray.real_gotos == []          # 엉뚱한 탭은 건드리지 않았다
