@@ -715,8 +715,16 @@ def test_no_data_is_not_a_failure(tmp_path):
     from kafa.fetch.wehago import run_fetch
 
     class _Empty(_UrlPage):
+        searched = False
+
+        def click(self, sel, **kw):
+            if sel == "#go":
+                type(self).searched = True     # 조회 후에 뜬 팝업만 인정한다
+            super().click(sel, **kw)
+
         def query_selector(self, sel):
-            if sel == 'text="조회된 자료가 없습니다"':
+            if type(self).searched and sel.startswith("text=") \
+                    and "조회된 자료가 없습니다" in sel:
                 return object()
             return super().query_selector(sel)
 
@@ -777,8 +785,16 @@ def test_empty_popup_is_dismissed_and_counted(tmp_path):
     from kafa.fetch.wehago import run_fetch
 
     class _Popup(_UrlPage):
+        searched = False
+
+        def click(self, sel, **kw):
+            if sel == "#go":
+                type(self).searched = True      # 조회 후에야 팝업이 뜬다
+            super().click(sel, **kw)
+
         def query_selector(self, sel):
-            if sel == 'text="조회조건에 맞는 데이터가 없습니다"':
+            if type(self).searched and sel.startswith("text=") \
+                    and "조회조건에 맞는 데이터가 없습니다" in sel:
                 return object()
             return super().query_selector(sel)
 
@@ -871,10 +887,21 @@ def test_probe_marks_empty_and_stuck_separately(tmp_path):
     from kafa.fetch.wehago import run_fetch
 
     class _Mixed(_UrlPage):
+        """'나'(코드 2) 를 열고 조회했을 때만 자료 없음 팝업이 뜬다."""
+        def __init__(self, **kw):
+            super().__init__(**kw)
+            self.opened, self.searched = "", False
+
+        def click(self, sel, **kw):
+            if sel.startswith("a#tooltip_"):
+                self.opened, self.searched = sel.rsplit("_", 1)[-1], False
+            if sel == "#go":
+                self.searched = True
+            super().click(sel, **kw)
+
         def query_selector(self, sel):
-            # '나' 를 열 때만 자료 없음 팝업이 뜬 것으로 흉내
-            if sel == 'text="없음"' and self.log and any(
-                    "tooltip_2" in str(e) for e in self.log):
+            if (self.searched and self.opened == "2"
+                    and sel.startswith("text=") and "없음" in sel):
                 return object()
             return super().query_selector(sel)
 
@@ -958,10 +985,21 @@ def test_capture_called_for_each_outcome(tmp_path):
     shots = []
 
     class _Mixed(_UrlPage):
+        """'나'(코드 2) 를 열고 조회했을 때만 자료 없음 팝업이 뜬다."""
+        def __init__(self, **kw):
+            super().__init__(**kw)
+            self.opened, self.searched = "", False
+
+        def click(self, sel, **kw):
+            if sel.startswith("a#tooltip_"):
+                self.opened, self.searched = sel.rsplit("_", 1)[-1], False
+            if sel == "#go":
+                self.searched = True
+            super().click(sel, **kw)
+
         def query_selector(self, sel):
-            if sel == 'text="없음"' and any("tooltip_2" in str(e) or
-                                           e[1] == "a#tooltip_2"
-                                           for e in self.log):
+            if (self.searched and self.opened == "2"
+                    and sel.startswith("text=") and "없음" in sel):
                 return object()
             return super().query_selector(sel)
 
@@ -1329,9 +1367,17 @@ def test_empty_detected_from_visible_dialog_text(tmp_path):
     from kafa.fetch.wehago import run_fetch
 
     class _Dialog(_NamedPage):
+        searched = False
+
+        def click(self, sel, **kw):
+            if sel == "#go":
+                type(self).searched = True      # 조회 후에야 알림창이 뜬다
+            super().click(sel, **kw)
+
         def evaluate(self, js, arg=None):
-            if "getBoundingClientRect" in js:
-                return "조회조건에 맞는 데이터가 없습니다."   # 마침표가 붙어 있다
+            if "checkVisibility" in js:
+                return ("조회조건에 맞는 데이터가 없습니다."
+                        if type(self).searched else "")   # 마침표가 붙어 있다
             return "ok"
 
     cfg = {**_CFG_VERIFY, "empty_result_texts": ["조회조건에 맞는 데이터"],
@@ -1368,7 +1414,8 @@ def test_falls_back_to_partial_text_selector(tmp_path):
             raise RuntimeError("no js")
 
         def query_selector(self, sel):
-            return object() if sel == "text=데이터가 없습니다" else None
+            # 숨은 글자를 잡지 않도록 :visible 이 붙어야 한다
+            return object() if sel == "text=데이터가 없습니다:visible" else None
 
     assert _has_any_text(_NoJs(), ["데이터가 없습니다"], {}) == "데이터가 없습니다"
 
@@ -1383,8 +1430,9 @@ def test_empty_matching_ignores_spacing(tmp_path):
 
     class _Dialog:
         def evaluate(self, js, arg=None):
-            selectors, words = arg
-            squash = lambda x: "".join(x.split())
+            _selectors, words = arg
+            def squash(x):
+                return "".join(str(x).split())
             keys = [squash(w) for w in words if w]
             return real if any(k in squash(real) for k in keys) else ""
 
@@ -1402,3 +1450,22 @@ def test_shipped_empty_texts_match_the_real_popup():
     squashed = "".join(real.split())
     words = load_fetch_config()["empty_result_texts"]
     assert any("".join(str(w).split()) in squashed for w in words)
+
+
+def test_static_notice_is_not_mistaken_for_the_popup(tmp_path):
+    """조회 전부터 떠 있던 같은 문구는 팝업이 아니다(자료 있는 곳이 '없음' 이 되던 문제)."""
+    from kafa.fetch.wehago import run_fetch
+
+    class _Notice(_NamedPage):
+        """화면에 늘 같은 안내문이 보이는 수임처."""
+        def evaluate(self, js, arg=None):
+            if "checkVisibility" in js:
+                return "조회 조건에 맞는 데이터가 없습니다. 메뉴 상단 …"
+            return "ok"
+
+    cfg = {**_CFG_VERIFY, "empty_result_texts": ["조회조건에맞는데이터가없"],
+           "empty_wait_seconds": 0.05, "task_retries": 0}
+    plan = build_plan(tmp_path, ["가"], ["2026"], urls={"가": "https://x/a"})
+    res = run_fetch(_Notice("가"), plan, tmp_path, cfg=cfg, sleep=lambda _: None,
+                    download=False)
+    assert res.probed["가/2026"] == "자료 있음"
