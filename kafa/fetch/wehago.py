@@ -628,7 +628,9 @@ def _fetch_steps(P, cfg: dict, task: DownloadTask, dest: Path, say, sleep,
     # 화면에 적힌 건수를 먼저 본다 — 문구보다 숫자가 흔들리지 않는다.
     n = _watch_result_count(P, cfg, sleep)
     if n is not None:
-        say(f"화면 표시 건수 {n}")
+        decides = bool((cfg.get("result_count") or {}).get("decide"))
+        say(f"화면 표시 건수 {n}"
+            + ("" if decides else " (참고용 — 판정은 표 유무로)"))
         # 이 숫자는 매출·매입이 섞여 있어(실측 2026-09-02) 그대로 믿으면 안 된다.
         # 매출이 0이고 매입만 있는 수임처가 '자료 없음' 으로 잘못 처리됐다.
         # 어느 숫자가 매입인지 확정되기 전까지는 **기록만** 한다.
