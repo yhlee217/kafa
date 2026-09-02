@@ -1320,3 +1320,54 @@ def test_dropdown_is_closed_when_kind_selection_fails(tmp_path):
               sleep=lambda _s: None)
     assert "Escape" in page.keyboard.keys      # 목록을 닫고 진행했다
     assert ("click", "#go") in page.log
+
+
+# ── '조회조건에 맞는 데이터가 없습니다' 를 놓치지 않기 ──
+
+def test_empty_detected_from_visible_dialog_text(tmp_path):
+    """마침표·줄바꿈이 달라도 알림창 안의 문구로 잡는다."""
+    from kafa.fetch.wehago import run_fetch
+
+    class _Dialog(_NamedPage):
+        def evaluate(self, js, arg=None):
+            if "getBoundingClientRect" in js:
+                return "조회조건에 맞는 데이터가 없습니다."   # 마침표가 붙어 있다
+            return "ok"
+
+    cfg = {**_CFG_VERIFY, "empty_result_texts": ["조회조건에 맞는 데이터"],
+           "empty_wait_seconds": 0.1, "task_retries": 0,
+           "selectors": {**_CFG_VERIFY["selectors"], "popup_confirm": ["#ok"]}}
+    page = _Dialog("가")
+    plan = build_plan(tmp_path, ["가"], ["2026"], urls={"가": "https://x/a"})
+    res = run_fetch(page, plan, tmp_path, cfg=cfg, sleep=lambda _: None,
+                    download=False)
+    assert res.probed["가/2026"] == "자료 없음"
+    assert ("click", "#ok") in page.log            # 팝업을 닫았다
+
+
+def test_hidden_dialog_is_not_treated_as_empty(tmp_path):
+    """숨어 있는 알림창(이전 것)은 자료 없음으로 보지 않는다."""
+    from kafa.fetch.wehago import _has_any_text
+
+    class _Hidden:
+        def evaluate(self, js, arg=None):
+            return ""            # 보이는 알림창이 없다
+
+        def query_selector(self, sel):
+            return None
+
+    assert _has_any_text(_Hidden(), ["데이터가 없습니다"], {}) == ""
+
+
+def test_falls_back_to_partial_text_selector(tmp_path):
+    """알림창을 못 찾으면 부분일치 text 선택자로 한 번 더 본다."""
+    from kafa.fetch.wehago import _has_any_text
+
+    class _NoJs:
+        def evaluate(self, js, arg=None):
+            raise RuntimeError("no js")
+
+        def query_selector(self, sel):
+            return object() if sel == "text=데이터가 없습니다" else None
+
+    assert _has_any_text(_NoJs(), ["데이터가 없습니다"], {}) == "데이터가 없습니다"

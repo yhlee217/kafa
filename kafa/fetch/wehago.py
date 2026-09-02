@@ -256,14 +256,56 @@ def _wait_ready(get_page, selectors, timeout_ms: int, what: str, *,
         sleep(0.5)
 
 
-def _has_any_text(pg, texts) -> str:
-    """화면에 이 문구가 있으면 그 문구를 돌려준다(조회 결과 없음 판정용)."""
-    for t in texts or []:
-        try:
-            if pg.query_selector(f'text="{t}"'):
-                return str(t)
-        except Exception:  # noqa: BLE001
-            continue
+# 화면에 **보이는 알림창**을 찾아 그 글자를 본다.
+# text="..." 완전일치는 마침표 하나만 달라도 안 걸려서 놓쳤다(실측 2026-09-02).
+_DIALOG_JS = r"""
+([selectors, words]) => {
+  const out = [];
+  for (const sel of selectors) {
+    let els = [];
+    try { els = document.querySelectorAll(sel); } catch (e) { continue; }
+    for (const el of els) {
+      let r;
+      try { r = el.getBoundingClientRect(); } catch (e) { continue; }
+      if (r.width <= 0 || r.height <= 0) continue;
+      out.push((el.textContent || '').replace(/\s+/g, ' ').trim());
+    }
+  }
+  for (const t of out) {
+    for (const w of words) {
+      if (w && t.includes(w)) return t.slice(0, 100);
+    }
+  }
+  return '';
+}
+"""
+
+
+def _has_any_text(pg, texts, cfg: dict | None = None) -> str:
+    """조회 결과가 없다는 알림이 떠 있으면 그 글자를 돌려준다.
+
+    ① 보이는 알림창을 찾아 문구가 들어 있는지 본다(마침표·줄바꿈 차이에 강하다).
+    ② 그래도 못 찾으면 부분일치 text 선택자로 한 번 더 본다.
+    """
+    words = [str(t) for t in (texts or []) if t]
+    if not words:
+        return ""
+    sels = list(((cfg or {}).get("empty_dialog_selectors")) or
+                [".WSC_LUXConfirm", ".dialog_alert", ".dialog_wrap",
+                 ".WSC_LUXDraggableDialog", "[role=dialog]", ".dialog_content"])
+    try:
+        found = pg.evaluate(_DIALOG_JS, [sels, words])
+        if found:
+            return str(found)
+    except Exception:  # noqa: BLE001 — 아래 방식으로 한 번 더
+        pass
+    for t in words:
+        for sel in (f"text={t}", f'text="{t}"'):
+            try:
+                if pg.query_selector(sel):
+                    return t
+            except Exception:  # noqa: BLE001
+                continue
     return ""
 
 
@@ -272,12 +314,14 @@ def _watch_for_empty(get_page, cfg: dict, sleep) -> str:
     import time as _time
 
     texts = cfg.get("empty_result_texts") or []
+    wait = float(cfg.get("empty_wait_seconds",
+                         cfg.get("after_search_seconds", 1.5)))
     if not texts:
-        sleep(float(cfg.get("after_search_seconds", 1.5)))
+        sleep(wait)
         return ""
-    deadline = _time.monotonic() + float(cfg.get("after_search_seconds", 1.5))
+    deadline = _time.monotonic() + wait
     while True:
-        found = _has_any_text(get_page(), texts)
+        found = _has_any_text(get_page(), texts, cfg)
         if found:
             return found
         if _time.monotonic() >= deadline:
