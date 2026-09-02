@@ -750,7 +750,8 @@ def test_task_is_retried_before_giving_up(tmp_path):
     page = _FlakyFirst(present={"div#GRID_TOP canvas"})
     plan = build_plan(tmp_path, ["A"], ["2026"], cnos={"A": "1"})
     cfg = {**_CFG_FULL, "task_retries": 2, "retry_wait_seconds": 0,
-           "menu_retries": 1}
+           "menu_retries": 1, "context_click_positions": [{"x": 1, "y": 1}],
+           "menu_open_seconds": 0}
     res = run_fetch(page, plan, tmp_path, cfg=cfg, sleep=lambda _: None)
     assert res.ok and res.retried == 1
 
@@ -1763,3 +1764,62 @@ def test_shipped_config_marks_empty_by_missing_grid():
     from kafa.fetch.wehago import _as_list, load_fetch_config
     assert "div#GRID_TOP canvas" in _as_list(
         load_fetch_config().get("empty_when_missing"))
+
+
+# ── 표의 '데이터 행' 에서 우클릭해야 메뉴가 뜬다 ──
+
+class _GridPage(_NamedPage):
+    """지정한 위치에서만 메뉴가 열리는 표(그 밖은 빈 공간)."""
+    def __init__(self, name, hot=(120, 48)):
+        super().__init__(name)
+        self.hot, self.menu, self.clicks = hot, False, []
+
+    def click(self, sel, **kw):
+        pos = kw.get("position")
+        self.clicks.append((sel, kw.get("button", "left"), pos))
+        if sel == "div#GRID_TOP canvas" and kw.get("button") == "right":
+            self.menu = pos is not None and (pos["x"], pos["y"]) == self.hot
+            if not self.menu:
+                return                      # 빈 자리 — 메뉴가 안 뜬다
+        if sel == "#xls" and not self.menu:
+            raise TimeoutError("메뉴가 없다")
+        super().click(sel, **kw)
+
+    def query_selector(self, sel):
+        if sel == "#xls":
+            return object() if self.menu else None
+        return super().query_selector(sel)
+
+
+_CFG_GRID = {**_CFG_VERIFY, "menu_open_seconds": 0, "menu_retry_seconds": 0,
+             "menu_retries": 1, "empty_wait_seconds": 0,
+             "context_click_positions": [{"x": 120, "y": 24}, {"x": 120, "y": 48}]}
+
+
+def test_tries_several_spots_until_the_menu_opens(tmp_path):
+    from kafa.fetch.wehago import fetch_one
+    page = _GridPage("가", hot=(120, 48))      # 첫 자리는 빈 공간
+    dest = tmp_path / "가" / "2026.xlsx"
+    fetch_one(page, _CFG_GRID, DownloadTask("가", "2026", url="https://x/a"),
+              dest, resolve=lambda: page, sleep=lambda _s: None)
+    rights = [c for c in page.clicks if c[1] == "right"]
+    assert [(c[2]["x"], c[2]["y"]) for c in rights] == [(120, 24), (120, 48)]
+    assert dest.exists()
+
+
+def test_selects_row_with_left_click_before_right_click(tmp_path):
+    """기록된 사람 동작도 좌클릭으로 행을 고른 뒤 우클릭이었다."""
+    from kafa.fetch.wehago import fetch_one
+    page = _GridPage("가", hot=(120, 24))
+    fetch_one(page, _CFG_GRID, DownloadTask("가", "2026", url="https://x/a"),
+              tmp_path / "가" / "2026.xlsx", resolve=lambda: page,
+              sleep=lambda _s: None)
+    grid = [c for c in page.clicks if c[0] == "div#GRID_TOP canvas"]
+    assert grid[0][1] == "left" and grid[1][1] == "right"
+    assert grid[0][2] == grid[1][2]          # 같은 자리를 짚는다
+
+
+def test_shipped_config_has_context_click_positions():
+    from kafa.fetch.wehago import load_fetch_config
+    spots = load_fetch_config().get("context_click_positions") or []
+    assert len(spots) >= 2 and all("x" in s and "y" in s for s in spots)
