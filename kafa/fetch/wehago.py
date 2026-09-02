@@ -256,14 +256,73 @@ def _wait_ready(get_page, selectors, timeout_ms: int, what: str, *,
         sleep(0.5)
 
 
-def _has_any_text(pg, texts) -> str:
-    """화면에 이 문구가 있으면 그 문구를 돌려준다(조회 결과 없음 판정용)."""
-    for t in texts or []:
-        try:
-            if pg.query_selector(f'text="{t}"'):
-                return str(t)
-        except Exception:  # noqa: BLE001
-            continue
+# 화면에 **보이는 알림창**을 찾아 그 글자를 본다.
+# text="..." 완전일치는 마침표 하나만 달라도 안 걸려서 놓쳤다(실측 2026-09-02).
+_DIALOG_JS = r"""
+([selectors, words]) => {
+  // 띄어쓰기·줄바꿈을 모두 지우고 비교한다.
+  // 실제 문구가 '조회 조건에 맞는 데이터가 없습니다.' 처럼 띄어쓰기가 들어가 있어
+  // 조각을 그대로 비교하면 놓친다(실측 2026-09-02).
+  const squash = (x) => (x || '').replace(/\s+/g, '');
+  const keys = words.map(squash).filter(Boolean);
+  const hit = (raw) => {
+    const t = squash(raw);
+    for (const k of keys) if (t.includes(k)) return true;
+    return false;
+  };
+  for (const sel of selectors) {
+    let els = [];
+    try { els = document.querySelectorAll(sel); } catch (e) { continue; }
+    for (const el of els) {
+      let r;
+      try { r = el.getBoundingClientRect(); } catch (e) { continue; }
+      if (r.width <= 0 || r.height <= 0) continue;
+      const raw = (el.textContent || '').replace(/\s+/g, ' ').trim();
+      if (hit(raw)) return raw.slice(0, 120);
+    }
+  }
+  // 알림창 selector 가 안 맞을 수도 있다. 화면에 **보이는 글자** 전체에서 한 번 더.
+  // innerText 는 숨은 요소를 포함하지 않아 예전 팝업이 잘못 걸리지 않는다.
+  try {
+    const body = (document.body && document.body.innerText) || '';
+    if (hit(body)) {
+      const squashed = squash(body);
+      for (const k of keys) {
+        const i = squashed.indexOf(k);
+        if (i >= 0) return body.replace(/\s+/g, ' ').trim().slice(0, 120);
+      }
+    }
+  } catch (e) {}
+  return '';
+}
+"""
+
+
+def _has_any_text(pg, texts, cfg: dict | None = None) -> str:
+    """조회 결과가 없다는 알림이 떠 있으면 그 글자를 돌려준다.
+
+    ① 보이는 알림창을 찾아 문구가 들어 있는지 본다(마침표·줄바꿈 차이에 강하다).
+    ② 그래도 못 찾으면 부분일치 text 선택자로 한 번 더 본다.
+    """
+    words = [str(t) for t in (texts or []) if t]
+    if not words:
+        return ""
+    sels = list(((cfg or {}).get("empty_dialog_selectors")) or
+                [".WSC_LUXConfirm", ".dialog_alert", ".dialog_wrap",
+                 ".WSC_LUXDraggableDialog", "[role=dialog]", ".dialog_content"])
+    try:
+        found = pg.evaluate(_DIALOG_JS, [sels, words])
+        if found:
+            return str(found)
+    except Exception:  # noqa: BLE001 — 아래 방식으로 한 번 더
+        pass
+    for t in words:
+        for sel in (f"text={t}", f'text="{t}"'):
+            try:
+                if pg.query_selector(sel):
+                    return t
+            except Exception:  # noqa: BLE001
+                continue
     return ""
 
 
@@ -272,12 +331,14 @@ def _watch_for_empty(get_page, cfg: dict, sleep) -> str:
     import time as _time
 
     texts = cfg.get("empty_result_texts") or []
+    wait = float(cfg.get("empty_wait_seconds",
+                         cfg.get("after_search_seconds", 1.5)))
     if not texts:
-        sleep(float(cfg.get("after_search_seconds", 1.5)))
+        sleep(wait)
         return ""
-    deadline = _time.monotonic() + float(cfg.get("after_search_seconds", 1.5))
+    deadline = _time.monotonic() + wait
     while True:
-        found = _has_any_text(get_page(), texts)
+        found = _has_any_text(get_page(), texts, cfg)
         if found:
             return found
         if _time.monotonic() >= deadline:
