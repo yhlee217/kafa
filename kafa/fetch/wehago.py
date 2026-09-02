@@ -447,18 +447,31 @@ def _fetch_steps(P, cfg: dict, task: DownloadTask, dest: Path, say, sleep,
             _open_client(P, cfg, task, timeout, say)
             _ensure_ledger_screen(P, cfg, sleep, say)
 
-    # 2-1) **그 수임처 화면이 맞는지** 확인. 전환이 안 됐으면 목록으로 다시 연다.
+    # 2-1) **그 수임처 화면이 맞는지** 확인.
+    #      주소만 바뀌고 화면이 그대로인 경우가 있어(해시 변경을 SPA 가 무시),
+    #      ① 새로고침 → ② 그래도 아니면 목록에서 다시 열기 순으로 물러선다.
     if not task.here:
         try:
             _verify_client(P, cfg, task, sleep, say)
         except WrongClient:
-            if not task.url or not (task.cno or task.client):
+            if not task.url:
                 raise
-            say("다른 수임처 화면입니다 — 목록에서 다시 엽니다")
-            _open_client(P, cfg, task, timeout, say)
-            _ensure_ledger_screen(P, cfg, sleep, say)
-            _verify_client(P, cfg, task, sleep, say)
-        say(f"수임처 확인됨")
+            say("전환이 안 됐습니다 — 새로고침 후 다시 확인합니다")
+            try:
+                P().reload(timeout=timeout)
+            except Exception:  # noqa: BLE001 — 새로고침을 못 해도 아래로 간다
+                pass
+            try:
+                _ensure_ledger_screen(P, cfg, sleep, say)
+                _verify_client(P, cfg, task, sleep, say)
+            except (WrongClient, NotReady):
+                if not (task.cno or task.client):
+                    raise
+                say("여전히 다른 수임처입니다 — 목록에서 다시 엽니다")
+                _open_client(P, cfg, task, timeout, say)
+                _ensure_ledger_screen(P, cfg, sleep, say)
+                _verify_client(P, cfg, task, sleep, say)
+        say("수임처 확인됨")
 
     # 3) 구분(매입/매출) — 화면에 선택 목록이 있으면 매입으로 맞춘다
     _select_kind(P(), cfg, timeout, say)
@@ -746,8 +759,22 @@ def _open_client(P, cfg: dict, task: DownloadTask, timeout: int, say):
             return P()
 
     dash = _dash()
-    say("수임처 목록에서 검색")
     search_input = _first_selector(sel.get("client_search_input"))
+    home = str(cfg.get("dashboard_url") or "").strip()
+    # 목록 탭이 없을 수 있다(주소로만 다녔으면 그렇다) — 그때는 대시보드로 간다.
+    if search_input and home:
+        try:
+            if not dash.query_selector(search_input):
+                say("수임처 목록으로 이동")
+                _goto(dash, home, timeout, cfg)
+                _wait_ready(lambda: dash, search_input,
+                            int(cfg.get("ready_timeout_ms", 30000)),
+                            "수임처 목록", say=say)
+        except NotReady:
+            raise
+        except Exception:  # noqa: BLE001 — 확인 자체가 실패해도 아래에서 시도한다
+            pass
+    say("수임처 목록에서 검색")
     if search_input:
         _step("수임처 검색", search_input,
               lambda: dash.fill(search_input, task.client, timeout=timeout))

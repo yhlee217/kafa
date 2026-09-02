@@ -1469,3 +1469,71 @@ def test_static_notice_is_not_mistaken_for_the_popup(tmp_path):
     res = run_fetch(_Notice("가"), plan, tmp_path, cfg=cfg, sleep=lambda _: None,
                     download=False)
     assert res.probed["가/2026"] == "자료 있음"
+
+
+# ── 전환 실패 시 물러서는 순서: 새로고침 → 목록 ──
+
+def test_reload_recovers_switch_before_touching_the_list(tmp_path):
+    """해시만 바뀌어 화면이 그대로면, 새로고침만으로 대개 해결된다."""
+    from kafa.fetch.wehago import fetch_one
+
+    class _NeedsReload(_NamedPage):
+        def __init__(self):
+            super().__init__("(주)이전상사")
+            self.reloaded = False
+            self.js = []
+
+        def reload(self, **kw):
+            self.reloaded = True
+            self.screen_name = "(주)행복상사"
+
+        def evaluate(self, js, arg=None):
+            self.js.append(arg)
+            return "ok"
+
+    page = _NeedsReload()
+    dest = tmp_path / "행복상사" / "2026.xlsx"
+    fetch_one(page, _CFG_VERIFY,
+              DownloadTask("(주)행복상사", "2026", url="https://x/a", cno="9"),
+              dest, resolve=lambda: page, sleep=lambda _s: None)
+    assert page.reloaded and dest.exists()
+    assert not page.js          # 목록까지 가지 않았다
+
+
+def test_goes_to_dashboard_when_no_list_tab(tmp_path):
+    """주소로만 다녀서 목록 탭이 없으면, 대시보드 주소로 먼저 간다."""
+    from kafa.fetch.wehago import fetch_one
+
+    class _NoList(_NamedPage):
+        def __init__(self):
+            super().__init__("(주)이전상사")
+            self.present.discard("#s")      # 검색창이 없다
+            self.js = []
+
+        def reload(self, **kw):
+            pass                            # 새로고침해도 그대로
+
+        def goto(self, url, **kw):
+            super().goto(url, **kw)
+            if url == "https://home/":
+                self.present.add("#s")      # 대시보드로 가면 검색창이 생긴다
+
+        def evaluate(self, js, arg=None):
+            self.js.append(arg)
+            self.screen_name = "(주)행복상사"
+            return "ok"
+
+    cfg = {**_CFG_VERIFY, "dashboard_url": "https://home/"}
+    page = _NoList()
+    dest = tmp_path / "행복상사" / "2026.xlsx"
+    fetch_one(page, cfg,
+              DownloadTask("(주)행복상사", "2026", url="https://x/a", cno="9"),
+              dest, resolve=lambda: page, sleep=lambda _s: None)
+    assert "https://home/" in page.real_gotos
+    assert page.js and page.js[0] == ["9", "(주)행복상사", "회계"]
+    assert dest.exists()
+
+
+def test_shipped_config_has_dashboard_url():
+    from kafa.fetch.wehago import load_fetch_config
+    assert str(load_fetch_config().get("dashboard_url", "")).startswith("http")
