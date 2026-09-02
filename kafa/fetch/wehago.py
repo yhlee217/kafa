@@ -494,10 +494,17 @@ def _dismiss_popup(page, cfg: dict) -> None:
             continue
 
 
+# 이것들은 '어느 단계에서 막혔나' 가 아니라 **무슨 일이 있었나** 를 뜻한다.
+# 단계 이름으로 감싸면 갈래가 뭉개지므로 그대로 통과시킨다.
+_CONTROL_ERRORS = (NoData, WrongClient, SessionExpired, NotReady, NoAppPage)
+
+
 def _step(what: str, selector: str, action):
     """한 동작을 실행하고, 실패하면 단계 이름과 selector 를 붙여 다시 던진다."""
     try:
         return action()
+    except _CONTROL_ERRORS:
+        raise
     except Exception as e:  # noqa: BLE001
         raise StepFailed(f"[{what}] selector={selector!r} → "
                          f"{type(e).__name__}: {e}") from e
@@ -728,6 +735,10 @@ def _fetch_steps(P, cfg: dict, task: DownloadTask, dest: Path, say, sleep,
 
     def _download():
         pg = P()
+        # 받기 직전에 **이 수임처 화면이 맞는지** 한 번 더 본다.
+        # 조회 결과가 없을 때 앞 수임처의 표가 남아 있으면 그걸 받게 된다.
+        if not task.here and cfg.get("verify_client_on_screen", True):
+            _verify_client(P, cfg, task, sleep, say)
         if ctx_target:
             _wait_ready(P, ctx_target, int(cfg.get("ready_timeout_ms", 30000)),
                         "조회 결과 표", sleep=sleep, say=say)
