@@ -1823,3 +1823,44 @@ def test_shipped_config_has_context_click_positions():
     from kafa.fetch.wehago import load_fetch_config
     spots = load_fetch_config().get("context_click_positions") or []
     assert len(spots) >= 2 and all("x" in s and "y" in s for s in spots)
+
+
+# ── 컬럼 바로 아래부터 훑어 내려가며 행을 찾는다 ──
+
+def test_scan_starts_near_the_header_and_goes_down():
+    from kafa.fetch.wehago import context_spots
+    spots = context_spots({"context_click_positions": [{"x": 120, "y": 44}],
+                           "context_click_scan": {"x": 120, "y_start": 32,
+                                                  "y_step": 10, "y_max": 62}})
+    assert [(s["x"], s["y"]) for s in spots] == [
+        (120, 44), (120, 32), (120, 42), (120, 52), (120, 62)]
+
+
+def test_scan_drops_duplicate_spots():
+    from kafa.fetch.wehago import context_spots
+    spots = context_spots({"context_click_positions": [{"x": 1, "y": 10}],
+                           "context_click_scan": {"x": 1, "y_start": 10,
+                                                  "y_step": 10, "y_max": 20}})
+    assert [(s["x"], s["y"]) for s in spots] == [(1, 10), (1, 20)]
+
+
+def test_finds_the_row_even_when_only_one_line(tmp_path):
+    """줄이 한 개뿐이면 아래쪽은 빈 공간 — 위쪽 어딘가를 찾아내야 한다."""
+    from kafa.fetch.wehago import fetch_one
+    page = _GridPage("가", hot=(120, 52))       # 첫 줄이 y=52 에 있다
+    cfg = {**_CFG_GRID, "context_click_positions": [],
+           "context_click_scan": {"x": 120, "y_start": 32, "y_step": 10,
+                                  "y_max": 140}}
+    dest = tmp_path / "가" / "2026.xlsx"
+    fetch_one(page, cfg, DownloadTask("가", "2026", url="https://x/a"), dest,
+              resolve=lambda: page, sleep=lambda _s: None)
+    assert dest.exists()
+    ys = [c[2]["y"] for c in page.clicks if c[1] == "right"]
+    assert ys[:3] == [32, 42, 52]              # 위에서 아래로 훑었다
+
+
+def test_shipped_config_scans_from_just_below_header():
+    from kafa.fetch.wehago import context_spots, load_fetch_config
+    spots = context_spots(load_fetch_config())
+    assert len(spots) >= 8                     # 헤더 높이가 달라도 찾도록 촘촘히
+    assert min(s["y"] for s in spots) <= 40     # 컬럼 바로 아래부터
