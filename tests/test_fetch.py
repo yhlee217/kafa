@@ -1921,7 +1921,7 @@ def test_client_is_verified_again_right_before_download(tmp_path):
 
 # ── 매출건수·매입건수가 따로 있다 — 매입 숫자를 집어야 한다 ──
 
-def test_picks_purchase_count_not_the_total():
+def test_picks_sales_count_not_the_total():
     from kafa.fetch.wehago import load_fetch_config, result_count
 
     class _Screen:
@@ -1933,16 +1933,65 @@ def test_picks_purchase_count_not_the_total():
 
     cfg = load_fetch_config()
     총합만 = "미전송현황 미처리 전표 건 수 401 건"
-    갈라짐 = "미처리 전표 건 수 401 건 매출건수 0 건 매입건수 401 건"
-    매출만 = "미처리 전표 건 수 5 건 매출건수 5 건 매입건수 0 건"
+    갈라짐 = "미처리 전표 건 수 401 건 매출건수 12 건 매입건수 401 건"
+    매출없음 = "미처리 전표 건 수 401 건 매출건수 0 건 매입건수 401 건"
 
     assert result_count(_Screen(총합만), cfg) == 401      # 갈라져 있지 않으면 합계
-    assert result_count(_Screen(갈라짐), cfg) == 401      # 매입 숫자
-    assert result_count(_Screen(매출만), cfg) == 0        # 매입이 0이면 0
+    assert result_count(_Screen(갈라짐), cfg) == 12       # 매출 숫자
+    assert result_count(_Screen(매출없음), cfg) == 0      # 매출이 0이면 0
 
 
 def test_count_context_is_logged_for_tuning():
     from kafa.fetch.wehago import count_context, load_fetch_config
     spec = load_fetch_config()["result_count"]
-    ctx = count_context("앞부분 미처리 전표 건 수 401 건 매입건수 401 건 뒷부분", spec)
-    assert "미처리" in ctx and "매입건수" in ctx
+    ctx = count_context("앞부분 미처리 전표 건 수 401 건 매출건수 12 건 뒷부분", spec)
+    assert "매출건수 12" in ctx
+
+
+# ── 실제 화면 글자로 고정 (안내 영역에 색상 범례가 섞여 있다) ──
+
+_REAL_AREA = ("로 반드시 확인바랍니다. 미전송현황 미처리 전표 건 수 0 건 녹색 "
+              "매출건수 {n} 건 미처리 전표 건 수 여신금융 0 건 엑셀 0 건 녹색 "
+              "매입건수 401 건 미처리 전표 건 수 국세청 0 건 카드사 0 건 "
+              "화물복지 0 건 엑셀 0 건")
+
+
+class _AreaPage(_NamedPage):
+    def __init__(self, name, n):
+        super().__init__(name)
+        self.n = n
+
+    def evaluate(self, js, arg=None):
+        if "innerText" in js and "checkVisibility" in js:
+            return _REAL_AREA.format(n=self.n)
+        if "checkVisibility" in js:
+            return ""
+        return "ok"
+
+
+def test_reads_sales_count_from_the_real_area():
+    from kafa.fetch.wehago import load_fetch_config, result_count
+    cfg = load_fetch_config()
+    assert result_count(_AreaPage("가", 12), cfg) == 12
+    assert result_count(_AreaPage("가", 0), cfg) == 0
+
+
+def test_context_is_cut_around_the_purchase_label():
+    from kafa.fetch.wehago import count_context, load_fetch_config
+    ctx = count_context(_REAL_AREA.format(n=12),
+                        load_fetch_config()["result_count"])
+    assert "매출건수 12" in ctx and len(ctx) < 120
+
+
+def test_zero_sales_count_stops_before_download(tmp_path):
+    """실제 화면 글자로도 0이면 다운로드로 가지 않는다."""
+    from kafa.fetch.wehago import load_fetch_config, run_fetch
+    cfg = {**load_fetch_config(), **_CFG_VERIFY,
+           "result_count": {**load_fetch_config()["result_count"],
+                            "wait_seconds": 0.05},
+           "empty_wait_seconds": 0, "task_retries": 0}
+    page = _AreaPage("가", 0)
+    plan = build_plan(tmp_path, ["가"], ["2026"], urls={"가": "https://x/a"})
+    res = run_fetch(page, plan, tmp_path, cfg=cfg, sleep=lambda _: None)
+    assert res.ok and res.empty == ["가/2026"]
+    assert not [e for e in page.log if e[1] == "#xls"]
