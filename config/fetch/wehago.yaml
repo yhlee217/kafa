@@ -58,6 +58,8 @@ empty_result_texts:
 # 주소를 about:blank 로 보고하는 탭이 있어, 주소보다 **요소 존재 여부**를 더 크게 본다.
 page_url_hint: "smarta.wehago.com"
 dashboard_url_hint: "wehago.com/#/main"
+# 목록 탭이 없을 때 돌아갈 주소(주소로만 다니면 목록 탭이 없다)
+dashboard_url: "https://www.wehago.com/#/main"
 # 한 수임처를 끝내면 회계 탭을 닫는다(여러 곳을 돌 때 탭이 쌓이면 헷갈린다)
 close_ledger_after: true
 ignore_url_parts:            # 광고·추적용으로 열리는 탭(조작 대상 아님)
