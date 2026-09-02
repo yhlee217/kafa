@@ -631,6 +631,12 @@ def test_ledger_tab_closed_after_each_client(tmp_path):
             type(self).closed = True
 
     page = _Closable(present={"#s"})
+    other = _UrlPage(present={"#s"})          # 목록 탭이 따로 남아 있다
+
+    class _Ctx:
+        pages = [page, other]
+
+    page.context = _Ctx()
     fetch_one(page, {**_CFG_NAV, "close_ledger_after": True},
               DownloadTask("A", "2026", cno="1"), tmp_path / "A" / "2026.xlsx",
               resolve=lambda: page)
@@ -1210,3 +1216,107 @@ def test_company_name_matching_ignores_form_and_spacing():
     assert same_client("행복상사", "신용카드(1기) - 행복상사")
     assert not same_client("행복상사", "신용카드(2기) - (주)튼튼상사")
     assert not same_client("행복상사", "")
+
+
+# ── 탭을 닫아서 스스로 죽지 않기 ──
+
+def test_url_mode_never_closes_its_only_tab(tmp_path):
+    """주소 이동은 같은 탭에서 움직인다 — 닫으면 다음 수임처가 전부 죽는다."""
+    from kafa.fetch.wehago import run_fetch
+
+    class _Closable(_NamedPage):
+        closed = False
+
+        def __init__(self, name):
+            super().__init__(name)
+
+        def close(self):
+            type(self).closed = True
+
+    page = _Closable("가")
+    cfg = {**_CFG_VERIFY, "close_ledger_after": True}
+    plan = build_plan(tmp_path, ["가"], ["2026"], urls={"가": "https://x/a"})
+    res = run_fetch(page, plan, tmp_path, cfg=cfg, sleep=lambda _: None,
+                    download=False)
+    assert res.ok and not _Closable.closed
+
+
+def test_last_tab_is_kept_even_in_list_mode(tmp_path):
+    """목록에서 열었더라도 남은 탭이 그것뿐이면 닫지 않는다."""
+    from kafa.fetch.wehago import fetch_one
+
+    class _Only(_NamedPage):
+        closed = False
+
+        def evaluate(self, js, arg=None):
+            return "ok"
+
+        def close(self):
+            type(self).closed = True
+
+    page = _Only("가")
+    page.context = None                  # 다른 탭이 없다
+    fetch_one(page, {**_CFG_VERIFY, "close_ledger_after": True},
+              DownloadTask("가", "2026", cno="1"),
+              tmp_path / "가" / "2026.xlsx", resolve=lambda: page,
+              sleep=lambda _s: None)
+    assert not _Only.closed
+
+
+def test_pick_page_opens_a_new_tab_when_none_left():
+    """탭이 다 닫혔으면 새로 연다 — 로그인 세션은 브라우저에 남아 있다."""
+    from kafa.fetch.wehago import pick_page
+
+    made = []
+
+    class _Ctx:
+        pages = []
+
+        def new_page(self):
+            made.append(True)
+            return "새 탭"
+
+    class _Dead:
+        context = _Ctx()
+        url = "about:blank"
+
+        def is_closed(self):
+            return True
+
+    assert pick_page(_Dead(), {"selectors": {"search_button": "#go"}}) == "새 탭"
+    assert made
+
+
+def test_dropdown_is_closed_when_kind_selection_fails(tmp_path):
+    """열린 목록이 조회 버튼을 덮어 다음 단계가 막히는 것을 방지한다."""
+    from kafa.fetch.wehago import fetch_one
+
+    class _Keyboard:
+        def __init__(self):
+            self.keys = []
+
+        def press(self, key):
+            self.keys.append(key)
+
+    class _NoKind(_NamedPage):
+        def __init__(self):
+            super().__init__("가")
+            self.keyboard = _Keyboard()
+
+        def click(self, sel, **kw):
+            if sel in ('text="1. 매출"', "#kindopen"):
+                raise TimeoutError("목록이 안 열림")
+            super().click(sel, **kw)
+
+    cfg = {**_CFG_VERIFY, "kind_autoselect": True, "kind_current_other": "1. 매출",
+           "kind_try_timeout_ms": 10,
+           "selectors": {**_CFG_VERIFY["selectors"],
+                         "kind_current": 'text="{kind}"',
+                         "kind_select_open": ['text="{other}"', "#kindopen"],
+                         "kind_option": 'li a:has-text("{kind}")'}}
+    page = _NoKind()
+    fetch_one(page, cfg, DownloadTask("가", "2026", url="https://x/a", cno="1"),
+              tmp_path / "가" / "2026.xlsx", resolve=lambda: page,
+              sleep=lambda _s: None)
+    assert "Escape" in page.keyboard.keys      # 목록을 닫고 진행했다
+    assert ("click", "#go") in page.log
