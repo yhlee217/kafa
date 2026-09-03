@@ -26,6 +26,7 @@ from kafa.rules.vendor_match import VendorMaster, match_vendor
 RULE_SKIP = "SKIP-001"
 RULE_ACC_PENDING = "ACC-PENDING"   # 미추천 → Phase 2 추천 대상
 RULE_AGENT = "AGENT-001"           # 거래처가 결제대행사 → 담당자 확인
+RULE_AGENT_AUTO = "AGENT-AUTO"     # 성격이 분명한 갈래 → 기본 계정 자동 확정
 CODE_카면 = 58
 
 
@@ -98,13 +99,23 @@ def classify_row(
 
     # 결제대행사 — 거래처가 실제 가맹점이 아니면 계정을 정할 근거가 없다.
     #  이름만으로 계정을 찍지 않고 담당자에게 넘긴다(자동 추천의 오답을 막는다).
-    if (cfg.get("payment_agents") or {}).get("flag_review", True):
-        found = agent_of(row.거래처, config_dir=config_dir)
-        if found:
-            group, label = found
-            out.is_agent = True
-            out.agent_group = group
-            out.add_rule(RULE_AGENT)
+    agents_cfg = cfg.get("payment_agents") or {}
+    found = agent_of(row.거래처, config_dir=config_dir) if agents_cfg else None
+    if found:
+        group, label = found
+        out.is_agent = True
+        out.agent_group = group
+        out.add_rule(RULE_AGENT)
+        spec = (agents_cfg.get("groups") or {}).get(group) or {}
+        auto = spec.get("default_account") if spec.get("auto_confirm") else None
+        if auto and out.차변계정코드 is None:
+            # 성격이 분명한 갈래(예: 교통)는 기본 계정으로 자동 확정한다.
+            # 위하고가 채운 값이 있으면 건드리지 않는다.
+            out.차변계정코드 = int(auto)
+            out.판정유형 = Verdict.RULE_CONFIRMED
+            out.add_rule(RULE_AGENT_AUTO)
+            out.추천근거 = agent_note(group, label, config_dir=config_dir)
+        elif agents_cfg.get("flag_review", True):
             out.needs_review = True
             out.review_reasons.append(
                 agent_note(group, label, config_dir=config_dir))
