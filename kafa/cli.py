@@ -27,6 +27,28 @@ def _needs_welfare_review(profile: dict | None, code, config_dir) -> bool:
     return int(code) in set(cfg.get("welfare_account_codes", []) or [])
 
 
+def _settle_agent_review(c, confidence, config_dir) -> None:
+    """대행사 건이라도 그 수임처의 과거 처리가 일관되면 검토 플래그를 뗀다.
+
+    실제 가맹점은 끝내 알 수 없다. 하지만 **이 수임처가 그 대행사를 어떻게
+    처리해왔는지**는 이력으로 알 수 있고, 그게 일관되면 사람이 다시 볼 이유가 없다
+    (담당자 요청 2026-09-03). 기준값은 config 의 auto_accept_confidence.
+    """
+    if not getattr(c, "is_agent", False):
+        return
+    from kafa.config_loader import load_rules
+    cfg = (load_rules(config_dir).get("payment_agents") or {})
+    floor = float(cfg.get("auto_accept_confidence", 0.85))
+    if confidence is None or float(confidence) < floor:
+        return
+    keep = [r for r in c.review_reasons if "실제 가맹점" not in r
+            and "정산사업자" not in r and "카드사가 직접" not in r]
+    if len(keep) != len(c.review_reasons):
+        c.review_reasons = keep
+        c.add_rule("AGENT-HIST")
+    c.needs_review = bool(keep)
+
+
 def classify_rows(rows: list[InputRow], *,
                   client_type: str | None = None,
                   seed: SeedIndex | None = None,
@@ -75,6 +97,7 @@ def classify_rows(rows: list[InputRow], *,
                     c.review_reasons.append(
                         "직원이 없는 수임처인데 복리후생비로 추천됨 → 확인 필요"
                         " (docs/domain_notes.md)")
+                _settle_agent_review(c, rec.confidence, config_dir)
         finalize_reversal(c)
         classified.append(c)
 
