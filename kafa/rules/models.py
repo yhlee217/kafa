@@ -88,6 +88,8 @@ class ClassifiedRow:
     is_reversal: bool = False         # 환불/취소(음수)로 방향 반전 대상
     reversal_applied: bool = False    # 실제 차·대변 swap 적용 완료 여부(중복 방지)
     needs_review: bool = False        # review 플래그(담당자 확인)
+    is_agent: bool = False            # 거래처가 결제대행사(실제 가맹점 불명)
+    agent_group: str = ""             # 결제대행 / 교통·선불정산 / 카드사청구
     review_reasons: list[str] = field(default_factory=list)
 
     # 추적용 원본 입력(리포트에서만 사용; LLM 컨텍스트로 보내지 않음)

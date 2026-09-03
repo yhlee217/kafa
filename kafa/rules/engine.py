@@ -14,6 +14,7 @@ from typing import Optional
 
 from kafa.config_loader import load_rules
 from kafa.rules.accounts import map_account_name_to_code
+from kafa.rules.agents import agent_note, agent_of
 from kafa.rules.counterparty import resolve_counterparty
 from kafa.rules.deductibility import resolve_deductibility
 from kafa.rules.deemed_credit import deemed_credit_flag
@@ -24,6 +25,7 @@ from kafa.rules.vendor_match import VendorMaster, match_vendor
 
 RULE_SKIP = "SKIP-001"
 RULE_ACC_PENDING = "ACC-PENDING"   # 미추천 → Phase 2 추천 대상
+RULE_AGENT = "AGENT-001"           # 거래처가 결제대행사 → 담당자 확인
 CODE_카면 = 58
 
 
@@ -93,6 +95,19 @@ def classify_row(
         out.차변계정코드 = None
         out.판정유형 = Verdict.UNRESOLVED
         out.add_rule(RULE_ACC_PENDING)
+
+    # 결제대행사 — 거래처가 실제 가맹점이 아니면 계정을 정할 근거가 없다.
+    #  이름만으로 계정을 찍지 않고 담당자에게 넘긴다(자동 추천의 오답을 막는다).
+    if (cfg.get("payment_agents") or {}).get("flag_review", True):
+        found = agent_of(row.거래처, config_dir=config_dir)
+        if found:
+            group, label = found
+            out.is_agent = True
+            out.agent_group = group
+            out.add_rule(RULE_AGENT)
+            out.needs_review = True
+            out.review_reasons.append(
+                agent_note(group, label, config_dir=config_dir))
 
     # 1.2 대변(상대계정) — 기장 클라이언트 기준
     cp = resolve_counterparty(client_type, config_dir=config_dir)
