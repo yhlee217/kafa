@@ -53,6 +53,8 @@ kafa/
   fetch/              감독형 수집(RPA) — 사람이 로그인, 반복 클릭만 자동화(plan/session/wehago) + CLI(kafa-fetch)
   clients.py          수임처 속성 조사표(엑셀) ↔ config/clients.yaml + CLI(kafa-clients)
   run_cli.py          kafa-run — 수집→속성→처리를 한 명령으로(설정은 ~/.kafa/run.json)
+  lookup/             대행사 건 원본 결제내역 되찾기(의뢰서 생성·이용내역 파싱·로컬 대조)
+                      + CLI(kafa-lookup) — 프롬프트는 docs/cowork_lookup.md
   learn/              처리 이력 → 보류 규칙 추정(infer, 자동적용 금지·근거 제시) + CLI(kafa-learn)
   store/              베이스 데이터 SQLite 누적(VoucherStore, 멱등 upsert) — 로컬 단일 원본
   pipeline/           inbox 일괄 처리(runner)·폴더 감시(watch)·알림(notify)·진행 보드(summary) + CLI(kafa-pipeline/kafa-watch/kafa-board)
@@ -66,6 +68,7 @@ config/
   rules.yaml          모든 규칙·코드·키워드 외부화
   account_codes.yaml  검증된 계정명→코드(시트 파싱분과 머지 예정)
   loops/example.yaml  루프 스펙 예시(비-PII 근거 문장 다듬기)
+  lookup/statements.yaml  카드사 이용내역 헤더 문구 별칭(카드사마다 다름)
   clients.yaml        수임처 속성(개인/법인·직원 유무) — 사람이 채움(kafa-clients)
   fetch/wehago.yaml   감독형 수집 화면 selector(실화면 보고 보정 필요 — 추측 금지)
 tests/                Phase 1 표 기반 단위테스트
