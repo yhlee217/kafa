@@ -57,11 +57,72 @@ def test_plain_row_keeps_agent_fields_empty():
     assert not c.is_agent and c.agent_group == ""
 
 
-def test_shipped_config_lists_the_three_groups():
+def test_shipped_config_lists_every_group():
     from kafa.config_loader import load_rules
     groups = (load_rules().get("payment_agents") or {}).get("groups") or {}
-    assert set(groups) == {"결제대행", "교통·선불정산", "카드사청구"}
+    assert set(groups) == {"결제대행", "교통·선불정산", "주차·모빌리티",
+                           "오픈마켓·배달", "카드사청구"}
     assert all(g.get("keywords") and g.get("note") for g in groups.values())
+
+
+def test_shipped_config_covers_van_and_pg_alike():
+    """카드 단말기(VAN)와 온라인 결제(PG)는 둘 다 실제 가맹점을 가린다."""
+    for name in ("한국정보통신(주)", "나이스정보통신", "주식회사스마트로",
+                 "（주）다우데이타", "한국결제네트웍스 유한회사", "（주）코밴",
+                 "토스페이먼츠 주식회사", "네이버페이", "블루월넛 주식회사",
+                 "웰컴페이먼츠 주식회사", "나이스페이먼츠 주식회사"):
+        assert agent_of(name), name
+
+
+def test_platform_and_parking_have_their_own_groups():
+    assert agent_of("주식회사 우아한형제들")[0] == "오픈마켓·배달"
+    assert agent_of("파킹클라우드 주식회사")[0] == "주차·모빌리티"
+
+
+def test_parking_is_not_auto_confirmed():
+    """주차는 여비교통비인지 차량유지비인지 갈리므로 자동 확정하지 않는다."""
+    c = classify_row(_row(거래처="아이파킹", 차변계정=""), client_type="corporate")
+    assert c.차변계정코드 is None and c.needs_review
+
+
+# ── 종목 그물: 이름 목록에 없는 새 대행사도 잡는다 ──
+
+def test_industry_catches_an_agent_missing_from_the_name_list():
+    """대행사는 종목이 스스로를 말한다 — 이름을 몰라도 잡힌다."""
+    from kafa.rules.agents import industry_agent_of
+
+    assert agent_of("합성상호페이", 종목="전자지급결제대행업")[0] == "결제대행"
+    assert industry_agent_of("통신업", "부가통신업")[0] == "결제대행"
+    assert industry_agent_of("서비스", "전자금융업")[0] == "결제대행"
+
+
+def test_industry_does_not_mistake_a_phone_bill_for_an_agent():
+    """통신사도 종목에 '부가통신'이 붙지만 그건 통신비다."""
+    from kafa.rules.agents import industry_agent_of
+
+    assert industry_agent_of("통신업", "이동전화，무선호출，부가통신") is None
+    assert industry_agent_of("전기통신업", "전신전화，통신설비임대, 부가통신") is None
+    assert agent_of("합성통신사", 업태="통신업", 종목="이동전화，부가통신") is None
+
+
+def test_industry_leaves_an_ordinary_merchant_alone():
+    from kafa.rules.agents import industry_agent_of
+
+    assert industry_agent_of("음식점업", "한식") is None
+    assert industry_agent_of("", "") is None
+
+
+def test_the_name_list_wins_over_the_industry_net():
+    """이름이 정확하면 그 갈래를 쓴다 — 종목이 넓게 걸려도 밀리지 않는다."""
+    group, label = agent_of("주식회사 티머니", 종목="전자화폐발행")
+    assert group == "교통·선불정산" and label == "티머니"
+
+
+def test_industry_hit_reports_the_matched_industry_not_the_vendor():
+    """그물이 잡은 건 사유에 종목만 적는다(거래처 실명을 근거로 쓰지 않는다)."""
+    group, label = agent_of("합성상호페이", 종목="전자지급결제대행업")
+    assert "합성상호페이" not in label and label.startswith("종목")
+    assert "합성상호페이" not in agent_note(group, label)
 
 
 # ── 자동화: 성격이 분명한 갈래는 자동 확정, 나머지는 이력으로 ──
