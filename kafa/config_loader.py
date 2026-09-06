@@ -95,6 +95,13 @@ def load_credit_side_codes(config_dir: str | None = None) -> frozenset[int]:
 
 
 @lru_cache(maxsize=None)
+def load_lookup_spec(config_dir: str | None = None) -> dict[str, Any]:
+    """config/lookup/statements.yaml — 카드사 이용내역의 헤더 문구 별칭."""
+    base = Path(config_dir) if config_dir else _DEFAULT_CONFIG_DIR
+    return _load_yaml(base / "lookup" / "statements.yaml")
+
+
+@lru_cache(maxsize=None)
 def load_agent(config_dir: str | None = None) -> dict[str, Any]:
     """config/agent.yaml 로드 — 세무대리인 보조 업무(kafa/agent) 설정(율·목록)."""
     base = Path(config_dir) if config_dir else _DEFAULT_CONFIG_DIR
