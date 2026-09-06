@@ -100,7 +100,8 @@ def classify_row(
     # 결제대행사 — 거래처가 실제 가맹점이 아니면 계정을 정할 근거가 없다.
     #  이름만으로 계정을 찍지 않고 담당자에게 넘긴다(자동 추천의 오답을 막는다).
     agents_cfg = cfg.get("payment_agents") or {}
-    found = agent_of(row.거래처, config_dir=config_dir) if agents_cfg else None
+    found = agent_of(row.거래처, 업태=row.업태 or "", 종목=row.종목 or "",
+                     config_dir=config_dir) if agents_cfg else None
     if found:
         group, label = found
         out.is_agent = True
