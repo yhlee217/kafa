@@ -69,6 +69,7 @@ config/
   account_codes.yaml  검증된 계정명→코드(시트 파싱분과 머지 예정)
   loops/example.yaml  루프 스펙 예시(비-PII 근거 문장 다듬기)
   lookup/statements.yaml  카드사 이용내역 헤더 문구 별칭(카드사마다 다름)
+  lookup/pg_sites.yaml    대행사별 되찾기 경로·관문(PG API 불가 — 소비자 조회 페이지)
   clients.yaml        수임처 속성(개인/법인·직원 유무) — 사람이 채움(kafa-clients)
   fetch/wehago.yaml   감독형 수집 화면 selector(실화면 보고 보정 필요 — 추측 금지)
 tests/                Phase 1 표 기반 단위테스트

@@ -1,7 +1,8 @@
 """kafa-lookup — 대행사 건의 원본 결제내역 되찾기.
 
     kafa-lookup plan  <kafa.db> <낼 폴더> [--groups 결제대행,오픈마켓·배달]
-    kafa-lookup merge <lookup_targets.csv> <이용내역 폴더|파일…> [-o 결과.csv]
+    kafa-lookup merge  <lookup_targets.csv> <이용내역 폴더|파일…> [-o 결과.csv]
+    kafa-lookup stage2 <resolved.csv> [-o 조회목록.csv] [--min-amount N] [--top N]
 
 `plan` 은 무엇을 받아와야 하는지 의뢰서를 만들고, `merge` 는 받아온 이용내역을
 로컬에서 붙인다. 사이의 '카드사에서 받아오기'는 사람이 로그인하고 조수가 화면을
@@ -15,6 +16,7 @@ from pathlib import Path
 
 from kafa.lookup.merge import merge_statements
 from kafa.lookup.request import build_plan
+from kafa.lookup.stage2 import build_tasks, summarize
 
 _SUFFIXES = {".csv", ".xlsx", ".xls", ".xlsm"}
 
@@ -46,6 +48,13 @@ def main(argv: list[str] | None = None) -> int:
     merge.add_argument("-o", "--out", default="lookup_resolved.csv")
     merge.add_argument("--config-dir")
 
+    two = sub.add_parser("stage2", help="1단계로 안 풀린 건을 어디서 찾을지 목록화")
+    two.add_argument("resolved")
+    two.add_argument("-o", "--out", default="lookup_stage2.csv")
+    two.add_argument("--min-amount", type=int, help="이 금액 미만은 뺀다")
+    two.add_argument("--top", type=int, help="금액 상위 몇 건만")
+    two.add_argument("--config-dir")
+
     args = ap.parse_args(argv)
 
     if args.cmd == "plan":
@@ -62,6 +71,15 @@ def main(argv: list[str] | None = None) -> int:
             print(f"   {p.번호:>3}  {p.기간_시작}~{p.기간_끝}  {p.건수:>4}건  {p.갈래표기}")
         if len(plans) > 10:
             print(f"   … 외 {len(plans) - 10}곳")
+        return 0
+
+    if args.cmd == "stage2":
+        tasks = build_tasks(args.resolved, args.out, min_amount=args.min_amount,
+                            top_n=args.top, config_dir=args.config_dir)
+        total = sum(abs(t.금액) for t in tasks)
+        print(f"2단계 조회 목록: {len(tasks)}건 / {total:,}원")
+        print(summarize(tasks))
+        print(f"  → {args.out}  (찾은가맹점·품명 칸을 채워 넣으면 된다)")
         return 0
 
     files = _expand(args.statements)

@@ -232,3 +232,113 @@ def test_merge_writes_a_csv_the_person_can_read(tmp_path):
     written = list(csv.DictReader(out.open(encoding="utf-8-sig")))
     assert written[0]["찾은가맹점"] == "행복상사" and written[0]["수임처"] == "합성c1"
     assert written[0]["결과"] == FOUND
+
+
+# ── 2단계: 1단계로 안 풀린 건을 어디서 찾을지 ──
+
+def _resolved(tmp_path, rows):
+    path = tmp_path / "resolved.csv"
+    with path.open("w", encoding="utf-8-sig", newline="") as fh:
+        w = csv.writer(fh)
+        w.writerow(["번호", "수임처", "거래일자", "합계", "대행사", "갈래",
+                    "결과", "찾은가맹점", "승인번호", "출처"])
+        w.writerows(rows)
+    return path
+
+
+def test_routes_each_agent_to_where_it_can_be_found():
+    from kafa.lookup.stage2 import APP_ORDER, PG_PAGE, UNKNOWN, VAN_STATEMENT, route_for
+
+    assert route_for("토스페이먼츠 주식회사")[0] == PG_PAGE
+    assert route_for("엔에이치엔한국사이버결제 주식회사")[0] == PG_PAGE
+    assert route_for("쿠팡페이 주식회사")[0] == APP_ORDER
+    assert route_for("한국정보통신（주）")[0] == VAN_STATEMENT
+    assert route_for("처음보는회사")[0] == UNKNOWN
+    assert route_for("")[0] == UNKNOWN
+
+
+def test_pg_route_carries_the_gate_so_nobody_tries_to_automate_it():
+    """보안문자·본인인증은 사람이 통과한다 — 목록에 적어 둔다."""
+    from kafa.lookup.stage2 import route_for
+
+    _, kcp = route_for("엔에이치엔한국사이버결제 주식회사")
+    assert "보안문자" in kcp["관문"]
+    _, danal = route_for("(주) 다날")
+    assert any("본인인증" in g for g in danal["관문"])
+
+
+def test_solved_rows_are_not_looked_up_again(tmp_path):
+    from kafa.lookup.stage2 import build_tasks
+
+    r = _resolved(tmp_path, [
+        ["1", "합성c1", "2026-03-02", "500000", "토스페이먼츠", "결제대행", FOUND, "행복상사", "3001", "s"],
+        ["1", "합성c1", "2026-03-03", "500000", "토스페이먼츠", "결제대행", STILL_AGENT, "", "3002", "s"]])
+    tasks = build_tasks(r, tmp_path / "s2.csv")
+    assert len(tasks) == 1 and tasks[0].승인번호 == "3002"
+
+
+def test_small_amounts_are_left_alone(tmp_path):
+    """건별 조회라 품이 든다 — 작은 건은 들이지 않는다."""
+    from kafa.lookup.stage2 import build_tasks
+
+    r = _resolved(tmp_path, [
+        ["1", "c", "2026-03-02", "3000", "토스페이먼츠", "결제대행", STILL_AGENT, "", "1", "s"],
+        ["1", "c", "2026-03-03", "500000", "토스페이먼츠", "결제대행", STILL_AGENT, "", "2", "s"]])
+    tasks = build_tasks(r, tmp_path / "s2.csv")
+    assert [t.승인번호 for t in tasks] == ["2"]
+
+
+def test_biggest_amounts_come_first(tmp_path):
+    from kafa.lookup.stage2 import build_tasks
+
+    r = _resolved(tmp_path, [
+        ["1", "c", "2026-03-02", "50000", "토스페이먼츠", "결제대행", MISSING, "", "a", ""],
+        ["1", "c", "2026-03-03", "900000", "토스페이먼츠", "결제대행", MISSING, "", "b", ""],
+        ["1", "c", "2026-03-04", "200000", "토스페이먼츠", "결제대행", MISSING, "", "c", ""]])
+    tasks = build_tasks(r, tmp_path / "s2.csv")
+    assert [t.승인번호 for t in tasks] == ["b", "c", "a"]
+    assert build_tasks(r, tmp_path / "s2.csv", top_n=1)[0].승인번호 == "b"
+
+
+def test_groups_with_nothing_to_look_up_are_skipped(tmp_path):
+    """교통은 자동 확정되고, 카드사청구는 찾을 가맹점이 없다."""
+    from kafa.lookup.stage2 import build_tasks
+
+    r = _resolved(tmp_path, [
+        ["1", "c", "2026-03-02", "500000", "주식회사 티머니", "교통·선불정산", MISSING, "", "", ""],
+        ["1", "c", "2026-03-03", "500000", "삼성카드주식회사", "카드사청구", MISSING, "", "", ""],
+        ["1", "c", "2026-03-04", "500000", "토스페이먼츠", "결제대행", MISSING, "", "x", ""]])
+    tasks = build_tasks(r, tmp_path / "s2.csv")
+    assert [t.승인번호 for t in tasks] == ["x"]
+
+
+def test_giro_is_not_a_lookup_target(tmp_path):
+    """실측: 금융결제원은 지로·사회보험료였다. 조회할 가맹점이 없다."""
+    from kafa.lookup.stage2 import GIRO, build_tasks, route_for
+
+    assert route_for("(사단법인) 금융결제원")[0] == GIRO
+    r = _resolved(tmp_path, [
+        ["1", "c", "2026-03-02", "9000000", "(사단법인) 금융결제원", "결제대행", MISSING, "", "", ""]])
+    assert build_tasks(r, tmp_path / "s2.csv") == []
+
+
+def test_stage2_writes_blank_columns_for_the_person_to_fill(tmp_path):
+    from kafa.lookup.stage2 import build_tasks
+
+    r = _resolved(tmp_path, [
+        ["1", "합성c1", "2026-03-02", "500000", "토스페이먼츠", "결제대행", STILL_AGENT, "", "3002", "s"]])
+    out = tmp_path / "s2.csv"
+    build_tasks(r, out)
+    row = list(csv.DictReader(out.open(encoding="utf-8-sig")))[0]
+    assert row["찾은가맹점"] == "" and row["품명"] == ""
+    assert row["승인번호"] == "3002" and "tosspayments" in row["주소"]
+
+
+def test_summary_groups_by_route(tmp_path):
+    from kafa.lookup.stage2 import build_tasks, summarize
+
+    r = _resolved(tmp_path, [
+        ["1", "c", "2026-03-02", "500000", "토스페이먼츠", "결제대행", MISSING, "", "", ""],
+        ["1", "c", "2026-03-03", "500000", "쿠팡페이 주식회사", "오픈마켓·배달", MISSING, "", "", ""]])
+    text = summarize(build_tasks(r, tmp_path / "s2.csv"))
+    assert "pg_page" in text and "app_order" in text
