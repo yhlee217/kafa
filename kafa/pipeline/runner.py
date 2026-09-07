@@ -26,6 +26,7 @@ class FileOutcome:
     written: int = 0
     skipped: int = 0
     inserted: int = 0
+    upgraded: int = 0
     existing: int = 0
 
 
@@ -141,7 +142,8 @@ def run_pipeline(inbox, output_dir, *, client_type: Optional[str] = None,
                 result.outcomes.append(FileOutcome(
                     file=f.name, client=client, period=period,
                     written=res["written"], skipped=res["skipped"],
-                    inserted=ing.inserted, existing=ing.existing))
+                    inserted=ing.inserted, existing=ing.existing,
+                    upgraded=ing.upgraded))
             except Exception as e:  # noqa: BLE001 — 파일별 에러 격리
                 result.failures[str(f.relative_to(inbox))] = f"{type(e).__name__}: {e}"
 
