@@ -3,6 +3,7 @@
     kafa-lookup plan  <kafa.db> <낼 폴더> [--groups 결제대행,오픈마켓·배달]
     kafa-lookup merge  <lookup_targets.csv> <이용내역 폴더|파일…> [-o 결과.csv]
     kafa-lookup stage2 <resolved.csv> [-o 조회목록.csv] [--min-amount N] [--top N]
+    kafa-lookup ask    <targets.csv|resolved.csv> <낼 폴더>
 
 `plan` 은 무엇을 받아와야 하는지 의뢰서를 만들고, `merge` 는 받아온 이용내역을
 로컬에서 붙인다. 사이의 '카드사에서 받아오기'는 사람이 로그인하고 조수가 화면을
@@ -16,6 +17,7 @@ from pathlib import Path
 
 from kafa.lookup.merge import merge_statements
 from kafa.lookup.request import build_plan
+from kafa.lookup.ask import build_requests
 from kafa.lookup.stage2 import build_tasks, summarize
 
 _SUFFIXES = {".csv", ".xlsx", ".xls", ".xlsm"}
@@ -55,6 +57,11 @@ def main(argv: list[str] | None = None) -> int:
     two.add_argument("--top", type=int, help="금액 상위 몇 건만")
     two.add_argument("--config-dir")
 
+    ask = sub.add_parser("ask", help="수임처에게 보낼 자료요청서(앱 주문내역 건)")
+    ask.add_argument("source", help="lookup_targets.csv 또는 resolved.csv")
+    ask.add_argument("out_dir")
+    ask.add_argument("--config-dir")
+
     args = ap.parse_args(argv)
 
     if args.cmd == "plan":
@@ -71,6 +78,16 @@ def main(argv: list[str] | None = None) -> int:
             print(f"   {p.번호:>3}  {p.기간_시작}~{p.기간_끝}  {p.건수:>4}건  {p.갈래표기}")
         if len(plans) > 10:
             print(f"   … 외 {len(plans) - 10}곳")
+        return 0
+
+    if args.cmd == "ask":
+        clients = build_requests(args.source, args.out_dir, config_dir=args.config_dir)
+        건수 = sum(c.건수 for c in clients)
+        금액 = sum(int(c.금액합) for c in clients)
+        print(f"자료요청서: 수임처 {len(clients)}곳 / {건수}건 / {금액:,}원")
+        for c in clients:
+            print(f"   {c.건수:>4}건 {int(c.금액합):>11,}원  {c.파일.name if c.파일 else ''}")
+        print(f"  → {args.out_dir}/발송목록.csv (누구에게 무엇을 보낼지)")
         return 0
 
     if args.cmd == "stage2":

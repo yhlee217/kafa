@@ -67,8 +67,9 @@ def _agent_rows(db_path: str | Path, *, groups: set[str] | None = None,
         group = found[0]
         if groups and group not in groups:
             continue
-        out.append((r["client_id"], names.get(r["client_id"], r["client_id"]),
-                    r["거래일자"] or "", _amount(r["합계"]), r["거래처"] or "", group))
+        이름 = (names.get(r["client_id"]) or "").strip() or r["client_id"]
+        out.append((r["client_id"], 이름, r["거래일자"] or "",
+                    _amount(r["합계"]), r["거래처"] or "", group))
     return out
 
 
