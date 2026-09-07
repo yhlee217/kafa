@@ -53,7 +53,7 @@ kafa/
   fetch/              감독형 수집(RPA) — 사람이 로그인, 반복 클릭만 자동화(plan/session/wehago) + CLI(kafa-fetch)
   clients.py          수임처 속성 조사표(엑셀) ↔ config/clients.yaml + CLI(kafa-clients)
   run_cli.py          kafa-run — 수집→속성→처리를 한 명령으로(설정은 ~/.kafa/run.json)
-  lookup/             대행사 건 원본 결제내역 되찾기(의뢰서 생성·이용내역 파싱·로컬 대조)
+  lookup/             대행사 건 원본 결제내역 되찾기(의뢰서·이용내역 파싱·로컬 대조·수임처 자료요청서)
                       + CLI(kafa-lookup) — 프롬프트는 docs/cowork_lookup.md
   learn/              처리 이력 → 보류 규칙 추정(infer, 자동적용 금지·근거 제시) + CLI(kafa-learn)
   store/              베이스 데이터 SQLite 누적(VoucherStore, 멱등 upsert) — 로컬 단일 원본

@@ -342,3 +342,133 @@ def test_summary_groups_by_route(tmp_path):
         ["1", "c", "2026-03-03", "500000", "쿠팡페이 주식회사", "오픈마켓·배달", MISSING, "", "", ""]])
     text = summarize(build_tasks(r, tmp_path / "s2.csv"))
     assert "pg_page" in text and "app_order" in text
+
+
+# ── 수임처에게 보낼 자료요청서 ──
+
+def _ask_source(tmp_path, rows):
+    path = tmp_path / "targets.csv"
+    with path.open("w", encoding="utf-8-sig", newline="") as fh:
+        w = csv.writer(fh)
+        w.writerow(["번호", "client_id", "수임처", "거래일자", "합계", "거래처", "갈래"])
+        w.writerows(rows)
+    return path
+
+
+def test_only_app_order_rows_are_asked_about(tmp_path):
+    """PG 조회 페이지로 되는 건은 우리가 한다 — 수임처를 귀찮게 하지 않는다."""
+    from kafa.lookup.ask import collect
+
+    src = _ask_source(tmp_path, [
+        ["1", "c1", "합성상사", "2026-03-02", "50000", "쿠팡페이 주식회사", "결제대행"],
+        ["1", "c1", "합성상사", "2026-03-03", "50000", "토스페이먼츠 주식회사", "결제대행"],
+        ["1", "c1", "합성상사", "2026-03-04", "50000", "행복상사", "결제대행"]])
+    clients = collect(src)
+    assert len(clients) == 1 and clients[0].건수 == 1
+    assert clients[0].항목[0].창구 == "쿠팡페이"
+
+
+def test_each_client_gets_its_own_file(tmp_path):
+    """한 파일에 여러 수임처를 담으면 남의 거래내역이 보인다."""
+    from kafa.lookup.ask import build_requests
+
+    src = _ask_source(tmp_path, [
+        ["1", "c1", "가나상사", "2026-03-02", "50000", "쿠팡페이 주식회사", "결제대행"],
+        ["2", "c2", "다라상사", "2026-03-03", "70000", "카카오페이", "결제대행"]])
+    clients = build_requests(src, tmp_path / "out")
+    assert len(clients) == 2
+    files = {c.파일.name for c in clients}
+    assert len(files) == 2
+    for c in clients:
+        text = c.파일.read_bytes()
+        다른쪽 = "다라상사" if c.수임처 == "가나상사" else "가나상사"
+        assert 다른쪽.encode("utf-8") not in text
+
+
+def test_files_never_collide_even_without_a_name(tmp_path):
+    """수임처명이 비어도 파일이 서로 덮어쓰지 않는다."""
+    from kafa.lookup.ask import build_requests
+
+    src = _ask_source(tmp_path, [
+        ["1", "c1", "", "2026-03-02", "50000", "쿠팡페이 주식회사", "결제대행"],
+        ["2", "c2", "", "2026-03-03", "70000", "카카오페이", "결제대행"]])
+    clients = build_requests(src, tmp_path / "out")
+    assert len({c.파일.name for c in clients}) == 2
+    assert len(list((tmp_path / "out").glob("*.xlsx"))) == 2
+
+
+def test_a_cancelled_purchase_is_not_asked_about(tmp_path):
+    """결제와 취소가 짝을 이루면 순액이 0 — 물어봐야 살 게 없다."""
+    from kafa.lookup.ask import collect
+
+    src = _ask_source(tmp_path, [
+        ["1", "c1", "합성상사", "2026-03-02", "17000", "카카오페이", "결제대행"],
+        ["1", "c1", "합성상사", "2026-03-02", "-17000", "카카오페이", "결제대행"],
+        ["1", "c1", "합성상사", "2026-03-05", "50000", "카카오페이", "결제대행"]])
+    clients = collect(src)
+    assert clients[0].건수 == 1 and clients[0].항목[0].거래일자 == "2026-03-05"
+
+
+def test_a_real_refund_survives_and_is_labelled(tmp_path):
+    """짝 없는 환불은 진짜 환불이다 — 남기되 무엇인지 알려준다."""
+    from kafa.lookup.ask import collect
+
+    src = _ask_source(tmp_path, [
+        ["1", "c1", "합성상사", "2026-03-02", "-17000", "카카오페이", "결제대행"]])
+    clients = collect(src)
+    assert clients[0].건수 == 1 and clients[0].항목[0].구분 == "환불"
+
+
+def test_the_form_tells_the_client_where_to_look(tmp_path):
+    """수임처가 어느 앱을 열어야 하는지 적어 준다."""
+    from kafa.lookup.ask import collect
+
+    src = _ask_source(tmp_path, [
+        ["1", "c1", "합성상사", "2026-03-02", "50000", "쿠팡페이 주식회사", "결제대행"],
+        ["1", "c1", "합성상사", "2026-03-03", "50000", "네이버파이낸셜 주식회사", "결제대행"]])
+    안내 = {a.창구: a.안내 for a in collect(src)[0].항목}
+    assert "마이쿠팡" in 안내["쿠팡페이"]
+    assert "pay.naver.com" in 안내["네이버파이낸셜"]
+
+
+def test_rows_already_solved_are_not_asked_about(tmp_path):
+    """1단계에서 풀린 건은 다시 묻지 않는다."""
+    from kafa.lookup.ask import collect
+
+    path = tmp_path / "resolved.csv"
+    with path.open("w", encoding="utf-8-sig", newline="") as fh:
+        w = csv.writer(fh)
+        w.writerow(["번호", "수임처", "거래일자", "합계", "대행사", "갈래",
+                    "결과", "찾은가맹점", "승인번호", "출처"])
+        w.writerow(["1", "합성상사", "2026-03-02", "50000", "쿠팡페이", "결제대행",
+                    FOUND, "행복상사", "1", "s"])
+        w.writerow(["1", "합성상사", "2026-03-03", "50000", "쿠팡페이", "결제대행",
+                    STILL_AGENT, "", "2", "s"])
+    clients = collect(path)
+    assert clients[0].건수 == 1 and clients[0].항목[0].거래일자 == "2026-03-03"
+
+
+def test_dispatch_list_tells_the_person_who_gets_what(tmp_path):
+    from kafa.lookup.ask import build_requests
+
+    src = _ask_source(tmp_path, [
+        ["1", "c1", "가나상사", "2026-03-02", "50000", "쿠팡페이 주식회사", "결제대행"]])
+    build_requests(src, tmp_path / "out")
+    sent = list(csv.DictReader((tmp_path / "out" / "발송목록.csv").open(encoding="utf-8-sig")))
+    assert sent[0]["수임처"] == "가나상사" and sent[0]["건수"] == "1"
+    assert sent[0]["파일"].endswith(".xlsx") and "2026-03-02" in sent[0]["기간"]
+
+
+def test_the_form_has_blank_columns_for_the_client_to_fill(tmp_path):
+    from openpyxl import load_workbook
+
+    from kafa.lookup.ask import build_requests
+
+    src = _ask_source(tmp_path, [
+        ["1", "c1", "가나상사", "2026-03-02", "50000", "쿠팡페이 주식회사", "결제대행"]])
+    client = build_requests(src, tmp_path / "out")[0]
+    ws = load_workbook(client.파일).active
+    header = [c.value for c in ws[9]]
+    assert header[:3] == ["결제일", "구분", "금액"]
+    assert header[-2:] == ["실제 구입처", "무엇을 구입"]
+    assert [c.value for c in ws[10]][-2:] == [None, None]
