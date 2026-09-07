@@ -95,6 +95,13 @@ def load_credit_side_codes(config_dir: str | None = None) -> frozenset[int]:
 
 
 @lru_cache(maxsize=None)
+def load_pg_sites(config_dir: str | None = None) -> dict[str, Any]:
+    """config/lookup/pg_sites.yaml — 대행사별 되찾기 경로와 관문."""
+    base = Path(config_dir) if config_dir else _DEFAULT_CONFIG_DIR
+    return _load_yaml(base / "lookup" / "pg_sites.yaml")
+
+
+@lru_cache(maxsize=None)
 def load_lookup_spec(config_dir: str | None = None) -> dict[str, Any]:
     """config/lookup/statements.yaml — 카드사 이용내역의 헤더 문구 별칭."""
     base = Path(config_dir) if config_dir else _DEFAULT_CONFIG_DIR
