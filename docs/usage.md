@@ -93,3 +93,14 @@ find ~/kafa-out -name dup.json -path '*/_state/*' -delete
 
 DB 는 `INSERT OR IGNORE` 라 재적재해도 늘지 않는다. 새로 들어오는 건
 **예전에 키 충돌로 못 들어갔던 행**뿐이다(2026-09-06 수정 — docs/domain_notes.md).
+
+### 빠져 있던 전표만 보충 업로드 (2026-09-06 수정의 뒤처리)
+이미 업로드를 마쳤다면 전체를 다시 올리면 안 된다 — 이중계상이 된다.
+
+```bash
+python tools/check_dupkeys.py ~/kafa-out/_archive          # 몇 건인지 (읽기 전용)
+python tools/extra_upload.py ~/kafa-out/_archive ~/kafa-보충 --db ~/kafa-out/kafa.db
+```
+
+`~/kafa-보충/<수임처>/…_보충_upload.xls` 만 추가로 올린다. 둘 다 읽기 전용이라
+DB 도 dup.json 도 건드리지 않는다.
