@@ -1,8 +1,15 @@
 """SQLite 베이스 데이터 저장소.
 
-멱등성: voucher_key = hash(고객 + 거래일자 + 거래처 + 사업자번호 + 합계 + 품명).
+멱등성: voucher_key = hash(고객 + 거래일자 + 거래처 + 사업자번호 + 합계 + 품명 [+ 순번]).
 INSERT OR IGNORE 로 같은 키는 재적재해도 중복되지 않고 기존 레코드를 보존한다
 (재처리 시 좋은 분류가 덮어써지지 않음 — first-wins).
+
+**순번이 필요한 이유**: 같은 날 같은 가맹점에서 같은 금액·품명을 두 번 결제하는 일은
+실제로 일어난다(편의점 두 번, 주유 두 번). 순번이 없으면 두 번째 행이 첫 번째와 같은
+키가 되어 INSERT OR IGNORE 에 조용히 버려진다. 더 나쁜 건 first-wins 라서, 위하고가
+'중복전표'로 표시한 행이 먼저 들어오면 **정상 행이 영영 가려진다**.
+순번은 같은 배치 안에서 키가 겹치는 행에만 붙고, 같은 파일을 다시 넣으면 같은 순서로
+같은 순번이 나오므로 멱등성은 그대로다. 첫 행은 순번을 붙이지 않아 기존 DB 와 호환된다.
 
 보안 제0원칙: DB 는 로컬 전용. 금액은 Decimal 문자열로 보관(부동소수 오차 방지).
 """
@@ -74,13 +81,17 @@ _INSERT_SQL = (
 class IngestResult:
     inserted: int = 0   # 새로 적재
     existing: int = 0    # 키 이미 존재 → 무시(멱등)
+    upgraded: int = 0    # 스킵으로 들어가 있던 걸 정상 분류로 되살림
 
 
-def _voucher_key(client_id: str, c: ClassifiedRow) -> str:
+def _voucher_key(client_id: str, c: ClassifiedRow, occurrence: int = 0) -> str:
+    """전표 한 줄의 키. occurrence 는 같은 배치에서 앞에 나온 동일 행의 수."""
     s = c.source
     parts = [client_id]
     if s is not None:
         parts += [f"{s.연도}-{s.일자}", s.거래처, s.사업자등록번호, str(s.합계), s.품명]
+    if occurrence:
+        parts.append(f"#{occurrence}")   # 첫 행은 붙이지 않는다(기존 DB 호환)
     return hash_id("|".join(parts), salt="voucher", length=20)
 
 
@@ -145,16 +156,33 @@ class VoucherStore:
                         rows: list[ClassifiedRow], *, source_file: str = "") -> IngestResult:
         self.upsert_client(client_id)   # 거래가 있는 고객은 항상 등록
         res = IngestResult()
+        seen: dict[str, int] = {}
         for c in rows:
-            key = _voucher_key(client_id, c)
+            base = _voucher_key(client_id, c)
+            occurrence = seen.get(base, 0)
+            seen[base] = occurrence + 1
+            key = _voucher_key(client_id, c, occurrence)
             cur = self._conn.execute(_INSERT_SQL,
                                      (key, *_to_row(client_id, period, c, source_file)))
             if cur.rowcount == 1:
                 res.inserted += 1
+            elif not c.skipped and self._is_stored_as_skipped(key):
+                # first-wins 는 '좋은 분류를 지키려는' 규칙이다. 스킵된 행이 정상 행을
+                # 가리는 건 그 취지에 어긋나므로, 이 방향으로만 덮어쓴다.
+                self._conn.execute(
+                    "UPDATE vouchers SET " + ",".join(f"{col}=?" for col in _COLUMNS)
+                    + ",ingested_at=datetime('now') WHERE voucher_key=?",
+                    (*_to_row(client_id, period, c, source_file), key))
+                res.upgraded += 1
             else:
                 res.existing += 1
         self._conn.commit()
         return res
+
+    def _is_stored_as_skipped(self, key: str) -> bool:
+        row = self._conn.execute(
+            "SELECT skipped FROM vouchers WHERE voucher_key=?", (key,)).fetchone()
+        return bool(row and row[0])
 
     def count(self, client_id: str | None = None) -> int:
         if client_id is not None:

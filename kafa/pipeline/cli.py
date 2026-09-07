@@ -27,7 +27,8 @@ def main(argv: list[str] | None = None) -> int:
 
     for o in res.outcomes:
         print(f"[{o.client}/{o.period}] {o.file} → 작성 {o.written}/스킵 {o.skipped} "
-              f"(DB 신규 {o.inserted}/기존 {o.existing})")
+              f"(DB 신규 {o.inserted}/기존 {o.existing}"
+              + (f"/되살림 {o.upgraded}" if o.upgraded else "") + ")")
     for name, msg in res.failures.items():
         print(f"[실패] {name} → {msg}", file=sys.stderr)
     print(f"\nDB: {res.db_path} (총 {res.total_in_db}건 누적)")
