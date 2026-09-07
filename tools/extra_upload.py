@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import argparse
+import csv
 from collections import Counter, defaultdict
 from pathlib import Path
 
@@ -21,6 +22,7 @@ from kafa.io_wehago.writer import to_output_row, write_upload_xls
 from kafa.pipeline.runner import _merge_seed, _period_of, resolve_client
 from kafa.recommend.recommender import build_recommender
 from kafa.recommend.seed import build_seed_from_inputrows
+from kafa.rules.models import Verdict
 
 
 def _key(r) -> tuple:
@@ -51,6 +53,10 @@ def main(argv=None) -> int:
     합계금액 = 0
     per_client: dict[str, int] = defaultdict(int)
     made: list[Path] = []
+    판정 = Counter()
+    검토 = 0
+    겹친조합: Counter = Counter()
+    목록: list[tuple] = []
     try:
         for f in files:
             client = resolve_client(root, f)
@@ -66,6 +72,7 @@ def main(argv=None) -> int:
                 k = _key(r)
                 if seen[k]:
                     빠진행.append(r)
+                    겹친조합[(client, r.거래처, str(r.합계))] += 1
                 seen[k] += 1
             if not 빠진행:
                 continue
@@ -80,6 +87,18 @@ def main(argv=None) -> int:
                 빠진행, client_type=profile.get("client_type"), seed=seed,
                 recommender=build_recommender(seed, config_dir=args.config_dir),
                 profile=profile, config_dir=args.config_dir)
+
+            for c in classified:
+                if c.skipped:
+                    continue
+                판정[c.판정유형] += 1
+                검토 += 1 if c.needs_review else 0
+                src = c.source
+                목록.append((client, f"{src.연도}-{src.일자}" if src else "",
+                            src.거래처 if src else "", src.합계 if src else "",
+                            src.품명 if src else "", c.차변계정코드 or "",
+                            c.판정유형.value if c.판정유형 else "",
+                            "예" if c.needs_review else ""))
 
             보낼행 = [to_output_row(c, config_dir=args.config_dir)
                     for c in classified if not c.skipped]
@@ -104,8 +123,33 @@ def main(argv=None) -> int:
     print(f"보충 업로드본: {len(made)}개 파일 / 전표 {총}건 / {합계금액:,}원")
     for name, n in sorted(per_client.items(), key=lambda kv: -kv[1]):
         print(f"  {name}: {n}건")
+
+    if 총:
+        확정 = 판정.get(Verdict.RULE_CONFIRMED, 0)
+        추천 = 판정.get(Verdict.RECOMMENDED, 0)
+        미해소 = 판정.get(Verdict.UNRESOLVED, 0)
+        print(f"\n계정 상태: 룰확정 {확정} / 추천해소 {추천} / 미해소 {미해소}"
+              f"  (자동처리 {(확정 + 추천) / 총 * 100:.1f}%)")
+        if 미해소:
+            print(f"  ※ 미해소 {미해소}건은 계정이 비어 있습니다 — 올리기 전에 채우세요.")
+        if 검토:
+            print(f"  ※ 검토 플래그 {검토}건")
+
+        print("\n같은 값이 여러 번 나온 조합(진짜 별개 거래인지 확인하세요):")
+        for (cl, 거래처, 금액), n in 겹친조합.most_common(6):
+            print(f"  {cl} | {거래처[:26]} | {int(float(금액)):,}원 → 추가 {n}건")
+
+        목록_path = out_dir / "보충목록.csv"
+        목록_path.parent.mkdir(parents=True, exist_ok=True)
+        with 목록_path.open("w", encoding="utf-8-sig", newline="") as fh:
+            w = csv.writer(fh)
+            w.writerow(["수임처", "거래일자", "거래처", "합계", "품명",
+                        "차변계정코드", "판정", "검토"])
+            w.writerows(목록)
+        print(f"\n  전체 목록(눈으로 확인용): {목록_path}")
+
     if made:
-        print(f"\n  → {out_dir}")
+        print(f"  → {out_dir}")
         print("  이미 올린 업로드본은 그대로 두고, 이 파일만 추가로 올리면 됩니다.")
     return 0
 
