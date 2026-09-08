@@ -104,3 +104,7 @@ python tools/extra_upload.py ~/kafa-out/_archive ~/kafa-보충 --db ~/kafa-out/k
 
 `~/kafa-보충/<수임처>/…_보충_upload.xls` 만 추가로 올린다. 둘 다 읽기 전용이라
 DB 도 dup.json 도 건드리지 않는다.
+
+계정이 비어 있는(미해소) 행을 빼고 만들려면 `--skip-unresolved` 를 준다. 뺀 행은
+**사라지지 않고** `미해소_수기입력.csv` 로 나오므로 위하고에 직접 넣으면 된다.
+(조용히 사라지는 것이야말로 이 수정이 잡으려던 문제다 — 절대 그냥 버리지 않는다.)
