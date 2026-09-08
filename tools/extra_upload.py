@@ -34,6 +34,9 @@ def main(argv=None) -> int:
     ap.add_argument("archive", help="원본이 있는 폴더(예: ~/kafa-out/_archive)")
     ap.add_argument("out_dir", help="보충 업로드본을 낼 폴더")
     ap.add_argument("--db", help="누적 DB(추천 이력 재료). 없어도 된다")
+    ap.add_argument("--skip-unresolved", action="store_true",
+                    help="차변계정이 비어 있는 행을 업로드본에서 빼고 "
+                         "미해소_수기입력.csv 로 따로 낸다")
     ap.add_argument("--config-dir")
     args = ap.parse_args(argv)
 
@@ -55,6 +58,7 @@ def main(argv=None) -> int:
     made: list[Path] = []
     판정 = Counter()
     검토 = 0
+    미해소목록: list[tuple] = []
     겹친조합: Counter = Counter()
     목록: list[tuple] = []
     try:
@@ -88,10 +92,25 @@ def main(argv=None) -> int:
                 recommender=build_recommender(seed, config_dir=args.config_dir),
                 profile=profile, config_dir=args.config_dir)
 
+            보류: list = []
             for c in classified:
                 if c.skipped:
                     continue
                 판정[c.판정유형] += 1
+                if args.skip_unresolved and c.차변계정코드 is None:
+                    보류.append(c)
+                    src = c.source
+                    미해소목록.append((
+                        client, f"{src.연도}-{src.일자}" if src else "",
+                        src.거래처 if src else "", src.사업자등록번호 if src else "",
+                        src.품명 if src else "", src.업태 if src else "",
+                        src.종목 if src else "",
+                        src.공급가액 if src else "", src.세액 if src else "",
+                        src.비과세 if src else "", src.합계 if src else "",
+                        c.유형코드 or "", c.대변계정코드 or "",
+                        {"deductible": "공제", "non_deductible": "불공제",
+                         "review": "검토"}.get(
+                             c.공제여부.value if c.공제여부 else "", "")))
                 검토 += 1 if c.needs_review else 0
                 src = c.source
                 목록.append((client, f"{src.연도}-{src.일자}" if src else "",
@@ -100,8 +119,10 @@ def main(argv=None) -> int:
                             c.판정유형.value if c.판정유형 else "",
                             "예" if c.needs_review else ""))
 
+            뺀행 = set(id(x) for x in 보류)
             보낼행 = [to_output_row(c, config_dir=args.config_dir)
-                    for c in classified if not c.skipped]
+                    for c in classified
+                    if not c.skipped and id(c) not in 뺀행]
             if not 보낼행:
                 continue
             period = _period_of(rows)
@@ -111,11 +132,12 @@ def main(argv=None) -> int:
             총 += len(보낼행)
             per_client[client] += len(보낼행)
             for c in classified:
-                if not c.skipped and c.source is not None:
-                    try:
-                        합계금액 += int(c.source.합계)
-                    except (TypeError, ValueError):
-                        pass
+                if c.skipped or id(c) in 뺀행 or c.source is None:
+                    continue
+                try:
+                    합계금액 += int(c.source.합계)
+                except (TypeError, ValueError):
+                    pass
     finally:
         if store is not None:
             store.close()
@@ -124,14 +146,16 @@ def main(argv=None) -> int:
     for name, n in sorted(per_client.items(), key=lambda kv: -kv[1]):
         print(f"  {name}: {n}건")
 
-    if 총:
-        확정 = 판정.get(Verdict.RULE_CONFIRMED, 0)
-        추천 = 판정.get(Verdict.RECOMMENDED, 0)
-        미해소 = 판정.get(Verdict.UNRESOLVED, 0)
-        print(f"\n계정 상태: 룰확정 {확정} / 추천해소 {추천} / 미해소 {미해소}"
-              f"  (자동처리 {(확정 + 추천) / 총 * 100:.1f}%)")
-        if 미해소:
+    확정 = 판정.get(Verdict.RULE_CONFIRMED, 0)
+    추천 = 판정.get(Verdict.RECOMMENDED, 0)
+    미해소 = 판정.get(Verdict.UNRESOLVED, 0)
+    뽑은전체 = 확정 + 추천 + 미해소
+    if 뽑은전체:
+        print(f"\n계정 상태(뽑아낸 {뽑은전체}건 기준): 룰확정 {확정} / 추천해소 {추천}"
+              f" / 미해소 {미해소}  (자동처리 {(확정 + 추천) / 뽑은전체 * 100:.1f}%)")
+        if 미해소 and not args.skip_unresolved:
             print(f"  ※ 미해소 {미해소}건은 계정이 비어 있습니다 — 올리기 전에 채우세요.")
+            print("     (--skip-unresolved 를 주면 빼고 만들고, 따로 CSV 로 냅니다)")
         if 검토:
             print(f"  ※ 검토 플래그 {검토}건")
 
@@ -147,6 +171,18 @@ def main(argv=None) -> int:
                         "차변계정코드", "판정", "검토"])
             w.writerows(목록)
         print(f"\n  전체 목록(눈으로 확인용): {목록_path}")
+
+    if 미해소목록:
+        path = out_dir / "미해소_수기입력.csv"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("w", encoding="utf-8-sig", newline="") as fh:
+            w = csv.writer(fh)
+            w.writerow(["수임처", "거래일자", "거래처", "사업자번호", "품명", "업태", "종목",
+                        "공급가액", "세액", "비과세", "합계", "유형코드", "대변계정코드",
+                        "공제여부"])
+            w.writerows(미해소목록)
+        print(f"\n업로드본에서 뺀 미해소 {len(미해소목록)}건: {path}")
+        print("  이 건들은 계정이 비어 있어 뺐습니다 — 위하고에 직접 넣으세요.")
 
     if made:
         print(f"  → {out_dir}")
