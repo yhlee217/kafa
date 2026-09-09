@@ -12,6 +12,11 @@ from __future__ import annotations
 
 import argparse
 import csv
+import warnings
+
+# 위하고 다운로드본은 기본 스타일이 없어 openpyxl 이 파일마다 경고를 낸다 — 출력만 가린다.
+warnings.filterwarnings("ignore", message="Workbook contains no default style",
+                        module="openpyxl")
 from collections import Counter, defaultdict
 from pathlib import Path
 
