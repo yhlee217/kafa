@@ -102,6 +102,14 @@ def load_pg_sites(config_dir: str | None = None) -> dict[str, Any]:
 
 
 @lru_cache(maxsize=None)
+def load_industry_buckets(config_dir: str | None = None) -> dict[str, Any]:
+    """config/industry.yaml — 업태·종목 표기 통일 바구니."""
+    base = Path(config_dir) if config_dir else _DEFAULT_CONFIG_DIR
+    path = base / "industry.yaml"
+    return _load_yaml(path) if path.exists() else {}
+
+
+@lru_cache(maxsize=None)
 def load_lookup_spec(config_dir: str | None = None) -> dict[str, Any]:
     """config/lookup/statements.yaml — 카드사 이용내역의 헤더 문구 별칭."""
     base = Path(config_dir) if config_dir else _DEFAULT_CONFIG_DIR

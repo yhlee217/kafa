@@ -13,6 +13,9 @@ from collections import Counter
 from dataclasses import dataclass, field
 from typing import Iterable
 
+from functools import lru_cache
+
+from kafa.config_loader import load_industry_buckets
 from kafa.rules.accounts import map_account_name_to_code
 
 _NON_ALNUM = re.compile(r"[^0-9A-Za-z가-힣]+")
@@ -27,10 +30,37 @@ def bizno_key(bizno: str) -> str:
     return _DIGITS.sub("", bizno or "")
 
 
-def industry_keys(업태: str, 종목: str) -> list[str]:
+@lru_cache(maxsize=None)
+def _bucket_map(kind: str, config_dir: str | None) -> dict[str, str]:
+    """표기(정규화) → 바구니 이름. 목록에 없는 표기는 담기지 않는다."""
+    spec = (load_industry_buckets(config_dir) or {}).get(kind) or {}
+    out: dict[str, str] = {}
+    for bucket, spellings in (spec.get("buckets") or {}).items():
+        for spelling in spellings or []:
+            key = _NON_ALNUM.sub("", str(spelling)).lower()
+            if key:
+                out[key] = str(bucket)
+    return out
+
+
+def canonical_industry(text: str, kind: str = "업태", *,
+                       config_dir: str | None = None) -> str:
+    """업태/종목 표기를 바구니 이름으로. 모르는 표기는 그대로 둔다.
+
+    `소매업`·`도매 및 소매업`·`도소매` 가 서로 다른 키가 되면 이력이 쪼개져 업종
+    추천의 문턱(건수 3·편중 65%)을 못 넘는다. 바구니는 `config/industry.yaml`.
+    """
+    key = _NON_ALNUM.sub("", (text or "")).lower()
+    if not key:
+        return ""
+    return _bucket_map(kind, config_dir).get(key, key)
+
+
+def industry_keys(업태: str, 종목: str, *,
+                  config_dir: str | None = None) -> list[str]:
     """업종 시드 키(구체적인 것부터). '업태|종목' → '업태'."""
-    u = _NON_ALNUM.sub("", (업태 or "")).lower()
-    j = _NON_ALNUM.sub("", (종목 or "")).lower()
+    u = canonical_industry(업태, "업태", config_dir=config_dir)
+    j = canonical_industry(종목, "종목", config_dir=config_dir)
     keys = []
     if u and j:
         keys.append(f"{u}|{j}")
@@ -50,6 +80,7 @@ class SeedIndex:
     by_vendor: dict[str, Counter] = field(default_factory=dict)
     by_bizno: dict[str, Counter] = field(default_factory=dict)
     by_industry: dict[str, Counter] = field(default_factory=dict)
+    config_dir: str | None = None      # 업종 바구니를 읽을 config 위치
 
     def add(self, vendor: str, bizno: str, account_code: int,
             업태: str = "", 종목: str = "") -> None:
@@ -59,7 +90,7 @@ class SeedIndex:
         bk = bizno_key(bizno)
         if bk:
             self.by_bizno.setdefault(bk, Counter())[account_code] += 1
-        for ik in industry_keys(업태, 종목):
+        for ik in industry_keys(업태, 종목, config_dir=self.config_dir):
             self.by_industry.setdefault(ik, Counter())[account_code] += 1
 
     def top_by_industry(self, 업태: str, 종목: str, *, min_support: int = 3,
@@ -70,7 +101,7 @@ class SeedIndex:
         추천하지 않고 담당자 확인으로 넘기는 게 맞다(틀린 자동 확정보다 안전).
         구체적인 키(업태|종목)를 먼저 보고, 근거가 모자라면 상위 키(업태)로 내려간다.
         """
-        for ik in industry_keys(업태, 종목):
+        for ik in industry_keys(업태, 종목, config_dir=self.config_dir):
             c = self.by_industry.get(ik)
             if not c:
                 continue
@@ -102,14 +133,15 @@ class SeedIndex:
         return not self.by_vendor and not self.by_bizno and not self.by_industry
 
 
-def build_seed_index(records: Iterable[tuple]) -> SeedIndex:
+def build_seed_index(records: Iterable[tuple], *,
+                     config_dir: str | None = None) -> SeedIndex:
     """과거 처리분 레코드 → SeedIndex.
 
     레코드는 (거래처, 사업자번호, 계정코드) 또는 업종까지 포함한
     (거래처, 사업자번호, 계정코드, 업태, 종목) 둘 다 받는다.
     TODO: 최근성 가중 추가.
     """
-    idx = SeedIndex()
+    idx = SeedIndex(config_dir=config_dir)
     for rec in records or []:
         vendor, bizno, code = rec[0], rec[1], rec[2]
         업태 = rec[3] if len(rec) > 3 else ""
@@ -125,7 +157,7 @@ def build_seed_from_inputrows(rows, *, config_dir: str | None = None) -> SeedInd
     차변계정명을 코드로 매핑해 (거래처/사업자번호)별 빈도로 적재한다.
     미추천 행(차변계정 비어있음)은 시드에서 제외.
     """
-    idx = SeedIndex()
+    idx = SeedIndex(config_dir=config_dir)
     for row in rows:
         name = (row.차변계정 or "").strip()
         if not name:
