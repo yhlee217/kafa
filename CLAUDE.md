@@ -67,6 +67,7 @@ kafa/
 config/
   rules.yaml          모든 규칙·코드·키워드 외부화
   account_codes.yaml  검증된 계정명→코드(시트 파싱분과 머지 예정)
+  industry.yaml       업태·종목 표기 통일 바구니(완전일치만 — 모르는 표기는 그대로)
   loops/example.yaml  루프 스펙 예시(비-PII 근거 문장 다듬기)
   lookup/statements.yaml  카드사 이용내역 헤더 문구 별칭(카드사마다 다름)
   lookup/pg_sites.yaml    대행사별 되찾기 경로·관문(PG API 불가 — 소비자 조회 페이지)
