@@ -32,14 +32,14 @@ kafa/
     vat_type.py       1.1 유형 라벨↔코드, 도출
     deductibility.py  1.3 불공제 3단(국세청/자동/검토)
     accounts.py       1.7 계정명→코드 ((제)/(판) 접두 정규화)
-    counterparty.py   1.2 대변(법인 262 / 개인 TODO)
+    counterparty.py   1.2 대변(법인 262 / 개인 인출금 338 — 최종 확인 전까지 검토 플래그)
     deemed_credit.py  1.6 의제 플래그만(율/한도 계산 안 함)
     negative.py       1.9 환불/취소 방향 반전
     vendor_match.py   거래처 정확→후보→미매칭
     engine.py         오케스트레이션 classify_row
   io_wehago/          엑셀 입출력(원천 데이터 로컬 전용)
     reader.py         .xlsx 읽기(pandas), 요약행 제외
-    writer.py         .xls 쓰기(xlwt, CP949) — Phase 3 골격
+    writer.py         .xls 쓰기(xlwt, CP949, 2MB 분할·필수값 검증)
     account_sheet.py  '계정과목(참고용)' 시트 파서 — 구조(헤더) 기반 자동 매핑
     schema.py         입출력 컬럼 상수
   recommend/          Phase 2 미추천 해소 (핵심: AI 대차변 추정 + 근거 생성)
@@ -74,7 +74,7 @@ config/
   lookup/pg_sites.yaml    대행사별 되찾기 경로·관문(PG API 불가 — 소비자 조회 페이지)
   clients.yaml        수임처 속성(개인/법인·직원 유무) — 사람이 채움(kafa-clients)
   fetch/wehago.yaml   감독형 수집 화면 selector(실화면 보고 보정 필요 — 추측 금지)
-tests/                Phase 1 표 기반 단위테스트
+tests/                단위·통합 테스트(합성 데이터만) — 룰·추천·입출력·파이프라인·대사
 ```
 
 ## 규칙/코드표는 코드에 하드코딩하지 않는다
