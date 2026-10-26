@@ -21,6 +21,17 @@ class InputFormatError(ValueError):
     """위하고 다운로드본 형식이 아님(필수 컬럼 누락 등)."""
 
 
+class DownloadRows(list):
+    """읽은 데이터 행 + 파일이 스스로 밝힌 총계.
+
+    위하고 다운로드본 하단의 `합계(카드사:2) : 82건` 은 데이터 행 수와 같다(실샘플 85행 →
+    요약 3행 제외 82행으로 확인). 읽은 행과 맞춰볼 수 있도록 함께 들고 다닌다 —
+    대사는 kafa/integrity.py. 그냥 list 처럼 쓰면 되고, 잘라 쓰면 총계는 따라가지 않는다.
+    """
+    declared_count: int | None = None
+    declared_amount: Decimal | None = None
+
+
 def _to_decimal(value) -> Decimal:
     """금액 셀 → Decimal. 빈 셀·비숫자·NaN/Inf 는 0.
 
@@ -44,6 +55,7 @@ def _s(value) -> str:
 
 
 _COUNT_RE = re.compile(r"\d+\s*건")     # "… : 82건" 같은 집계 문구
+_TOTAL_RE = re.compile(r"^\s*합계.*?([\d,]+)\s*건")   # 하단 총계행 "합계(카드사:2) : 82건"
 
 
 def _is_summary_row(거래처: str, 연도: str, 일자: str) -> bool:
@@ -67,7 +79,7 @@ def _account_or_blank(value: str) -> str:
     return "" if value in PENDING_ACCOUNT_TOKENS else value
 
 
-def read_download_xlsx(path: str | Path) -> list[InputRow]:
+def read_download_xlsx(path: str | Path) -> DownloadRows:
     import pandas as pd  # 지연 import: 룰 모듈은 pandas 불필요
 
     df = pd.read_excel(path, dtype=object)
@@ -83,12 +95,16 @@ def read_download_xlsx(path: str | Path) -> list[InputRow]:
     def col(row, name):
         return row[name] if name in row else None
 
-    rows: list[InputRow] = []
+    rows = DownloadRows()
     for idx, r in df.iterrows():
         거래처 = _s(col(r, "거래처"))
         연도 = _s(col(r, "연도"))
         일자 = _s(col(r, "일자"))
         if _is_summary_row(거래처, 연도, 일자):
+            total = _TOTAL_RE.search(일자) or _TOTAL_RE.search(거래처)
+            if total:                       # 카드사별 소계가 아니라 파일 전체 총계
+                rows.declared_count = int(total.group(1).replace(",", ""))
+                rows.declared_amount = _to_decimal(col(r, "합계"))
             continue
         # 완전 빈 행 스킵
         if not any([연도, 일자, 거래처, _s(col(r, "품명"))]):

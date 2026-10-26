@@ -28,6 +28,7 @@ class FileOutcome:
     inserted: int = 0
     upgraded: int = 0
     existing: int = 0
+    integrity: str = ""     # 행 수·금액 대사 한 줄(kafa/integrity.py)
 
 
 @dataclass
@@ -88,6 +89,8 @@ def run_pipeline(inbox, output_dir, *, client_type: Optional[str] = None,
     from kafa.cli import process_rows
     from kafa.config_loader import client_profile
     from kafa.dup_guard import DupGuard
+    from kafa.integrity import IntegrityError, check_store, hold
+    from kafa.integrity import render as render_tally
     from kafa.io_wehago.reader import read_download_xlsx
     from kafa.recommend.recommender import build_recommender
     from kafa.recommend.seed import build_seed_from_inputrows, build_seed_index
@@ -128,11 +131,23 @@ def run_pipeline(inbox, output_dir, *, client_type: Optional[str] = None,
                 outp.parent.mkdir(parents=True, exist_ok=True)
                 res = process_rows(rows, outp, client_type=ctype, seed=seed,
                                    recommender=recommender, dup=dup, recon=recon,
-                                   profile=profile, config_dir=config_dir)
+                                   profile=profile, flush_dup=False,
+                                   config_dir=config_dir)
 
                 db.upsert_client(client)
                 ing = db.upsert_vouchers(client, period, res["classified"],
                                          source_file=f.name)
+
+                # DB 적재 대사 — 키가 겹치거나 빠지면 그만큼 전표가 사라진 것이다.
+                # 원본을 보관함으로 옮기지 않으므로 고친 뒤 다시 돌리면 된다.
+                tally = res["tally"]
+                check_store(tally, ing.keys, db.count_keys(ing.keys))
+                if not tally.ok:
+                    hold(res["files"])
+                    res["tally_path"].write_text(render_tally(tally, held=True),
+                                                 encoding="utf-8")
+                    raise IntegrityError(tally, res["tally_path"])
+                dup.flush()          # 끝까지 맞은 파일만 '처리함'으로 기록한다
 
                 adir = archive / client
                 adir.mkdir(parents=True, exist_ok=True)
@@ -143,7 +158,7 @@ def run_pipeline(inbox, output_dir, *, client_type: Optional[str] = None,
                     file=f.name, client=client, period=period,
                     written=res["written"], skipped=res["skipped"],
                     inserted=ing.inserted, existing=ing.existing,
-                    upgraded=ing.upgraded))
+                    upgraded=ing.upgraded, integrity=tally.line()))
             except Exception as e:  # noqa: BLE001 — 파일별 에러 격리
                 result.failures[str(f.relative_to(inbox))] = f"{type(e).__name__}: {e}"
 

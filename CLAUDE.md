@@ -25,7 +25,8 @@ kafa/
   security.py         PII 마스킹/해시
   validate.py         사업자번호 체크섬 / 부가율 이상 (순수 검증, Phase 4용)
   eval.py             정확도 검증 하니스(수작업 정답 대조, 자동처리율·불일치 사유별)
-  dup_guard.py        1.8 중복 2차 안전장치(해시 키 로컬 보존)
+  dup_guard.py        1.8 중복 2차 안전장치(해시 키 로컬 보존, 파일 안 순번 포함 — 같은 파일 재처리만 막는다)
+  integrity.py        행 수·금액 대사(하단 총계·분류·업로드 재확인·DB 적재) — 안 맞으면 실패·업로드본 보류
   rules/              Phase 1 결정론적 룰 엔진(순수 함수 + 단위테스트)
     models.py         InputRow / ClassifiedRow / Verdict / Deduct
     vat_type.py       1.1 유형 라벨↔코드, 도출

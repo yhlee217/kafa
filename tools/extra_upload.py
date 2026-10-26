@@ -23,6 +23,7 @@ from pathlib import Path
 from kafa.cli import classify_rows
 from kafa.config_loader import client_profile
 from kafa.io_wehago.reader import read_download_xlsx
+from kafa.integrity import IntegrityError, check_upload_files, hold, tally_batch
 from kafa.io_wehago.writer import to_output_row, write_upload_xls
 from kafa.pipeline.runner import _merge_seed, _period_of, resolve_client
 from kafa.recommend.recommender import build_recommender
@@ -132,8 +133,18 @@ def main(argv=None) -> int:
                 continue
             period = _period_of(rows)
             path = out_dir / client / f"{f.stem}_{period}_보충_upload.xls"
-            made += write_upload_xls(보낼행, path, strict=False,
-                                     config_dir=args.config_dir)
+            # 행 수·금액 대사 — 뽑은 행 = 업로드 + 스킵 + 따로 뺀 행, 파일 재확인
+            tally = tally_batch(빠진행, classified, 보낼행, held=보류,
+                                config_dir=args.config_dir)
+            if not tally.ok:
+                raise IntegrityError(tally)
+            written = write_upload_xls(보낼행, path, strict=False,
+                                       config_dir=args.config_dir)
+            check_upload_files(tally, written)
+            if not tally.ok:
+                hold(written)
+                raise IntegrityError(tally)
+            made += written
             총 += len(보낼행)
             per_client[client] += len(보낼행)
             for c in classified:
