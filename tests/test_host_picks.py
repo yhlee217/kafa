@@ -298,6 +298,10 @@ def test_exam_and_score(tmp_path):
     assert (sc.answered, sc.exact, sc.seen, sc.same_account) == (3, 1, 1, 1)
     assert sc.rows == 11 and sc.rows_exact == 3
     assert sc.bands["0.8 이상"] == (1, 2)
+    # 행 단위: 문구 6건 중 811 은 1건, 인쇄 3건 모두, 커피 2건 중 511 은 0건 → 4/11
+    assert (sc.rows_hit, sc.applied_hit, sc.applied_rows) == (4, 4, 11)
+    assert sc.band_rows["0.8 이상"] == (3, 5) and sc.band_rows["0.5~0.8"] == (1, 6)
+    assert "적용되는 답(확신 0.5 이상)  4/11건 (36%)" in sc.render()
     assert (ai_dir(out) / "exam_report.txt").exists()
 
 

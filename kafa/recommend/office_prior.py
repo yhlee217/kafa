@@ -163,7 +163,7 @@ class PriorCheck:
             out.append(f"  {k}곳 · {s:.0%}            | {allc:>6} · {alla:>6}      | "
                        f"{newc:>6} · {newa:>6}               | {unres:>5}건{mark}")
         out += ["",
-                "비교: Claude 시험(2026-11-23) 확신 0.5 이상 정답 89%.",
+                "비교: kafa-ask score 의 '행 단위 · 적용되는 답' 정답률(같은 잣대).",
                 ("정답률이 그보다 높고 채움이 의미 있는 기준을 골라 config/rules.yaml 의 "
                  "recommend.office_prior 에 넣는다.")]
         return "\n".join(out) + "\n"
