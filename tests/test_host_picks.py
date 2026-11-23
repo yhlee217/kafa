@@ -16,6 +16,7 @@ from kafa.recommend.host_picks import (
     QUESTIONS,
     ai_dir,
     build_exam,
+    exam_key_path,
     load_picks,
     merge_answers,
     pick_signature,
@@ -283,7 +284,8 @@ def test_exam_and_score(tmp_path):
     exam = json.loads((ai_dir(out) / EXAM_QUESTIONS).read_text(encoding="utf-8"))
     assert exam["kind"] == "kafa-exam" and "codes" not in json.dumps(exam)    # 정답 없음
     assert "토스페이먼츠" not in json.dumps(exam, ensure_ascii=False)
-    key = json.loads((ai_dir(out) / EXAM_KEY).read_text(encoding="utf-8"))["key"]
+    assert not (ai_dir(out) / EXAM_KEY).exists()          # 정답은 공유 폴더(_ai) 밖에
+    key = json.loads(exam_key_path(out).read_text(encoding="utf-8"))["key"]
     ids = {(q["업태"], q["종목"]): q["id"] for q in exam["questions"]}
     assert key[ids[("도매", "문구")]]["answer"] == 830
 
@@ -343,3 +345,17 @@ def test_ask_cli_prepare_prints_no_names(run_wired, capsys):
     said = capsys.readouterr().out
     assert "새로 물을 것 1가지" in said
     assert "고객001" not in said and VENDOR not in said and BIZNO not in said
+
+
+def test_exam_key_from_old_location_still_scores_and_is_cleaned(tmp_path):
+    """예전 위치(_ai/exam_key.json)에 만든 시험도 채점되고, 새 시험을 만들면 지워진다."""
+    out = tmp_path / "out"
+    records = [("인쇄소", "제조", "인쇄", "", "카과", 826)] * 3
+    build_exam(records, out, n=5)
+    exam_key_path(out).rename(ai_dir(out) / EXAM_KEY)     # 예전 배치 흉내
+    qid = json.loads((ai_dir(out) / EXAM_QUESTIONS).read_text(encoding="utf-8"))["questions"][0]["id"]
+    (ai_dir(out) / "exam_answers.json").write_text(
+        json.dumps({"answers": [{"id": qid, "code": 826, "confidence": 0.9}]}), encoding="utf-8")
+    assert score_exam(out).exact == 1
+    build_exam(records, out, n=5)
+    assert not (ai_dir(out) / EXAM_KEY).exists() and exam_key_path(out).exists()

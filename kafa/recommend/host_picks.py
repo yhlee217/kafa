@@ -34,7 +34,8 @@ ANSWERS = "answers.json"
 PICKS = "picks.json"
 EXAM_QUESTIONS = "exam_questions.json"
 EXAM_ANSWERS = "exam_answers.json"
-EXAM_KEY = "exam_key.json"           # 정답 — 로컬 전용(Claude 에게 보이지 않는다)
+EXAM_KEY = "exam_key.json"           # 정답 — _ai 밖(<결과폴더>/_exam/)에 둔다
+KEY_DIR = "_exam"                    # Cowork 에 _ai 폴더만 연결하면 정답은 보이지 않는다
 EXAM_REPORT = "exam_report.txt"
 
 BASIS_PREFIX = "AI(Claude) 추정: "
@@ -70,6 +71,10 @@ def settings(config_dir: str | None = None) -> dict:
 
 def ai_dir(out_dir) -> Path:
     return Path(out_dir) / AI_DIR
+
+
+def exam_key_path(out_dir) -> Path:
+    return Path(out_dir) / KEY_DIR / EXAM_KEY
 
 
 def _today() -> str:
@@ -425,7 +430,10 @@ def build_exam(records, out_dir, *, n: int = 150, usage: dict | None = None,
                     "answer": e["codes"].most_common(1)[0][0], "rows": rows}
     write_questions(out_dir, questions, account_catalog(usage, config_dir=config_dir),
                     name=EXAM_QUESTIONS, answer_file=EXAM_ANSWERS, kind="kafa-exam")
-    _write_json(ai_dir(out_dir) / EXAM_KEY, {"kind": "kafa-exam-key", "key": key})
+    _write_json(exam_key_path(out_dir), {"kind": "kafa-exam-key", "key": key})
+    legacy = ai_dir(out_dir) / EXAM_KEY  # 예전 위치(공유 폴더 안) — 남겨 두지 않는다
+    if legacy.exists():
+        legacy.unlink()
     return len(questions)
 
 
@@ -476,7 +484,10 @@ class ExamScore:
 
 def score_exam(out_dir, *, config_dir: str | None = None) -> ExamScore | None:
     d = ai_dir(out_dir)
-    key = (_read_json(d / EXAM_KEY, {}) or {}).get("key") or {}
+    key_file = exam_key_path(out_dir)
+    if not key_file.exists():
+        key_file = d / EXAM_KEY          # 예전 위치에 만든 시험
+    key = (_read_json(key_file, {}) or {}).get("key") or {}
     if not key or not (d / EXAM_ANSWERS).exists():
         return None
     questions = {q["id"]: q for q in

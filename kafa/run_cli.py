@@ -75,7 +75,8 @@ def _ask_first(inbox: Path, out: Path, *, no_ask: bool = False) -> bool:
 Claude 에게 물을 것이 {res.new}가지 있어 여기서 멈춥니다.
   질문지: {res.path}
           (업태·종목·품명·유형과 건수만 — 거래처·사업자번호·금액 없음)
-  1) Claude 에게 docs/cowork_ask.md 의 프롬프트를 붙여넣으면 답지(answers.json)를 씁니다.
+  1) Claude(Cowork)에 {res.path.parent} 폴더만 연결하고 docs/cowork_ask.md 의
+     프롬프트를 붙여넣으면 답지(answers.json)를 씁니다.
   2) 다 되면 다시:  kafa-run --skip-fetch
   묻지 않고 그냥 진행:  kafa-run --skip-fetch --no-ask""")
     return True

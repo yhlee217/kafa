@@ -47,7 +47,8 @@ def cmd_prepare(args) -> int:
         print(f"  (읽지 못한 파일 {len(res.failures)}개 — 처리 단계에서 다시 보고됩니다)")
     if res.new:
         print(f"\n질문지: {res.path}")
-        print("Claude 에게 docs/cowork_ask.md 의 프롬프트를 붙여넣으면 답지(answers.json)를 씁니다.")
+        print(f"Claude(Cowork)에 {res.path.parent} 폴더만 연결하고 docs/cowork_ask.md 의 "
+              "프롬프트를 붙여넣으면 답지(answers.json)를 씁니다.")
     else:
         print("\n새로 물을 것이 없습니다.")
     return 0
@@ -84,7 +85,12 @@ def cmd_show(args) -> int:
 
 
 def cmd_exam(args) -> int:
-    from kafa.recommend.host_picks import EXAM_ANSWERS, ai_dir, build_exam
+    from kafa.recommend.host_picks import (
+        EXAM_ANSWERS,
+        ai_dir,
+        build_exam,
+        exam_key_path,
+    )
     from kafa.store.db import VoucherStore
     _, out = _paths(args)
     db_path = out / "kafa.db"
@@ -102,7 +108,8 @@ def cmd_exam(args) -> int:
     if old.exists():
         old.unlink()                     # 지난 시험 답이 새 시험지에 섞이지 않게
     print(f"처리된 행 {len(records)}건에서 시험 문제 {n}가지를 만들었습니다.")
-    print(f"시험지: {ai_dir(out) / 'exam_questions.json'} (정답은 로컬 exam_key.json 에만)")
+    print(f"시험지: {ai_dir(out) / 'exam_questions.json'}")
+    print(f"정답:   {exam_key_path(out)} (_ai 밖 — Claude 에게 _ai 폴더만 연결하면 안 보인다)")
     print("Claude 에게 docs/cowork_ask.md 의 '시험' 프롬프트를 붙여넣고, 끝나면 kafa-ask score")
     return 0
 
