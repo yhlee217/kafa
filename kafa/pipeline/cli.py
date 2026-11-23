@@ -25,10 +25,13 @@ def main(argv: list[str] | None = None) -> int:
     res = run_pipeline(args.inbox, args.output,
                        client_type=args.client_type, config_dir=args.config_dir)
 
+    if res.ai_note:
+        print(res.ai_note)
     for o in res.outcomes:
         print(f"[{o.client}/{o.period}] {o.file} → 작성 {o.written}/스킵 {o.skipped} "
               f"(DB 신규 {o.inserted}/기존 {o.existing}"
-              + (f"/되살림 {o.upgraded}" if o.upgraded else "") + ")")
+              + (f"/되살림 {o.upgraded}" if o.upgraded else "") + ")"
+              + (f" · Claude 답 적용 {o.ai_applied}건" if o.ai_applied else ""))
         if o.integrity:
             print(f"    {o.integrity}")
     for name, msg in res.failures.items():

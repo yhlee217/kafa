@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 
 from kafa.rules.models import InputRow
 
@@ -18,13 +19,56 @@ ACCOUNT_FEATURE_FIELDS = ("업태", "종목", "품명", "유형")
 FORBIDDEN_PII_FIELDS = ("거래처", "사업자등록번호")
 
 
+# 품명 안의 긴 숫자열(카드·사업자·전화·주문번호)은 가린다 — 계정 판단에 쓸모가 없다.
+_LONG_DIGITS = re.compile(r"\d[\d\- ]{4,}\d")
+_CORP_MARKS = re.compile(r"\(주\)|\(유\)|\(사\)|㈜|주식회사|유한회사|\s+")
+_SPACES = re.compile(r"\s+")
+
+
+def _core_name(name: str) -> str:
+    return _CORP_MARKS.sub("", name or "")
+
+
+def scrub_item(품명: str, 거래처: str = "") -> str:
+    """품명에서 식별정보를 걷어낸다(방어선 — 품명은 대개 공란이다).
+
+    - 긴 숫자열 → `#`
+    - 가맹점 이름이 품명에 그대로 들어 있으면 → `(가맹점)` (법인 표기·공백 무시 비교)
+    """
+    text = _SPACES.sub(" ", (품명 or "").strip())
+    if not text:
+        return ""
+    text = _LONG_DIGITS.sub("#", text)
+    core = _core_name(거래처)
+    if len(core) < 2:
+        return text
+
+    def _is_vendor(tok: str) -> bool:
+        t = _core_name(tok)
+        return bool(t) and (core in t or (len(t) >= 3 and t in core))
+
+    toks = text.split(" ")
+    out = ["(가맹점)" if _is_vendor(t) else t for t in toks]
+    text = " ".join(out)
+    if core in _core_name(text):          # 띄어쓰기가 갈라 놓은 경우 — 통째로 가린다
+        return "(가맹점)"
+    return text
+
+
 def account_features(row: InputRow) -> dict[str, str]:
     """계정 추정용 비-PII 특징 dict. PII 필드는 구조적으로 포함될 수 없다."""
+    return make_features(업태=row.업태, 종목=row.종목, 품명=row.품명, 유형=row.유형,
+                         거래처=row.거래처)
+
+
+def make_features(*, 업태: str = "", 종목: str = "", 품명: str = "", 유형: str = "",
+                  거래처: str = "") -> dict[str, str]:
+    """필드값 → 비-PII 특징. 거래처는 품명을 가리는 데만 쓰고 결과에 넣지 않는다."""
     feats = {
-        "업태": (row.업태 or "").strip(),
-        "종목": (row.종목 or "").strip(),
-        "품명": (row.품명 or "").strip(),
-        "유형": (row.유형 or "").strip(),
+        "업태": (업태 or "").strip(),
+        "종목": (종목 or "").strip(),
+        "품명": scrub_item(품명 or "", 거래처 or ""),
+        "유형": (유형 or "").strip(),
     }
     # 방어적 검증: 혹시라도 PII 가 섞이면 즉시 실패(개발 중 회귀 방지).
     assert set(feats).isdisjoint(FORBIDDEN_PII_FIELDS), "PII가 특징에 포함됨"

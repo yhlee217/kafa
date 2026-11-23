@@ -29,6 +29,7 @@ class FileOutcome:
     upgraded: int = 0
     existing: int = 0
     integrity: str = ""     # 행 수·금액 대사 한 줄(kafa/integrity.py)
+    ai_applied: int = 0     # Claude 답(_ai/picks.json)으로 계정을 채운 행
 
 
 @dataclass
@@ -37,6 +38,7 @@ class PipelineResult:
     failures: dict[str, str] = field(default_factory=dict)
     db_path: str = ""
     total_in_db: int = 0
+    ai_note: str = ""       # Claude 답지 반영 한 줄(있을 때만)
 
     @property
     def ok(self) -> bool:
@@ -81,20 +83,71 @@ def _uniq(dest: Path) -> Path:
         i += 1
 
 
+def list_inbox(inbox: Path, out_dir: Path) -> list[Path]:
+    """처리할 다운로드본 — 임시파일(~$)·보관함(_archive) 제외."""
+    archive = Path(out_dir) / "_archive"
+    return sorted(p for p in Path(inbox).rglob("*.xlsx")
+                  if not p.name.startswith("~$") and archive not in p.parents)
+
+
+@dataclass
+class FileContext:
+    """파일 하나를 분류하는 데 필요한 것 — 처리(run_pipeline)와 질문지(ask)가 같이 쓴다.
+
+    둘이 다르게 준비하면 질문지에 '처리하면 풀릴 행'이 섞이거나 빠진다.
+    """
+    client: str
+    rows: list
+    period: str
+    dup: object
+    seed: object
+    recommender: object
+    type_index: object
+    profile: dict
+    ctype: Optional[str]
+
+
+def file_context(f: Path, inbox: Path, out_dir: Path, db, picks: dict, *,
+                 client_type: Optional[str] = None,
+                 config_dir: Optional[str] = None) -> FileContext:
+    from kafa.config_loader import client_profile
+    from kafa.dup_guard import DupGuard
+    from kafa.io_wehago.reader import read_download_xlsx
+    from kafa.recommend.host_picks import wrap
+    from kafa.recommend.recommender import build_recommender
+    from kafa.recommend.seed import build_seed_from_inputrows, build_seed_index
+    from kafa.recommend.type_seed import build_type_index, build_type_index_from_inputrows
+
+    client = resolve_client(inbox, f)
+    rows = read_download_xlsx(f)
+    dup = DupGuard(out_dir / client / "_state" / "dup.json")
+    # 자가 시딩: 이번 파일 + **이 고객의 누적 이력(DB)**.
+    # 지난 달에 처리한 가맹점이 이번 달에도 나오면 그대로 해소된다.
+    seed = build_seed_from_inputrows(rows, config_dir=config_dir)
+    _merge_seed(seed, build_seed_index(db.seed_records(client, exclude_source=f.name)))
+    # 이력·시드가 먼저, 그것이 못 푼 행에만 Claude 답(_ai/picks.json)
+    recommender = wrap(build_recommender(seed, config_dir=config_dir), picks,
+                       config_dir=config_dir)
+    # 유형 추천 재료: 이번 파일의 처리된 행 + 이 수임처의 지난 처리 이력(DB)
+    type_index = build_type_index_from_inputrows(rows).merge(build_type_index(
+        db.type_records(client, exclude_source=f.name, config_dir=config_dir)))
+    # 수임처 속성(개인/법인·직원 유무) — 고객마다 다르므로 배치 단일값이 아니라
+    # clients.yaml 에서 읽는다. 명령행 --client-type 이 있으면 그것이 우선.
+    profile = client_profile(client, config_dir)
+    return FileContext(client=client, rows=rows, period=_period_of(rows), dup=dup,
+                       seed=seed, recommender=recommender, type_index=type_index,
+                       profile=profile, ctype=client_type or profile.get("client_type"))
+
+
 def run_pipeline(inbox, output_dir, *, client_type: Optional[str] = None,
                  config_dir: Optional[str] = None,
                  run_id: str = "run") -> PipelineResult:
     """inbox 의 .xlsx 들을 고객별로 일괄 처리 → DB 누적 + 업로드 산출물."""
     from kafa.agent.recon import VendorBaseline
     from kafa.cli import process_rows
-    from kafa.config_loader import client_profile
-    from kafa.dup_guard import DupGuard
     from kafa.integrity import IntegrityError, check_store, hold
     from kafa.integrity import render as render_tally
-    from kafa.io_wehago.reader import read_download_xlsx
-    from kafa.recommend.recommender import build_recommender
-    from kafa.recommend.seed import build_seed_from_inputrows, build_seed_index
-    from kafa.recommend.type_seed import build_type_index, build_type_index_from_inputrows
+    from kafa.recommend.host_picks import BASIS_PREFIX, load_picks, merge_answers, settings
     from kafa.store.db import VoucherStore
 
     inbox = Path(inbox)
@@ -102,41 +155,31 @@ def run_pipeline(inbox, output_dir, *, client_type: Optional[str] = None,
     out_dir.mkdir(parents=True, exist_ok=True)
     archive = out_dir / "_archive"
 
-    files = sorted(p for p in inbox.rglob("*.xlsx")
-                   if not p.name.startswith("~$") and archive not in p.parents)
+    files = list_inbox(inbox, out_dir)
 
     result = PipelineResult(db_path=str(out_dir / "kafa.db"))
+    picks: dict = {}
+    if settings(config_dir)["enabled"]:
+        merged = merge_answers(out_dir, config_dir=config_dir)   # 새 답지가 있으면 먼저 합친다
+        if merged is not None:
+            result.ai_note = merged.line()
+        picks = load_picks(out_dir)
     db = VoucherStore(out_dir / "kafa.db")
     try:
         for f in files:
             client = resolve_client(inbox, f)
             try:
-                rows = read_download_xlsx(f)
-                period = _period_of(rows)
-                state = out_dir / client / "_state"
-                dup = DupGuard(state / "dup.json")
-                recon = VendorBaseline(state / "recon.json")
-                # 자가 시딩: 이번 파일 + **이 고객의 누적 이력(DB)**.
-                # 지난 달에 처리한 가맹점이 이번 달에도 나오면 그대로 해소된다.
-                seed = build_seed_from_inputrows(rows, config_dir=config_dir)
-                _merge_seed(seed, build_seed_index(
-                    db.seed_records(client, exclude_source=f.name)))
-                recommender = build_recommender(seed, config_dir=config_dir)
-                # 유형 추천 재료: 이번 파일의 처리된 행 + 이 수임처의 지난 처리 이력(DB)
-                type_index = build_type_index_from_inputrows(rows).merge(build_type_index(
-                    db.type_records(client, exclude_source=f.name, config_dir=config_dir)))
-
-                # 수임처 속성(개인/법인·직원 유무) — 고객마다 다르므로 배치 단일값이 아니라
-                # clients.yaml 에서 읽는다. 명령행 --client-type 이 있으면 그것이 우선.
-                profile = client_profile(client, config_dir)
-                ctype = client_type or profile.get("client_type")
+                ctx = file_context(f, inbox, out_dir, db, picks,
+                                   client_type=client_type, config_dir=config_dir)
+                rows, period, dup = ctx.rows, ctx.period, ctx.dup
+                recon = VendorBaseline(out_dir / client / "_state" / "recon.json")
 
                 outp = out_dir / client / period / (f.stem + "_upload.xls")
                 outp.parent.mkdir(parents=True, exist_ok=True)
-                res = process_rows(rows, outp, client_type=ctype, seed=seed,
-                                   recommender=recommender, dup=dup, recon=recon,
-                                   profile=profile, flush_dup=False,
-                                   type_index=type_index, config_dir=config_dir)
+                res = process_rows(rows, outp, client_type=ctx.ctype, seed=ctx.seed,
+                                   recommender=ctx.recommender, dup=dup, recon=recon,
+                                   profile=ctx.profile, flush_dup=False,
+                                   type_index=ctx.type_index, config_dir=config_dir)
 
                 db.upsert_client(client)
                 ing = db.upsert_vouchers(client, period, res["classified"],
@@ -162,7 +205,10 @@ def run_pipeline(inbox, output_dir, *, client_type: Optional[str] = None,
                     file=f.name, client=client, period=period,
                     written=res["written"], skipped=res["skipped"],
                     inserted=ing.inserted, existing=ing.existing,
-                    upgraded=ing.upgraded, integrity=tally.line()))
+                    upgraded=ing.upgraded, integrity=tally.line(),
+                    ai_applied=sum(1 for c in res["classified"]
+                                   if not c.skipped
+                                   and (c.추천근거 or "").startswith(BASIS_PREFIX))))
             except Exception as e:  # noqa: BLE001 — 파일별 에러 격리
                 result.failures[str(f.relative_to(inbox))] = f"{type(e).__name__}: {e}"
 
@@ -178,6 +224,7 @@ def run_pipeline(inbox, output_dir, *, client_type: Optional[str] = None,
     (logs / "manifest.json").write_text(
         json.dumps({"outcomes": [asdict(o) for o in result.outcomes],
                     "failures": result.failures,
+                    "ai_note": result.ai_note,
                     "total_in_db": result.total_in_db},
                    ensure_ascii=False, indent=2), encoding="utf-8")
 

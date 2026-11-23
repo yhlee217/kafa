@@ -12,7 +12,7 @@ Mac에서 도는 Claude(Cowork/로컬 에이전트)에게 수집 작업을 맡�
 다시 돌리는 일을 맡는다.
 
 ## 환경
-- 레포: `/Users/eyonghwi/Desktop/Dev/Mirrorball/kafa`
+- 레포: `/Users/eyonghwi/Dev/Mirrorball/kafa`
 - 파이썬: 같은 폴더의 `.venv` (없으면 `python3.12 -m venv .venv` 로 만들고
   `.venv/bin/pip install -e ".[dev]" playwright` 후 `.venv/bin/playwright install chromium`)
 - 실행은 항상 레포 폴더에서 `PYTHONPATH=$PWD .venv/bin/python -m kafa.fetch.cli ...`
@@ -126,7 +126,7 @@ DOM 덤프(`kafa-fail.txt`)로 안 풀리면 `--screenshot-on-fail` 을 붙여 �
 ## 참고 — 사람이 직접 돌릴 때의 명령
 
 ```bash
-cd /Users/eyonghwi/Desktop/Dev/Mirrorball/kafa
+cd /Users/eyonghwi/Dev/Mirrorball/kafa
 MASTER="[마스터 엑셀 전체 경로]"
 
 # 무엇을 받을지 확인

@@ -41,6 +41,46 @@ def _banner(step: int, total: int, title: str) -> None:
     print(f"\n{'=' * 60}\n[{step}/{total}] {title}\n{'=' * 60}")
 
 
+ASK_WAIT = 3          # 종료코드: Claude 답을 기다리는 중(오류 아님)
+
+
+def _ask_first(inbox: Path, out: Path, *, no_ask: bool = False) -> bool:
+    """분류 전에 Claude 에게 물을 것을 정리한다. 새 질문이 있고 기다리기로 했으면 True.
+
+    답지(answers.json)가 이미 있으면 먼저 합치고 나서 센다. 한 번 물은 특징(모름 포함)은
+    다시 묻지 않으므로, 답을 받고 다시 실행하면 그대로 넘어간다.
+    """
+    from kafa.ask_cli import print_merge
+    from kafa.pipeline.ask import prepare_questions
+    from kafa.recommend.host_picks import settings
+    s = settings()
+    if not s["enabled"]:
+        print("(꺼져 있음 — config recommend.host_picks.enabled)")
+        return False
+    try:
+        res = prepare_questions(inbox, out)
+    except Exception as e:  # noqa: BLE001 — 질문 정리가 실패해도 분류는 막지 않는다
+        print(f"질문 정리를 건너뜁니다: {type(e).__name__}")
+        return False
+    print_merge(res.merged)
+    for line in res.questions.lines():
+        print(line)
+    if not res.new:
+        print("새로 물을 것이 없습니다 — 바로 분류합니다.")
+        return False
+    if no_ask or not s["ask_before_run"]:
+        print("묻지 않고 진행합니다(이번 질문은 다음에 다시 나옵니다).")
+        return False
+    print(f"""
+Claude 에게 물을 것이 {res.new}가지 있어 여기서 멈춥니다.
+  질문지: {res.path}
+          (업태·종목·품명·유형과 건수만 — 거래처·사업자번호·금액 없음)
+  1) Claude 에게 docs/cowork_ask.md 의 프롬프트를 붙여넣으면 답지(answers.json)를 씁니다.
+  2) 다 되면 다시:  kafa-run --skip-fetch
+  묻지 않고 그냥 진행:  kafa-run --skip-fetch --no-ask""")
+    return True
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(
         prog="kafa-run",
@@ -57,6 +97,8 @@ def main(argv: list[str] | None = None) -> int:
                     help="진행 로그를 파일로 남긴다(이름은 번호로 가려짐)")
     ap.add_argument("--shots", nargs="?", const="kafa-shots", metavar="폴더",
                     help="수임처마다 화면 사진을 남긴다(거래내역·거래처명 흐림 처리)")
+    ap.add_argument("--no-ask", action="store_true",
+                    help="Claude 에게 물을 것이 있어도 기다리지 않고 바로 분류한다")
     ap.add_argument("--probe", action="store_true",
                     help="받지 않고 전부 한 바퀴 돌며 점검만 한다"
                          "(자료 있는 곳·막히는 곳을 표로)")
@@ -76,7 +118,7 @@ def main(argv: list[str] | None = None) -> int:
     save_settings({"master": str(Path(master).expanduser()), "inbox": str(inbox),
                    "out": str(out), **({"profile": profile} if profile else {})})
 
-    total = 2 if args.skip_fetch else 3
+    total = 3 if args.skip_fetch else 4
     step = 0
 
     if not args.skip_fetch:
@@ -107,6 +149,11 @@ def main(argv: list[str] | None = None) -> int:
     _banner(step, total, "수임처 속성(개인/법인) 반영")
     from kafa.clients_cli import main as clients_main
     clients_main(["from-master", str(master)])
+
+    step += 1
+    _banner(step, total, "Claude 에게 물을 것 정리(업태·종목·품명·유형만)")
+    if _ask_first(inbox, out, no_ask=args.no_ask):
+        return ASK_WAIT
 
     step += 1
     _banner(step, total, "분류 · 업로드본 생성")

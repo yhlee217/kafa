@@ -220,6 +220,28 @@ class VoucherStore:
         return [(r[0] or "", r[1] or "", labels.get(int(r[2]), ""))
                 for r in self._conn.execute(sql, params)]
 
+    def account_records(self, *, config_dir: str | None = None) -> list[tuple]:
+        """처리된 행 [(거래처, 업태, 종목, 품명, 유형 라벨, 차변계정코드), ...].
+
+        Claude 추천 시험(kafa-ask exam)의 재료 — 위하고·담당자가 정한 계정이 정답이다.
+        거래처는 로컬에서 대행사를 거르고 품명의 가맹점명을 가리는 데만 쓴다(PII — 밖으로
+        내보내지 않는다).
+        """
+        from kafa.config_loader import load_rules
+        labels = {int(v): str(k) for k, v in
+                  (load_rules(config_dir).get("vat_type_codes") or {}).items()}
+        sql = ("SELECT 거래처, 업태, 종목, 품명, 유형코드, 차변계정코드 FROM vouchers "
+               "WHERE 차변계정코드 IS NOT NULL AND skipped=0 AND 판정유형='rule_confirmed'")
+        return [(r[0] or "", r[1] or "", r[2] or "", r[3] or "",
+                 labels.get(int(r[4]), "") if r[4] is not None else "", int(r[5]))
+                for r in self._conn.execute(sql)]
+
+    def account_usage(self) -> dict[int, int]:
+        """처리된 행의 차변계정 사용 횟수 {코드: 건수} — 이 사무실이 실제로 쓰는 계정."""
+        sql = ("SELECT 차변계정코드, COUNT(*) FROM vouchers WHERE 차변계정코드 IS NOT NULL "
+               "AND skipped=0 AND 판정유형='rule_confirmed' GROUP BY 차변계정코드")
+        return {int(c): int(n) for c, n in self._conn.execute(sql)}
+
     def count(self, client_id: str | None = None) -> int:
         if client_id is not None:
             return self._conn.execute(
@@ -238,11 +260,16 @@ class VoucherStore:
         처리했는지가 이번 달 미추천 해소의 가장 강한 근거다. 스킵·계정 미정 행은 제외.
         exclude_source: 지금 처리 중인 파일을 제외(재처리 시 자기 자신 참조 방지).
 
+        Claude 가 추정한 행(근거 `AI(Claude) 추정`)은 뺀다 — 이번 달의 추정이 다음 달엔
+        '같은 가맹점 이력'으로 둔갑해 더 높은 신뢰도로 되돌아오면 안 된다. 같은 특징이면 같은
+        답이 다시 적용되므로(AI 로 표시된 채) 빼도 결과는 같고, 표시만 정직해진다.
+
         주의: 반환값에 거래처·사업자번호(PII)가 포함된다. **로컬 처리 전용**이며
         모델·리포트로 내보내지 않는다(시드는 코드가 계정코드만 뽑아 쓴다).
         """
         sql = ("SELECT 거래처, 사업자번호, 차변계정코드, 업태, 종목 FROM vouchers "
-               "WHERE 차변계정코드 IS NOT NULL AND skipped=0")
+               "WHERE 차변계정코드 IS NOT NULL AND skipped=0 "
+               "AND COALESCE(추천근거,'') NOT LIKE 'AI(Claude) 추정%'")
         params: list = []
         if client_id is not None:
             sql += " AND client_id=?"

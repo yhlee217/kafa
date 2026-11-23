@@ -13,6 +13,7 @@ from pathlib import Path
 from kafa.agent.recon import VendorBaseline
 from kafa.dup_guard import DupGuard, make_key
 from kafa.rules.deductibility import apply_account_rule
+from kafa.recommend.host_picks import HINT_PREFIX
 from kafa.recommend.recommender import Recommender, SeedRecommender
 from kafa.recommend.seed import SeedIndex, build_seed_from_inputrows
 from kafa.rules.engine import classify_row, finalize_reversal
@@ -128,6 +129,8 @@ def classify_rows(rows: list[InputRow], *,
                         "직원이 없는 수임처인데 복리후생비로 추천됨 → 확인 필요"
                         " (docs/domain_notes.md)")
                 _settle_agent_review(c, rec.confidence, config_dir)
+            elif rec.basis.startswith(HINT_PREFIX):
+                c.추천근거 = rec.basis          # Claude 가 모름·낮은 확신 — 담당자 참고용
         # 추천으로 계정이 정해졌으면 계정 규칙(접대비 → 불공제)을 건다 — 환불 swap 전에.
         apply_account_rule(c, config_dir=config_dir)
         if type_hint:
