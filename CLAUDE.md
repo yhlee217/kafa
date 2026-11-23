@@ -30,7 +30,7 @@ kafa/
   rules/              Phase 1 결정론적 룰 엔진(순수 함수 + 단위테스트)
     models.py         InputRow / ClassifiedRow / Verdict / Deduct
     vat_type.py       1.1 유형 라벨↔코드, 도출
-    deductibility.py  1.3 불공제 3단(국세청/자동/검토)
+    deductibility.py  1.3 불공제 — 담당자가 정한 유형(카과/일반, 2026-11 확정) → 없으면 국세청 / 자동 / 검토
     accounts.py       1.7 계정명→코드 ((제)/(판) 접두 정규화)
     counterparty.py   1.2 대변(법인 미지급비용 262 / 개인 인출금 338 — 2026-11 확정)
     deemed_credit.py  1.6 의제 플래그만(율/한도 계산 안 함)

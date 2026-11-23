@@ -233,3 +233,27 @@ def test_cli_from_master_is_rerunnable(tmp_path):
 def test_cli_from_master_missing_file(tmp_path):
     from kafa.clients_cli import main
     assert main(["from-master", str(tmp_path / "없음.xlsx")]) == 2
+
+
+# ── 조사표가 실수로 지워지지 않게 (2026-11-23: 잘린 명령이 채워 둔 조사표를 빈 양식으로 덮었다) ──
+
+def test_template_refuses_to_overwrite_an_existing_survey(tmp_path, capsys):
+    from kafa.clients_cli import main
+
+    f = tmp_path / "조사표.xlsx"
+    assert main(["template", str(f)]) == 0
+    before = f.read_bytes()
+    assert main(["template", str(f)]) == 1
+    assert f.read_bytes() == before                       # 그대로 남아 있다
+    assert "덮어쓰지 않습니다" in capsys.readouterr().err
+    assert main(["template", str(f), "--force"]) == 0     # 원하면 새로 만들 수 있다
+
+
+def test_template_stops_when_a_source_path_is_missing(tmp_path, capsys):
+    """잘린 경로(--from-db ~/kafa-out/k)로 빈 양식을 만들고 넘어가지 않는다."""
+    from kafa.clients_cli import main
+
+    f = tmp_path / "조사표.xlsx"
+    assert main(["template", str(f), "--from-db", str(tmp_path / "k")]) == 2
+    assert not f.exists()
+    assert "--from-db 경로가 없습니다" in capsys.readouterr().err
