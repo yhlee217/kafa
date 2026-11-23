@@ -447,7 +447,14 @@ class ExamScore:
     seen: int = 0                # 이력에 있는 계정 중 하나(사람마다 갈리는 업종)
     rows: int = 0
     rows_exact: int = 0
+    # 행 단위 — 그 행을 실제로 처리한 계정과 같은 행 수. 최빈 기준은 다른 계정으로 처리한
+    # 수임처의 행까지 '정답'으로 세어 부풀려진다. 사무실 이력 추천(kafa-ask prior)과 같은 잣대.
+    rows_hit: int = 0
+    min_confidence: float = 0.5
+    applied_rows: int = 0
+    applied_hit: int = 0
     bands: dict = field(default_factory=dict)       # 확신 구간 → [맞음, 전체]
+    band_rows: dict = field(default_factory=dict)   # 확신 구간 → [행 맞음, 행 전체]
     misses: list = field(default_factory=list)      # (특징, 답, 정답) — 비-PII
     rejected: list = field(default_factory=list)
 
@@ -463,23 +470,38 @@ class ExamScore:
             f"정답(최빈 계정과 같음)        {self.exact}/{self.answered} ({self.rate(self.exact)})",
             f"계정은 같고 (제)/(판)만 다름   {self.same_account}",
             f"이력에 있는 다른 계정(갈리는 업종) {self.seen}",
-            f"틀림                          "
-            f"{self.answered - self.exact - self.same_account - self.seen}",
-            "건수 가중 정답률              "
+            (f"틀림                          "
+             f"{self.answered - self.exact - self.same_account - self.seen}"),
+            "건수 가중(최빈 기준)           "
             + (f"{self.rows_exact / self.rows:.0%} ({self.rows_exact}/{self.rows}건)"
                if self.rows else "-"),
             "",
-            "확신 구간별 정답률(최소 확신 기준을 정하는 근거):",
+            "확신 구간별 정답률(문제 단위, 최빈 기준):",
         ]
         for band in ("0.8 이상", "0.5~0.8", "0.5 미만"):
             ok, tot = self.bands.get(band, (0, 0))
             out.append(f"  {band:<8} {ok}/{tot}" + (f" ({ok / tot:.0%})" if tot else ""))
+        out += [
+            "",
+            "행 단위 — 그 행을 실제로 처리한 계정과 같은 비율(수임처마다 갈린 것까지 반영,",
+            "          kafa-ask prior 와 같은 잣대):",
+            f"  답한 것 전체               {_frac(self.rows_hit, self.rows)}",
+            (f"  적용되는 답(확신 {self.min_confidence} 이상)  "
+             f"{_frac(self.applied_hit, self.applied_rows)}"),
+        ]
+        for band in ("0.8 이상", "0.5~0.8", "0.5 미만"):
+            ok, tot = self.band_rows.get(band, (0, 0))
+            out.append(f"  {band:<8} {_frac(ok, tot)}")
         if self.misses:
             out += ["", "틀린 예(업태 / 종목 / 품명 / 유형 → 답 · 정답):"]
             for f, got, want in self.misses[:20]:
                 out.append(f"  {f['업태'] or '-'} / {f['종목'] or '-'} / {f['품명'] or '-'} / "
                            f"{f['유형'] or '-'} → {got} · {want}")
         return "\n".join(out) + "\n"
+
+
+def _frac(a: int, b: int) -> str:
+    return f"{a}/{b}건 ({a / b:.0%})" if b else "-"
 
 
 def score_exam(out_dir, *, config_dir: str | None = None) -> ExamScore | None:
@@ -493,7 +515,7 @@ def score_exam(out_dir, *, config_dir: str | None = None) -> ExamScore | None:
     questions = {q["id"]: q for q in
                  (_read_json(d / EXAM_QUESTIONS, {}).get("questions") or [])}
     names = account_names(config_dir)
-    sc = ExamScore(questions=len(key))
+    sc = ExamScore(questions=len(key), min_confidence=settings(config_dir)["min_confidence"])
     for a in _parse_answers(_read_json(d / EXAM_ANSWERS, {})):
         qid = str(a.get("id") or "").strip()
         k = key.get(qid)
@@ -513,6 +535,13 @@ def score_exam(out_dir, *, config_dir: str | None = None) -> ExamScore | None:
         sc.rows += rows
         conf = _confidence(a.get("confidence"), 0.6)
         band = "0.8 이상" if conf >= 0.8 else ("0.5~0.8" if conf >= 0.5 else "0.5 미만")
+        hit = int((k.get("codes") or {}).get(str(code), 0))   # 실제로 이 계정이었던 행
+        sc.rows_hit += hit
+        if conf >= sc.min_confidence:
+            sc.applied_rows += rows
+            sc.applied_hit += hit
+        rok, rtot = sc.band_rows.get(band, (0, 0))
+        sc.band_rows[band] = (rok + hit, rtot + rows)
         ok, tot = sc.bands.get(band, (0, 0))
         if code == want:
             sc.exact += 1
