@@ -94,6 +94,7 @@ def run_pipeline(inbox, output_dir, *, client_type: Optional[str] = None,
     from kafa.io_wehago.reader import read_download_xlsx
     from kafa.recommend.recommender import build_recommender
     from kafa.recommend.seed import build_seed_from_inputrows, build_seed_index
+    from kafa.recommend.type_seed import build_type_index, build_type_index_from_inputrows
     from kafa.store.db import VoucherStore
 
     inbox = Path(inbox)
@@ -121,6 +122,9 @@ def run_pipeline(inbox, output_dir, *, client_type: Optional[str] = None,
                 _merge_seed(seed, build_seed_index(
                     db.seed_records(client, exclude_source=f.name)))
                 recommender = build_recommender(seed, config_dir=config_dir)
+                # 유형 추천 재료: 이번 파일의 처리된 행 + 이 수임처의 지난 처리 이력(DB)
+                type_index = build_type_index_from_inputrows(rows).merge(build_type_index(
+                    db.type_records(client, exclude_source=f.name, config_dir=config_dir)))
 
                 # 수임처 속성(개인/법인·직원 유무) — 고객마다 다르므로 배치 단일값이 아니라
                 # clients.yaml 에서 읽는다. 명령행 --client-type 이 있으면 그것이 우선.
@@ -132,7 +136,7 @@ def run_pipeline(inbox, output_dir, *, client_type: Optional[str] = None,
                 res = process_rows(rows, outp, client_type=ctype, seed=seed,
                                    recommender=recommender, dup=dup, recon=recon,
                                    profile=profile, flush_dup=False,
-                                   config_dir=config_dir)
+                                   type_index=type_index, config_dir=config_dir)
 
                 db.upsert_client(client)
                 ing = db.upsert_vouchers(client, period, res["classified"],

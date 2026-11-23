@@ -26,6 +26,8 @@ warnings.filterwarnings("ignore", message="Workbook contains no default style",
                         module="openpyxl")
 
 from kafa.io_wehago.reader import read_download_xlsx  # noqa: E402
+from kafa.recommend.type_seed import (build_type_index_from_inputrows,  # noqa: E402
+                                      type_settings)
 
 # 유형이 국세청과 '같은 뜻' 인 짝. 그 밖의 조합은 어긋난 것으로 본다.
 AGREE = {("카과", "공제"), ("카면", "공제"), ("카영", "공제"), ("일반", "불공제")}
@@ -58,6 +60,7 @@ def main(argv=None) -> int:
     cross: dict[tuple, list] = defaultdict(lambda: [0, Decimal(0)])
     by_state: dict[str, Counter] = defaultdict(Counter)
     clients_off: set[str] = set()
+    per_client: dict[str, list] = defaultdict(list)
     total = 0
     for f in files:
         try:
@@ -65,6 +68,7 @@ def main(argv=None) -> int:
         except Exception as e:                       # noqa: BLE001
             print(f"  [건너뜀] 파일 하나를 읽지 못했습니다: {type(e).__name__}", file=sys.stderr)
             continue
+        per_client[f.parent.name].extend(rows)
         for r in rows:
             t, n = _label(r.유형), _label(r.국세청)
             cell = cross[(t, n)]
@@ -111,6 +115,27 @@ def main(argv=None) -> int:
         else:
             print("  어긋남이 처리 상태와 상관없이 퍼져 있습니다 → 누가 유형을 정했는지 이것만으로는")
             print("  가를 수 없습니다. 담당자께 여쭤봐야 합니다.")
+    # 유형 추천 효과 — 처리 전 행을 같은 수임처·같은 가맹점의 처리 이력으로 채우면 몇 건이 바뀌나
+    tset = type_settings()
+    pending = changed = 0
+    flips: Counter = Counter()
+    for rows in per_client.values():
+        idx = build_type_index_from_inputrows(rows)
+        for r in rows:
+            if (r.차변계정 or "").strip() or (r.전표상태 or "").strip() == "중복전표":
+                continue
+            pending += 1
+            hit = idx.suggest(r.거래처, r.사업자등록번호, min_support=tset["min_support"],
+                              min_share=tset["min_share"])
+            if hit and hit.label != (r.유형 or "").strip():
+                changed += 1
+                flips[f"{_label(r.유형)} → {hit.label}"] += 1
+    print(f"\n유형 추천 효과 (같은 가맹점 이력 {tset['min_support']}건 이상·"
+          f"{tset['min_share']:.0%} 이상일 때만)")
+    print(f"  처리 전 행 {pending:,}건 중 유형이 바뀌는 행: {changed:,}건")
+    for k, n in flips.most_common():
+        print(f"    {k:<12} {n:>6,}건")
+
     print("\n이 출력에는 수임처 이름이 없습니다. 그대로 붙여 주셔도 됩니다.")
     return 0
 

@@ -197,6 +197,29 @@ class VoucherStore:
             "SELECT skipped FROM vouchers WHERE voucher_key=?", (key,)).fetchone()
         return bool(row and row[0])
 
+    def type_records(self, client_id: str | None = None,
+                     *, exclude_source: str | None = None,
+                     config_dir: str | None = None) -> list[tuple]:
+        """유형 추천의 재료 [(거래처, 사업자번호, 유형 라벨), ...].
+
+        **처리된 행만**(위하고·담당자가 계정을 채운 rule_confirmed) — 도구가 추천한 행을
+        다시 배우면 추천이 추천을 키운다. PII 포함 — 로컬 처리 전용.
+        """
+        from kafa.config_loader import load_rules
+        labels = {int(v): str(k) for k, v in
+                  (load_rules(config_dir).get("vat_type_codes") or {}).items()}
+        sql = ("SELECT 거래처, 사업자번호, 유형코드 FROM vouchers "
+               "WHERE 유형코드 IS NOT NULL AND skipped=0 AND 판정유형='rule_confirmed'")
+        params: list = []
+        if client_id is not None:
+            sql += " AND client_id=?"
+            params.append(client_id)
+        if exclude_source:
+            sql += " AND COALESCE(source_file,'') <> ?"
+            params.append(exclude_source)
+        return [(r[0] or "", r[1] or "", labels.get(int(r[2]), ""))
+                for r in self._conn.execute(sql, params)]
+
     def count(self, client_id: str | None = None) -> int:
         if client_id is not None:
             return self._conn.execute(

@@ -289,3 +289,11 @@ payment_agents:
 integrity:
   declared_count: fail     # 건수 — 실샘플(85행 → 82행, 하단 '82건')로 일치를 확인했다
   declared_amount: warn    # 금액 — 실샘플로 아직 확인하지 않아 경고만(확인되면 fail 로)
+
+# 유형 추천 (kafa/recommend/type_seed.py) — 아직 처리 전인 전표(차변계정 빈 행)의 유형을
+# 이 수임처가 **같은 가맹점**을 어떻게 처리해 왔는지로 채운다. 공제 여부는 유형이 가르므로
+# (담당자 확인 2026-11-23) 유형을 채우면 공제 여부도 따라 바뀐다. 업종 단위로는 넓히지 않는다.
+type_recommend:
+  enabled: true
+  min_support: 2        # 같은 가맹점 처리 이력이 이 건수 이상
+  min_share: 0.9        # 그중 같은 유형이 이 비율 이상(갈리면 손대지 않는다)

@@ -55,6 +55,7 @@ def classify_rows(rows: list[InputRow], *,
                   recommender: Recommender | None = None,
                   dup: DupGuard | None = None,
                   profile: dict | None = None,
+                  type_index=None,
                   config_dir: str | None = None) -> tuple[list, int]:
     """행 목록 → (ClassifiedRow 목록, 스킵 수). 파일은 쓰지 않는다.
 
@@ -65,11 +66,34 @@ def classify_rows(rows: list[InputRow], *,
     if recommender is None:
         recommender = SeedRecommender(seed, config_dir=config_dir)
 
+    from dataclasses import replace as _replace
+
+    from kafa.recommend.type_seed import (RULE_TYPE_HIST, build_type_index_from_inputrows,
+                                          type_settings)
+    tset = type_settings(config_dir)
+    if tset["enabled"] and type_index is None:
+        type_index = build_type_index_from_inputrows(rows)   # 이번 파일의 처리된 행에서
+
     classified = []
     skipped = 0
     in_batch: dict[str, int] = {}
     for row in rows:
+        # 유형 추천 — 아직 처리 전인 행의 유형을 같은 가맹점 이력으로 채운다. 공제 여부는
+        # 유형이 가르므로(담당자 확인 2026-11-23) 분류 전에 바꿔야 공제 판정이 따라온다.
+        type_hint = None
+        if (tset["enabled"] and type_index is not None and not type_index.empty
+                and not (row.차변계정 or "").strip()
+                and (row.전표상태 or "").strip() != "중복전표"):
+            type_hint = type_index.suggest(row.거래처, row.사업자등록번호,
+                                           min_support=tset["min_support"],
+                                           min_share=tset["min_share"])
+            if type_hint and type_hint.label == (row.유형 or "").strip():
+                type_hint = None                               # 이미 같다 — 바꿀 것 없음
+            if type_hint:
+                row = _replace(row, 유형=type_hint.label)
         c = classify_row(row, client_type=client_type, config_dir=config_dir)
+        if type_hint:
+            c.add_rule(RULE_TYPE_HIST)
         if c.skipped:                       # 1.8 중복전표 등 — 집계용으로 보존
             skipped += 1
             classified.append(c)
@@ -103,6 +127,10 @@ def classify_rows(rows: list[InputRow], *,
                         "직원이 없는 수임처인데 복리후생비로 추천됨 → 확인 필요"
                         " (docs/domain_notes.md)")
                 _settle_agent_review(c, rec.confidence, config_dir)
+        if type_hint:
+            note = (f"유형 {type_hint.label}: 같은 가맹점 이력({type_hint.basis}) "
+                    f"{type_hint.support}건 중 {type_hint.share:.0%}")
+            c.추천근거 = f"{c.추천근거} · {note}" if c.추천근거 else note
         finalize_reversal(c)
         classified.append(c)
 
@@ -121,6 +149,7 @@ def process_rows(rows: list[InputRow], out_path: Path, *,
                  profile: dict | None = None,
                  client_report: bool | None = None,
                  flush_dup: bool = True,
+                 type_index=None,
                  config_dir: str | None = None) -> dict:
     """flush_dup=False 면 중복 기록 저장을 호출자에게 맡긴다(파이프라인은 DB 대사 뒤에 저장)."""
     from kafa.agent.bizno_batch import check_biznos, render_bizno_summary
@@ -143,7 +172,7 @@ def process_rows(rows: list[InputRow], out_path: Path, *,
 
     classified, skipped = classify_rows(
         rows, client_type=client_type, seed=seed, recommender=recommender,
-        dup=dup, profile=profile, config_dir=config_dir)
+        dup=dup, profile=profile, type_index=type_index, config_dir=config_dir)
 
     rep = build_review(classified, config_dir=config_dir)
     out_rows = [to_output_row(c, config_dir=config_dir)
