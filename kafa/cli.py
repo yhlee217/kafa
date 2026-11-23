@@ -67,15 +67,20 @@ def classify_rows(rows: list[InputRow], *,
 
     classified = []
     skipped = 0
+    in_batch: dict[str, int] = {}
     for row in rows:
         c = classify_row(row, client_type=client_type, config_dir=config_dir)
         if c.skipped:                       # 1.8 중복전표 등 — 집계용으로 보존
             skipped += 1
             classified.append(c)
             continue
-        if dup is not None:                 # 2차 중복 가드
+        if dup is not None:                 # 2차 중복 가드(같은 파일 재처리 방지)
+            base = make_key(f"{row.연도}-{row.일자}", row.거래처,
+                            row.사업자등록번호, row.합계, row.품명)
+            occurrence = in_batch.get(base, 0)      # 같은 파일 안의 반복 결제는 별개 거래
+            in_batch[base] = occurrence + 1
             key = make_key(f"{row.연도}-{row.일자}", row.거래처,
-                           row.사업자등록번호, row.합계, row.품명)
+                           row.사업자등록번호, row.합계, row.품명, occurrence)
             if dup.is_duplicate(key):
                 c.skipped = True
                 c.skip_reason = "dup_guard(2차)"
@@ -101,8 +106,9 @@ def classify_rows(rows: list[InputRow], *,
         finalize_reversal(c)
         classified.append(c)
 
-    if dup is not None:
-        dup.flush()
+    # 중복 기록(dup.json)은 여기서 저장하지 않는다 — 그 파일이 대사까지 끝까지 통과했을 때만
+    # 저장한다(process_rows / 파이프라인). 실패한 실행이 키를 남기면 다시 돌릴 때 전 행이
+    # '중복'으로 빠지고, 업로드 0 + 스킵 N 으로 대사가 'OK' 가 되어 버린다.
     return classified, skipped
 
 
@@ -114,7 +120,9 @@ def process_rows(rows: list[InputRow], out_path: Path, *,
                  recon: VendorBaseline | None = None,
                  profile: dict | None = None,
                  client_report: bool | None = None,
+                 flush_dup: bool = True,
                  config_dir: str | None = None) -> dict:
+    """flush_dup=False 면 중복 기록 저장을 호출자에게 맡긴다(파이프라인은 DB 대사 뒤에 저장)."""
     from kafa.agent.bizno_batch import check_biznos, render_bizno_summary
     from kafa.agent.prefile_check import build_prefile_check, render_prefile_check
     from kafa.agent.recon import reconcile, render_recon
@@ -140,7 +148,23 @@ def process_rows(rows: list[InputRow], out_path: Path, *,
     rep = build_review(classified, config_dir=config_dir)
     out_rows = [to_output_row(c, config_dir=config_dir)
                 for c in classified if not c.skipped]
+
+    # 행 수·금액 대사 — 안 맞으면 업로드본을 쓰지 않는다(kafa/integrity.py).
+    from kafa.integrity import (IntegrityError, check_upload_files, hold,
+                                render as render_tally, tally_batch)
+    tally_path = out_path.with_name(out_path.stem + "_대사.txt")
+    tally = tally_batch(rows, classified, out_rows, config_dir=config_dir)
+    if not tally.ok:
+        tally_path.write_text(render_tally(tally), encoding="utf-8")
+        raise IntegrityError(tally, tally_path)
     files = write_upload_xls(out_rows, out_path, strict=False, config_dir=config_dir)
+    check_upload_files(tally, files)
+    if not tally.ok:
+        hold(files)
+        tally_path.write_text(render_tally(tally, held=True), encoding="utf-8")
+        raise IntegrityError(tally, tally_path)
+    if dup is not None and flush_dup:           # 대사를 통과한 뒤에만 중복 기록을 남긴다
+        dup.flush()
 
     # 검토 리포트(.txt) + 중간 산출물 CSV(담당자 전용) 산출
     report_text = render_report(rep)
@@ -195,7 +219,7 @@ def process_rows(rows: list[InputRow], out_path: Path, *,
             "prefile": prefile, "prefile_path": prefile_path,
             "bizno": bizno, "bizno_path": bizno_path,
             "recon": recon_obj, "recon_path": recon_path,
-            "classified": classified,
+            "classified": classified, "tally": tally, "tally_path": tally_path,
             "skipped": skipped, "written": len(out_rows), "files": files}
 
 

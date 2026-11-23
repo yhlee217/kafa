@@ -16,7 +16,7 @@ INSERT OR IGNORE 로 같은 키는 재적재해도 중복되지 않고 기존 �
 from __future__ import annotations
 
 import sqlite3
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from kafa.rules.models import ClassifiedRow
@@ -82,6 +82,7 @@ class IngestResult:
     inserted: int = 0   # 새로 적재
     existing: int = 0    # 키 이미 존재 → 무시(멱등)
     upgraded: int = 0    # 스킵으로 들어가 있던 걸 정상 분류로 되살림
+    keys: list[str] = field(default_factory=list)   # 이번 배치가 쓴 키(대사용)
 
 
 def _voucher_key(client_id: str, c: ClassifiedRow, occurrence: int = 0) -> str:
@@ -162,6 +163,7 @@ class VoucherStore:
             occurrence = seen.get(base, 0)
             seen[base] = occurrence + 1
             key = _voucher_key(client_id, c, occurrence)
+            res.keys.append(key)
             cur = self._conn.execute(_INSERT_SQL,
                                      (key, *_to_row(client_id, period, c, source_file)))
             if cur.rowcount == 1:
@@ -178,6 +180,17 @@ class VoucherStore:
                 res.existing += 1
         self._conn.commit()
         return res
+
+    def count_keys(self, keys: list[str]) -> int:
+        """이 키들 중 DB 에 실제로 있는 수 — 적재 대사용(kafa/integrity.py)."""
+        unique = list(dict.fromkeys(keys))
+        found = 0
+        for i in range(0, len(unique), 500):          # SQLite 변수 개수 한도 회피
+            chunk = unique[i:i + 500]
+            found += self._conn.execute(
+                "SELECT COUNT(*) FROM vouchers WHERE voucher_key IN ("
+                + ",".join("?" * len(chunk)) + ")", chunk).fetchone()[0]
+        return found
 
     def _is_stored_as_skipped(self, key: str) -> bool:
         row = self._conn.execute(
