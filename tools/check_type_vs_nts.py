@@ -8,6 +8,12 @@
   - 어긋나는 행이 있고, 그게 처리된 전표(차변계정이 채워진 행)에 몰려 있으면
     → 담당자가 유형을 고친 흔적이다. 유형 칸을 기준으로 쓸 수 있다
 
+계정과 유형 (2026-11-23 추가): 처리 전 행은 같은 가맹점 이력이 거의 없다(위하고가 이미
+가맹점 단위로 계정을 채우므로, 남은 건 처음 보는 가맹점). 대신 **계정이 유형을 정해 주는지**
+본다 — 예: 접대비는 부가세법상 매입세액 불공제라 유형은 '일반' 이어야 한다.
+  - 처리된 행의 계정별 유형 분포
+  - 처리 전 행을 지금 도구로 분류했을 때 계정별 공제 여부, 특히 '접대비인데 공제' 건수
+
 DB 도 설정도 건드리지 않고 원본 엑셀만 읽는다. 출력은 건수·금액만(수임처 이름 없음).
 
     python tools/check_type_vs_nts.py ~/kafa-out/_archive
@@ -28,6 +34,8 @@ warnings.filterwarnings("ignore", message="Workbook contains no default style",
 from kafa.io_wehago.reader import read_download_xlsx  # noqa: E402
 from kafa.recommend.type_seed import (build_type_index_from_inputrows,  # noqa: E402
                                       type_settings)
+
+ENTERTAINMENT = "접대비"      # 이름에 이 말이 든 계정(513·613·713·813·843 …)
 
 # 유형이 국세청과 '같은 뜻' 인 짝. 그 밖의 조합은 어긋난 것으로 본다.
 AGREE = {("카과", "공제"), ("카면", "공제"), ("카영", "공제"), ("일반", "불공제")}
@@ -136,8 +144,69 @@ def main(argv=None) -> int:
     for k, n in flips.most_common():
         print(f"    {k:<12} {n:>6,}건")
 
+    _account_sections(per_client)
+
     print("\n이 출력에는 수임처 이름이 없습니다. 그대로 붙여 주셔도 됩니다.")
     return 0
+
+
+def _short(name: str) -> str:
+    """'(판)접대비(기업업무추진비)' → '(판)접대비' — 표를 좁게."""
+    return name.split("(기업업무")[0] if name else "(공란)"
+
+
+def _account_sections(per_client: dict) -> None:
+    """계정과 유형 — 처리된 행의 분포, 처리 전 행을 지금 도구로 분류한 결과."""
+    from kafa.cli import classify_rows
+    from kafa.config_loader import client_profile, load_account_codes
+    from kafa.recommend.recommender import build_recommender
+    from kafa.recommend.seed import build_seed_from_inputrows
+    from kafa.rules.models import Deduct
+
+    code_name: dict[int, str] = {}
+    for name, code in load_account_codes().items():
+        code_name.setdefault(int(code), name)
+
+    # (1) 처리된 행: 계정별 유형
+    done: dict[str, Counter] = defaultdict(Counter)
+    for rows in per_client.values():
+        for r in rows:
+            acct = (r.차변계정 or "").strip()
+            if acct and (r.전표상태 or "").strip() != "중복전표":
+                done[_short(acct)][_label(r.유형)] += 1
+    print("\n처리된 행의 계정별 유형 (건수 상위 12개)")
+    print(f"  {'계정':<16}{'건수':>8}{'카과':>8}{'일반':>8}{'카과 비율':>10}")
+    for acct, c in sorted(done.items(), key=lambda kv: -sum(kv[1].values()))[:12]:
+        n = sum(c.values())
+        print(f"  {acct:<16}{n:>8,}{c['카과']:>8,}{c['일반']:>8,}{c['카과'] / n:>10.0%}")
+    ent = Counter()
+    for acct, c in done.items():
+        if ENTERTAINMENT in acct:
+            ent.update(c)
+    if ent:
+        n = sum(ent.values())
+        print(f"  → 접대비 계정 합계 {n:,}건 중 카과 {ent['카과']:,}건({ent['카과'] / n:.0%})")
+
+    # (2) 처리 전 행: 지금 도구로 분류하면 (수임처마다 그 수임처 자료를 시드로)
+    pend: dict[str, Counter] = defaultdict(Counter)
+    for client, rows in per_client.items():
+        seed = build_seed_from_inputrows(rows)
+        classified, _ = classify_rows(
+            rows, client_type=client_profile(client).get("client_type"), seed=seed,
+            recommender=build_recommender(seed), profile=client_profile(client))
+        for r, c in zip(rows, classified):
+            if (r.차변계정 or "").strip() or c.skipped:
+                continue
+            name = _short(code_name.get(c.차변계정코드, "")) if c.차변계정코드 else "(미해소)"
+            pend[name][c.공제여부.value if c.공제여부 else "(없음)"] += 1
+    total = sum(sum(c.values()) for c in pend.values())
+    print(f"\n처리 전 행 {total:,}건을 지금 도구로 분류하면 (추천 계정 상위 12개)")
+    print(f"  {'계정':<16}{'건수':>8}{'공제':>8}{'불공제':>8}{'검토':>8}")
+    for acct, c in sorted(pend.items(), key=lambda kv: -sum(kv[1].values()))[:12]:
+        print(f"  {acct:<16}{sum(c.values()):>8,}{c[Deduct.DEDUCTIBLE.value]:>8,}"
+              f"{c[Deduct.NON_DEDUCTIBLE.value]:>8,}{c[Deduct.REVIEW.value]:>8,}")
+    wrong = sum(c[Deduct.DEDUCTIBLE.value] for a, c in pend.items() if ENTERTAINMENT in a)
+    print(f"  → 접대비로 추천됐는데 공제로 나가는 처리 전 행: {wrong:,}건")
 
 
 if __name__ == "__main__":
