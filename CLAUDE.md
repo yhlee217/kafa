@@ -46,6 +46,7 @@ kafa/
     features.py       비-PII 특징(업태/종목/품명/유형) 추출 + 서명(PII 차단)
     llm.py            Claude API 차변계정 추정(구조화 출력·계정명 enum·결정 캐시)
     recommender.py    Recommender(LLM 우선/시드 폴백), build_recommender, 자가 시딩
+    type_seed.py      처리 전 전표의 유형(카과/일반) 추천 — 같은 수임처·같은 가맹점 처리 이력만
     explain.py        규칙ID+맥락 → 한국어 근거 문장
   report/             Phase 4 검토 리포트(담당자 전용) + 세무대리인 서비스 확장
     review.py         요약·부가율 이상·미등록 의심·추천내역 + 중간산출물 CSV(근거 포함)
