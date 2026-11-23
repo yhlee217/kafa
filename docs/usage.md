@@ -162,3 +162,29 @@ kafa-clients template ~/수임처조사표.xlsx --from-db ~/kafa-out/kafa.db
 `--from-db` 같은 경로가 없으면 빈 양식을 만들지 않고 멈춘다. 담당자가 '개인/법인' 과
 '직원 있나요?' 를 고르면 `kafa-clients import ~/수임처조사표.xlsx` 로 `config/clients.yaml`
 에 넣는다. 작성 방법 시트에 판단 기준(아르바이트·일용직은 있음, 가족만은 수임처마다)이 있다.
+
+## 미해소 행을 Claude 에게 묻기 (`kafa-ask`)
+
+위하고도, 지난 처리 이력도 계정을 못 정한 행은 Claude 에게 묻는다. 질문지에는 **업태·종목·
+품명·유형과 건수만** 들어간다(거래처·사업자번호·금액·날짜 없음). 붙여넣을 프롬프트와 판단
+기준은 `docs/cowork_ask.md` 에 있다.
+
+`kafa-run` 은 분류 직전에 물을 것을 정리한다. 새 질문이 있으면 **멈추고**(종료코드 3)
+질문지 경로를 알려 준다. Claude 가 답지를 쓰면 `kafa-run --skip-fetch` 로 이어서 돌린다.
+기다리지 않으려면 `--no-ask` 를 붙인다.
+
+```bash
+kafa-ask prepare     # 질문지 쓰기 → ~/kafa-out/_ai/questions.json
+kafa-ask apply       # Claude 답지(answers.json) 검증·합치기 → picks.json (파이프라인도 자동으로 한다)
+kafa-ask show        # 모인 답: 계정별 가짓수 · 모름 · 낮은 확신
+kafa-ask exam        # 처리된 이력으로 시험지 만들기(정답은 로컬에만)
+kafa-ask score       # 시험 채점 — 정답률, 확신 구간별 정답률, 틀린 예
+```
+
+- 이력·시드가 먼저고, Claude 답은 그것이 못 푼 행에만 쓴다. 확신 0.5 미만은 적용하지 않고
+  리포트에 `AI(Claude) 메모` 로만 남긴다. 적용된 행은 '추천'(근거 `AI(Claude) 추정`,
+  신뢰도 최대 70%)이라 검토 리포트의 추천내역에서 확인한다.
+- **처음에는 `exam` → `score` 로 정답률부터 본다.** 확신 구간별 정답률로
+  `config/rules.yaml` 의 `recommend.host_picks.min_confidence` 를 정한다.
+- 모든 출력에 수임처·거래처 이름이 없어 그대로 공유해도 된다.
+- 답을 처음부터 다시 받고 싶으면 `~/kafa-out/_ai/picks.json` 을 지운다.

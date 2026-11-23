@@ -32,6 +32,7 @@ kafa-fetch = "kafa.fetch.cli:main"
 kafa-clients = "kafa.clients_cli:main"
 kafa-run = "kafa.run_cli:main"
 kafa-lookup = "kafa.lookup.cli:main"
+kafa-ask = "kafa.ask_cli:main"
 
 [tool.setuptools.packages.find]
 include = ["kafa*"]

@@ -42,7 +42,7 @@ PG 들이 열어 둔 창구다. 로그인이 필요 없고 **승인번호**로 �
 붙이는 명령을 실행하고, 결과 숫자를 보고한다.
 
 ## 환경
-- 레포: `/Users/eyonghwi/Desktop/Dev/Mirrorball/kafa`
+- 레포: `/Users/eyonghwi/Dev/Mirrorball/kafa`
 - 실행은 항상 레포 폴더에서 `PYTHONPATH=$PWD .venv/bin/python -m kafa.lookup.cli ...`
 - 수집 DB: `~/kafa-out/kafa.db`
 - 작업 폴더: `~/kafa-lookup`

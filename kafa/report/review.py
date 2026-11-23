@@ -19,6 +19,7 @@ from typing import Iterable, Optional
 
 from kafa.config_loader import load_rules
 from kafa.recommend.explain import explain
+from kafa.recommend.host_picks import HINT_PREFIX
 from kafa.rules.models import ClassifiedRow, Deduct, Verdict
 from kafa.security import mask_bizno, mask_name
 from kafa.validate import valid_bizno, vat_rate_anomaly
@@ -104,6 +105,8 @@ def build_review(
         # 미해소/검토
         if r.needs_review or r.판정유형 == Verdict.UNRESOLVED:
             reasons = "; ".join(r.review_reasons) or r.판정유형.value
+            if (r.추천근거 or "").startswith(HINT_PREFIX):    # Claude 가 모름·낮은 확신
+                reasons += f" · {r.추천근거}"
             rep.review_lines.append(f"{tag} {reasons}")
 
         # 추천 내역(근거·신뢰도)

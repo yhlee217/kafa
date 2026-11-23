@@ -47,6 +47,7 @@ kafa/
     llm.py            Claude API 차변계정 추정(구조화 출력·계정명 enum·결정 캐시)
     recommender.py    Recommender(LLM 우선/시드 폴백), build_recommender, 자가 시딩
     type_seed.py      처리 전 전표의 유형(카과/일반) 추천 — 같은 수임처·같은 가맹점 처리 이력만
+    host_picks.py     운영용 Claude 추천 — 특징 서명 단위 질문지↔답지(_ai/), 이력 다음 순위, 시험·채점
     explain.py        규칙ID+맥락 → 한국어 근거 문장
   report/             Phase 4 검토 리포트(담당자 전용) + 세무대리인 서비스 확장
     review.py         요약·부가율 이상·미등록 의심·추천내역 + 중간산출물 CSV(근거 포함)
@@ -60,6 +61,8 @@ kafa/
   learn/              처리 이력 → 보류 규칙 추정(infer, 자동적용 금지·근거 제시) + CLI(kafa-learn)
   store/              베이스 데이터 SQLite 누적(VoucherStore, 멱등 upsert) — 로컬 단일 원본
   pipeline/           inbox 일괄 처리(runner)·폴더 감시(watch)·알림(notify)·진행 보드(summary) + CLI(kafa-pipeline/kafa-watch/kafa-board)
+                      ask.py: 처리 전 '물을 것' 정리(처리와 같은 준비로 분류만) → 질문지
+  ask_cli.py          kafa-ask — prepare/apply/show/exam/score (프롬프트는 docs/cowork_ask.md)
   loop/               루프 엔지니어링(Actor↔Evaluator 생성→평가→재생성)
     models.py         LoopSpec(스펙)/Iteration/LoopResult
     prompts.py        Actor/Evaluator 표준 프롬프트(스펙으로 렌더링)
@@ -99,6 +102,9 @@ python -m kafa.mcp_server   # MCP 서버(콘솔 스크립트 kafa-mcp). 담당�
 
 kafa-run --master 수임처마스터.xlsx   # 수집→수임처속성→분류·업로드본, 한 명령(경로 기억)
 kafa-run                              # 그다음부터는 이것만(사람은 로그인 한 번)
+#   새 질문이 있으면 분류 전에 멈춘다(종료코드 3) → Claude 가 ~/kafa-out/_ai/answers.json 작성
+kafa-run --skip-fetch                 # 답을 받은 뒤 이어서(--no-ask 면 묻지 않고 진행)
+kafa-ask exam && kafa-ask score       # 처리 이력으로 Claude 정답률부터(정답은 로컬에만)
 ```
 Claude Desktop: `claude_desktop_config.json` 에 `{"mcpServers":{"kafa":{"command":"kafa-mcp"}}}`.
 도구 `convert`/`preview` 는 raw PII 없이 **마스킹 요약만** 반환(데이터 변환은 결정론적 코드).
@@ -116,6 +122,9 @@ Claude Desktop: `claude_desktop_config.json` 에 `{"mcpServers":{"kafa":{"comman
   계정을 `convert(recommendations=...)`로 받아 `PickRecommender`가 적용(허용 계정만 채택).
   거래처/사업자번호는 모델에 미전달. 추천이 없으면 **자가 시딩**(사업자번호→거래처→유사도)
   로컬 폴백. 별도 API 직접호출은 `recommend.llm.enabled`로 opt-in(기본 off, 추가 비용 시에만).
+  **운영 연결(kafa-ask)**: 파이프라인은 특징 서명(업태/종목/품명/유형) 단위 질문지↔답지로 묻고
+  답을 `_ai/picks.json` 에 쌓는다. 이력·시드 다음 순위, 확신 0.5 미만 미적용·신뢰도 상한 0.7,
+  품명의 가맹점명·긴 숫자는 가린다. 기준선은 `kafa-ask exam/score`(처리 이력 대조).
 - ✅ Phase 3 (업로드 .xls 생성) — 동작. 2MB 자동 분할·CP949 안전화·필수값 검증.
   거래구분 허용값만 [보류](config 기본 공란)
 - ✅ Phase 4 (검토 리포트) — 동작. 한 화면 요약 + 체크포인트, 미해소/검토,
