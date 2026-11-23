@@ -26,7 +26,7 @@ class PrepareResult:
 def prepare_questions(inbox, output_dir, *, client_type: str | None = None,
                       config_dir: str | None = None) -> PrepareResult:
     from kafa.cli import classify_rows
-    from kafa.pipeline.runner import file_context, list_inbox
+    from kafa.pipeline.runner import file_context, list_inbox, load_office_prior
     from kafa.recommend.host_picks import (
         QuestionSet,
         account_catalog,
@@ -46,9 +46,10 @@ def prepare_questions(inbox, output_dir, *, client_type: str | None = None,
     res.files = len(files)
     db = VoucherStore(out_dir / "kafa.db")
     try:
+        prior = load_office_prior(db, config_dir=config_dir)
         for f in files:
             try:
-                ctx = file_context(f, inbox, out_dir, db, picks,
+                ctx = file_context(f, inbox, out_dir, db, picks, prior=prior,
                                    client_type=client_type, config_dir=config_dir)
                 classified, _ = classify_rows(
                     ctx.rows, client_type=ctx.ctype, seed=ctx.seed,

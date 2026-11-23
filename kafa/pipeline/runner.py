@@ -108,11 +108,12 @@ class FileContext:
 
 
 def file_context(f: Path, inbox: Path, out_dir: Path, db, picks: dict, *,
-                 client_type: Optional[str] = None,
+                 prior=None, client_type: Optional[str] = None,
                  config_dir: Optional[str] = None) -> FileContext:
     from kafa.config_loader import client_profile
     from kafa.dup_guard import DupGuard
     from kafa.io_wehago.reader import read_download_xlsx
+    from kafa.recommend import office_prior
     from kafa.recommend.host_picks import wrap
     from kafa.recommend.recommender import build_recommender
     from kafa.recommend.seed import build_seed_from_inputrows, build_seed_index
@@ -125,9 +126,10 @@ def file_context(f: Path, inbox: Path, out_dir: Path, db, picks: dict, *,
     # 지난 달에 처리한 가맹점이 이번 달에도 나오면 그대로 해소된다.
     seed = build_seed_from_inputrows(rows, config_dir=config_dir)
     _merge_seed(seed, build_seed_index(db.seed_records(client, exclude_source=f.name)))
-    # 이력·시드가 먼저, 그것이 못 푼 행에만 Claude 답(_ai/picks.json)
-    recommender = wrap(build_recommender(seed, config_dir=config_dir), picks,
-                       config_dir=config_dir)
+    # 수임처 이력·시드 → 사무실 전체 이력(켜져 있으면) → Claude 답(_ai/picks.json) 순서
+    recommender = office_prior.wrap(build_recommender(seed, config_dir=config_dir), prior,
+                                    config_dir=config_dir)
+    recommender = wrap(recommender, picks, config_dir=config_dir)
     # 유형 추천 재료: 이번 파일의 처리된 행 + 이 수임처의 지난 처리 이력(DB)
     type_index = build_type_index_from_inputrows(rows).merge(build_type_index(
         db.type_records(client, exclude_source=f.name, config_dir=config_dir)))
@@ -137,6 +139,15 @@ def file_context(f: Path, inbox: Path, out_dir: Path, db, picks: dict, *,
     return FileContext(client=client, rows=rows, period=_period_of(rows), dup=dup,
                        seed=seed, recommender=recommender, type_index=type_index,
                        profile=profile, ctype=client_type or profile.get("client_type"))
+
+
+def load_office_prior(db, *, config_dir: Optional[str] = None):
+    """사무실 전체 이력(켜져 있을 때만 DB 에서 읽는다). 실행 한 번에 한 번 만든다."""
+    from kafa.recommend.office_prior import build_office_prior, settings
+    if not settings(config_dir)["enabled"]:
+        return None
+    return build_office_prior([(c, v, u, j, code) for c, v, _b, u, j, code
+                               in db.prior_records()], config_dir=config_dir)
 
 
 def run_pipeline(inbox, output_dir, *, client_type: Optional[str] = None,
@@ -166,10 +177,11 @@ def run_pipeline(inbox, output_dir, *, client_type: Optional[str] = None,
         picks = load_picks(out_dir)
     db = VoucherStore(out_dir / "kafa.db")
     try:
+        prior = load_office_prior(db, config_dir=config_dir)
         for f in files:
             client = resolve_client(inbox, f)
             try:
-                ctx = file_context(f, inbox, out_dir, db, picks,
+                ctx = file_context(f, inbox, out_dir, db, picks, prior=prior,
                                    client_type=client_type, config_dir=config_dir)
                 rows, period, dup = ctx.rows, ctx.period, ctx.dup
                 recon = VendorBaseline(out_dir / client / "_state" / "recon.json")

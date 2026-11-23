@@ -5,6 +5,7 @@
     kafa-ask show       지금까지 모인 답 요약(계정별 가짓수·모름·낮은 확신)
     kafa-ask exam       처리된 이력으로 시험지를 만든다(_ai/exam_questions.json)
     kafa-ask score      Claude 시험 답(_ai/exam_answers.json)을 채점한다
+    kafa-ask prior      사무실 전체 이력 추천을 켜도 되는지 잰다(한 수임처씩 빼고 맞혀 보기)
 
 경로는 kafa-run 이 기억한 것(~/.kafa/run.json)을 쓴다. --inbox/--out 으로 바꿀 수 있다.
 출력에는 수임처 이름·거래처·사업자번호가 나오지 않는다(대화에 붙여넣어도 된다).
@@ -126,6 +127,28 @@ def cmd_score(args) -> int:
     return 0
 
 
+def cmd_prior(args) -> int:
+    from kafa.recommend.office_prior import check_prior, settings
+    from kafa.store.db import VoucherStore
+    _, out = _paths(args)
+    db_path = out / "kafa.db"
+    if not db_path.exists():
+        print(f"처리 이력(DB)이 없습니다: {db_path}")
+        return 1
+    db = VoucherStore(db_path)
+    try:
+        records = db.prior_records()
+        unresolved = db.unresolved_records()
+    finally:
+        db.close()
+    pc = check_prior(records, unresolved, config_dir=args.config_dir)
+    s = settings(args.config_dir)
+    print(pc.render(s), end="")
+    print(f"(지금 설정: {'켜짐' if s['enabled'] else '꺼짐'} · 수임처 {s['min_clients']}곳 · "
+          f"비중 {s['min_share']:.0%})")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--inbox", help="받아 둔 다운로드본 폴더(기본: kafa-run 설정)")
@@ -140,9 +163,11 @@ def main(argv: list[str] | None = None) -> int:
     ex = sub.add_parser("exam", parents=[common], help="처리 이력으로 시험지 만들기")
     ex.add_argument("--n", type=int, default=150, help="문제 수(기본 150)")
     sub.add_parser("score", parents=[common], help="시험 채점")
+    sub.add_parser("prior", parents=[common],
+                   help="사무실 전체 이력 추천 정답률(한 수임처씩 빼고 맞혀 보기)")
     args = ap.parse_args(argv)
     return {"prepare": cmd_prepare, "apply": cmd_apply, "show": cmd_show,
-            "exam": cmd_exam, "score": cmd_score}[args.cmd](args)
+            "exam": cmd_exam, "score": cmd_score, "prior": cmd_prior}[args.cmd](args)
 
 
 if __name__ == "__main__":
