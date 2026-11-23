@@ -16,7 +16,7 @@ from kafa.config_loader import load_rules
 from kafa.rules.accounts import map_account_name_to_code
 from kafa.rules.agents import agent_note, agent_of
 from kafa.rules.counterparty import resolve_counterparty
-from kafa.rules.deductibility import resolve_deductibility
+from kafa.rules.deductibility import apply_account_rule, resolve_deductibility
 from kafa.rules.deemed_credit import deemed_credit_flag
 from kafa.rules.models import ClassifiedRow, Deduct, InputRow, Verdict
 from kafa.rules.negative import apply_reversal, is_negative
@@ -97,6 +97,9 @@ def classify_row(
         out.차변계정코드 = None
         out.판정유형 = Verdict.UNRESOLVED
         out.add_rule(RULE_ACC_PENDING)
+
+    # 계정이 공제 여부를 정하는 경우(접대비 → 불공제). 위하고가 채운 계정에 바로 건다.
+    apply_account_rule(out, config_dir=config_dir)
 
     # 결제대행사 — 거래처가 실제 가맹점이 아니면 계정을 정할 근거가 없다.
     #  이름만으로 계정을 찍지 않고 담당자에게 넘긴다(자동 추천의 오답을 막는다).
