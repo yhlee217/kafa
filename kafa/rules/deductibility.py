@@ -1,7 +1,9 @@
 """1.3 불공제 3단 분기.
 
-국세청 컬럼은 위하고 자동추정값(참고). 담당자가 수동 오버라이드하는 사례 있음.
-  기본값      : 국세청 컬럼을 따른다.
+기본값은 config `non_deductible.source` 가 정한다.
+  유형        : 담당자가 위하고에서 정하는 유형(카과 → 공제, 일반 → 불공제). 표에 없는
+                유형(카면·카영·공란)은 국세청 컬럼으로 폴백. 근거는 docs/domain_notes.md.
+  국세청_컬럼 : 국세청 컬럼을 따른다(예전 방식).
   자동 불공제 : 면세사업관련 등 (config non_deductible.auto).
   검토 플래그 : 비영업용 승용차/접대성 업종 등 (자동 확정 금지 → Deduct.REVIEW).
   나머지      : 공제.
@@ -18,6 +20,7 @@ RULE_FROM_NTS = "DED-002"      # 국세청 컬럼을 따름
 RULE_REVIEW = "DED-003"        # 의심 → 담당자 확인 플래그
 RULE_DEFAULT_DEDUCT = "DED-004"
 RULE_SERVICE_CHARGE = "DED-005"  # 봉사료(접대성) → 불공제 (담당자 확인 2026-08)
+RULE_FROM_TYPE = "DED-006"     # 담당자가 정한 유형을 따름 (담당자 확인 2026-11)
 
 _NTS_NON = {"불공제", "불공", "0"}
 _NTS_DEDUCT = {"공제", "1"}
@@ -42,6 +45,7 @@ def resolve_deductibility(
     품명: str = "",
     *,
     봉사료=0,
+    유형: str = "",
     config_dir: str | None = None,
 ) -> RuleResult:
     """공제여부 판정. 검토 대상이면 Deduct.REVIEW(자동 확정 금지).
@@ -84,7 +88,18 @@ def resolve_deductibility(
                 note=f"자동 불공제: {category}",
             )
 
-    # 3) 기본값: 국세청 컬럼.
+    # 3) 기본값: 담당자가 정한 유형(카과/일반). 표에 없는 유형이면 국세청 컬럼으로 폴백.
+    if cfg.get("source") == "유형":
+        label = (유형 or "").strip()
+        decided = str((cfg.get("by_type") or {}).get(label, "")).strip()
+        if decided in _NTS_NON:
+            return RuleResult(Deduct.NON_DEDUCTIBLE, Verdict.RULE_CONFIRMED, RULE_FROM_TYPE,
+                              note=f"유형 {label} → 불공제")
+        if decided in _NTS_DEDUCT:
+            return RuleResult(Deduct.DEDUCTIBLE, Verdict.RULE_CONFIRMED, RULE_FROM_TYPE,
+                              note=f"유형 {label} → 공제")
+
+    # 3') 국세청 컬럼.
     v = (nts_value or "").strip()
     if v in _NTS_NON:
         return RuleResult(Deduct.NON_DEDUCTIBLE, Verdict.RULE_CONFIRMED, RULE_FROM_NTS)

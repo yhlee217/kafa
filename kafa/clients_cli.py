@@ -24,6 +24,8 @@ def main(argv: list[str] | None = None) -> int:
     t.add_argument("--from-inbox", help="inbox 하위 폴더명에서 추출")
     t.add_argument("--from-list", help="한 줄에 하나씩 적은 텍스트 파일")
     t.add_argument("--from-db", help="이미 처리한 수임처(out/kafa.db)")
+    t.add_argument("--force", action="store_true",
+                   help="같은 이름의 파일이 있어도 덮어쓴다(담당자가 채운 내용이 지워질 수 있음)")
 
     m = sub.add_parser("from-master",
                        help="수임처 마스터 엑셀의 '구분'(개인/법인)으로 clients.yaml 채우기")
@@ -77,6 +79,22 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "template":
         from kafa.clients import (names_from_inbox, names_from_text,
                                   profiles_from_excel)
+        # 이미 있는 조사표는 담당자가 채운 것일 수 있다 — 아무 말 없이 덮어쓰지 않는다.
+        target = Path(args.path).expanduser()
+        if target.exists() and not args.force:
+            print(f"[중단] 이미 있는 파일입니다: {target}\n"
+                  "  담당자가 채운 내용이 지워질 수 있어 덮어쓰지 않습니다.\n"
+                  "  다른 이름으로 만들거나, 정말 새로 만들려면 --force 를 붙이세요.",
+                  file=sys.stderr)
+            return 1
+        # 이름을 가져오라고 한 곳이 없으면 멈춘다 — 빈 양식으로 넘어가면 실수를 알아채기 어렵다.
+        for flag, value in (("--from-excel", args.from_excel), ("--from-inbox", args.from_inbox),
+                            ("--from-list", args.from_list), ("--from-db", args.from_db)):
+            if value and not Path(value).expanduser().exists():
+                print(f"[중단] {flag} 경로가 없습니다: {value}\n"
+                      "  경로를 확인해 주세요(명령이 중간에 잘리지 않았는지도).",
+                      file=sys.stderr)
+                return 2
         names: list = []
         seen: set[str] = set()
 
@@ -103,15 +121,11 @@ def main(argv: list[str] | None = None) -> int:
         if args.from_list:
             add(names_from_text(args.from_list), "목록 파일")
         if args.from_db:
-            db = Path(args.from_db)
-            if db.exists():
-                from kafa.store.db import VoucherStore
-                with VoucherStore(db) as store:
-                    add(store.clients(), "DB")
-            else:
-                print(f"[안내] DB 없음: {db}", file=sys.stderr)
+            from kafa.store.db import VoucherStore
+            with VoucherStore(Path(args.from_db).expanduser()) as store:
+                add(store.clients(), "DB")
 
-        out = write_template(args.path, names)
+        out = write_template(target, names)
         print(f"조사표 생성: {out.resolve()}" + (f"  — 수임처 {len(names)}곳 미리 채움"
                                               if names else " (빈 양식)"))
         if not names:

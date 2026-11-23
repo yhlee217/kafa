@@ -154,6 +154,8 @@ python tools/check_type_vs_nts.py ~/kafa-out/_archive
 kafa-clients template ~/수임처조사표.xlsx --from-db ~/kafa-out/kafa.db
 ```
 
-이미 처리한 수임처 이름이 미리 채워진 엑셀이 나온다. 담당자가 '개인/법인' 과
+이미 처리한 수임처 이름이 미리 채워진 엑셀이 나온다. 같은 이름의 파일이 이미 있으면 **덮어쓰지 않고
+멈춘다**(담당자가 채운 내용을 지우지 않게). 정말 새로 만들려면 `--force` 를 붙인다.
+`--from-db` 같은 경로가 없으면 빈 양식을 만들지 않고 멈춘다. 담당자가 '개인/법인' 과
 '직원 있나요?' 를 고르면 `kafa-clients import ~/수임처조사표.xlsx` 로 `config/clients.yaml`
 에 넣는다. 작성 방법 시트에 판단 기준(아르바이트·일용직은 있음, 가족만은 수임처마다)이 있다.

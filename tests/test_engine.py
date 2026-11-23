@@ -1,5 +1,6 @@
 """엔진 통합 — 합성(가짜) 입력만 사용. 실제 PII 없음."""
 from decimal import Decimal
+from pathlib import Path
 
 from kafa.rules.engine import classify_row
 from kafa.rules.models import Deduct, InputRow, Verdict
@@ -38,10 +39,47 @@ def test_duplicate_skipped():
     assert c.skip_reason == "중복전표"
 
 
-def test_non_deductible_overrides_type_to_ilban():
+def test_type_decides_deduction_over_the_nts_column():
+    """[확정 2026-11-23 담당자] 공제 여부는 국세청 칸이 아니라 담당자가 정한 유형이 가른다.
+    국세청이 불공제라도 유형이 카과면 공제이고, 유형도 그대로 둔다."""
     c = classify_row(_row(국세청="불공제", 업태="도매"), client_type="corporate")
+    assert c.공제여부 == Deduct.DEDUCTIBLE
+    assert c.유형코드 == 57
+    assert "DED-006" in c.판정근거
+
+
+def test_type_ilban_is_non_deductible_even_if_nts_says_deductible():
+    c = classify_row(_row(국세청="공제", 업태="도매", 유형="일반"), client_type="corporate")
+    assert c.공제여부 == Deduct.NON_DEDUCTIBLE
+    assert c.유형코드 == 3
+
+
+def test_unconfirmed_type_falls_back_to_the_nts_column():
+    """카면·카영·공란은 담당자가 정한 기준이 없어 예전처럼 국세청 칸을 따른다."""
+    c = classify_row(_row(국세청="불공제", 업태="도매", 유형="카면"), client_type="corporate")
+    assert c.공제여부 == Deduct.NON_DEDUCTIBLE and "DED-002" in c.판정근거
+    c = classify_row(_row(국세청="공제", 업태="도매", 유형=""), client_type="corporate")
+    assert c.공제여부 == Deduct.DEDUCTIBLE and "DED-002" in c.판정근거
+
+
+def test_nts_source_keeps_the_old_behaviour(tmp_path):
+    """config 를 국세청_컬럼으로 되돌리면 예전처럼 국세청 불공제가 유형을 일반으로 덮는다."""
+    import shutil
+    cfg = tmp_path / "config"
+    shutil.copytree(Path(__file__).resolve().parents[1] / "config", cfg)
+    rules = cfg / "rules.yaml"
+    rules.write_text(rules.read_text(encoding="utf-8").replace(
+        "  source: 유형 ", "  source: 국세청_컬럼 "), encoding="utf-8")
+    c = classify_row(_row(국세청="불공제", 업태="도매"), client_type="corporate",
+                     config_dir=str(cfg))
     assert c.공제여부 == Deduct.NON_DEDUCTIBLE
     assert c.유형코드 == 3   # 카과(57) → 일반(3) 오버라이드
+
+
+def test_review_keywords_still_win_over_the_type():
+    """유형으로 바꿔도 의심 업종(주유 등) 검토 플래그는 그대로 — 안전장치는 건드리지 않는다."""
+    c = classify_row(_row(업태="주유소", 종목="경유", 유형="카과"), client_type="corporate")
+    assert c.공제여부 == Deduct.REVIEW and c.needs_review
 
 
 def test_fuel_flags_review_keeps_prefilled_type():
