@@ -236,6 +236,23 @@ class VoucherStore:
                  labels.get(int(r[4]), "") if r[4] is not None else "", int(r[5]))
                 for r in self._conn.execute(sql)]
 
+    def prior_records(self) -> list[tuple]:
+        """사무실 전체 이력 [(client_id, 거래처, 사업자번호, 업태, 종목, 차변계정코드)].
+
+        처리된 행(rule_confirmed)만 — 도구가 추천한 행을 다시 배우지 않는다. 거래처·사업자번호는
+        대행사 거르기와 '처음 보는 가맹점' 세기에만 로컬에서 쓴다(PII — 밖으로 내보내지 않는다).
+        """
+        sql = ("SELECT client_id, 거래처, 사업자번호, 업태, 종목, 차변계정코드 FROM vouchers "
+               "WHERE 차변계정코드 IS NOT NULL AND skipped=0 AND 판정유형='rule_confirmed'")
+        return [(r[0], r[1] or "", r[2] or "", r[3] or "", r[4] or "", int(r[5]))
+                for r in self._conn.execute(sql)]
+
+    def unresolved_records(self) -> list[tuple]:
+        """지금 미해소인 행 [(client_id, 거래처, 업태, 종목)] — 채울 수 있는 건수 측정용."""
+        sql = ("SELECT client_id, 거래처, 업태, 종목 FROM vouchers WHERE 차변계정코드 IS NULL "
+               "AND skipped=0 AND 판정유형='unresolved'")
+        return [(r[0], r[1] or "", r[2] or "", r[3] or "") for r in self._conn.execute(sql)]
+
     def account_usage(self) -> dict[int, int]:
         """처리된 행의 차변계정 사용 횟수 {코드: 건수} — 이 사무실이 실제로 쓰는 계정."""
         sql = ("SELECT 차변계정코드, COUNT(*) FROM vouchers WHERE 차변계정코드 IS NOT NULL "

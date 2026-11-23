@@ -48,6 +48,7 @@ kafa/
     recommender.py    Recommender(LLM 우선/시드 폴백), build_recommender, 자가 시딩
     type_seed.py      처리 전 전표의 유형(카과/일반) 추천 — 같은 수임처·같은 가맹점 처리 이력만
     host_picks.py     운영용 Claude 추천 — 특징 서명 단위 질문지↔답지(_ai/), 이력 다음 순위, 시험·채점
+    office_prior.py   사무실 전체 이력(다른 수임처가 같은 업종을 처리한 계정) — 기본 off, kafa-ask prior 로 측정 후 켬
     explain.py        규칙ID+맥락 → 한국어 근거 문장
   report/             Phase 4 검토 리포트(담당자 전용) + 세무대리인 서비스 확장
     review.py         요약·부가율 이상·미등록 의심·추천내역 + 중간산출물 CSV(근거 포함)
@@ -105,6 +106,7 @@ kafa-run                              # 그다음부터는 이것만(사람은 �
 #   새 질문이 있으면 분류 전에 멈춘다(종료코드 3) → Claude 가 ~/kafa-out/_ai/answers.json 작성
 kafa-run --skip-fetch                 # 답을 받은 뒤 이어서(--no-ask 면 묻지 않고 진행)
 kafa-ask exam && kafa-ask score       # 처리 이력으로 Claude 정답률부터(정답은 로컬에만)
+kafa-ask prior                        # 사무실 전체 이력 추천 정답률(한 수임처씩 빼고) — 켤지 판단
 ```
 Claude Desktop: `claude_desktop_config.json` 에 `{"mcpServers":{"kafa":{"command":"kafa-mcp"}}}`.
 도구 `convert`/`preview` 는 raw PII 없이 **마스킹 요약만** 반환(데이터 변환은 결정론적 코드).

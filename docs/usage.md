@@ -179,7 +179,14 @@ kafa-ask apply       # Claude 답지(answers.json) 검증·합치기 → picks.j
 kafa-ask show        # 모인 답: 계정별 가짓수 · 모름 · 낮은 확신
 kafa-ask exam        # 처리된 이력으로 시험지 만들기(정답은 로컬에만)
 kafa-ask score       # 시험 채점 — 정답률, 확신 구간별 정답률, 틀린 예
+kafa-ask prior       # 사무실 전체 이력 추천을 켜도 되는지 — 한 수임처씩 빼고 맞혀 본 정답률
 ```
+
+`kafa-ask prior` 는 **다른 수임처들이 같은 업종을 처리한 계정**으로 추천하면 얼마나 맞는지 잰다
+(기본 꺼짐). 기준별로 '채움 · 정답'(전체 / 처음 보는 가맹점)과 지금 미해소 중 채울 수 있는 건수가
+나온다. 정답률이 Claude 시험(89%)보다 높은 기준이 있으면 `config/rules.yaml` 의
+`recommend.office_prior` 에 그 기준을 넣고 `enabled: true` 로 켠다. 켜면 순서는 수임처 이력 →
+사무실 이력 → Claude 답이다.
 
 - 이력·시드가 먼저고, Claude 답은 그것이 못 푼 행에만 쓴다. 확신 0.5 미만은 적용하지 않고
   리포트에 `AI(Claude) 메모` 로만 남긴다. 적용된 행은 '추천'(근거 `AI(Claude) 추정`,
