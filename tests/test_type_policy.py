@@ -96,8 +96,8 @@ def test_entertainment_stays_non_deductible_and_welfare_follows_employees(on):
 # ── 맞춰 보기 ──
 
 def test_check_against_fathers_rows():
-    records = [("c1", 146, "1000", 57), ("c1", 146, "1000", 57), ("c1", 146, "0", 58),
-               ("c1", 813, "1000", 3), ("c2", 831, "1000", 57), ("c2", 822, "1000", 57)]
+    records = [("c1", 146, "1000", "카과"), ("c1", 146, "1000", "카과"), ("c1", 146, "0", "카면"),
+               ("c1", 813, "1000", "일반"), ("c2", 831, "1000", "카과"), ("c2", 822, "1000", 57)]
     r = check_type_policy(records)
     assert (r.rows, r.clients, r.decided, r.agree) == (6, 2, 5, 3)
     text = render(r)
