@@ -1,4 +1,4 @@
-"""수임처 속성 조사표 — 엑셀로 받아 config/clients.yaml 로 바꾼다.
+"""수임처 속성 조사표 — 엑셀로 받아 수임처 속성 파일(~/.kafa/clients.yaml)로 바꾼다.
 
 담당자만 아는 사실(개인/법인·직원 유무)을 자료로는 알 수 없어 사람이 적어야 한다.
 YAML 을 직접 편집하게 하는 대신, **엑셀 양식**을 채워 오면 변환한다(실무자 친화).
@@ -13,10 +13,12 @@ from pathlib import Path
 SHEET = "수임처"
 COLUMNS = ["수임처 이름", "개인/법인", "직원 있나요?", "업종(선택)", "비고(선택)"]
 
-_YES = {"예", "있음", "y", "yes", "o", "1", "true"}
-_NO = {"아니오", "아니요", "없음", "n", "no", "x", "0", "false"}
-_INDIVIDUAL = {"개인", "개인사업자", "individual"}
-_CORPORATE = {"법인", "법인사업자", "corporate"}
+# 담당자가 실제로 쓰는 표기까지 받는다 — 2026-11-26 조사표는 직원 칸을 '유/무', 법인을 '법'으로
+# 적어 왔다. 모르는 표기는 버리지 않고 parse_template(issues=…) 로 알린다.
+_YES = {"예", "있음", "있", "유", "y", "yes", "o", "○", "1", "true"}
+_NO = {"아니오", "아니요", "없음", "없", "무", "n", "no", "x", "×", "0", "false"}
+_INDIVIDUAL = {"개인", "개", "개인사업자", "individual"}
+_CORPORATE = {"법인", "법", "법인사업자", "corporate"}
 
 _HOWTO = [
     ["수임처 속성 조사표 — 작성 방법"],
@@ -286,37 +288,64 @@ def names_from_text(path) -> list[str]:
     return [ln.strip() for ln in lines if ln.strip() and not ln.startswith("#")]
 
 
-def parse_template(path) -> dict[str, dict]:
-    """채워진 조사표 → {수임처: {client_type, has_employees, note}}."""
+def _template_rows(path) -> list[tuple]:
+    """조사표의 '수임처' 시트 행들. 엑셀에서 다시 저장한 옛 형식(.xls)도 읽는다."""
+    path = Path(path)
+    if path.suffix.lower() == ".xls":
+        import xlrd
+
+        wb = xlrd.open_workbook(str(path))
+        names = wb.sheet_names()
+        sh = wb.sheet_by_name(SHEET) if SHEET in names else wb.sheet_by_index(0)
+        return [tuple(sh.cell_value(r, c) for c in range(sh.ncols))
+                for r in range(sh.nrows)]
     import openpyxl
 
     wb = openpyxl.load_workbook(path, data_only=True)
     ws = wb[SHEET] if SHEET in wb.sheetnames else wb.worksheets[0]
+    return list(ws.iter_rows(values_only=True))
+
+
+def parse_template(path, issues: list | None = None) -> dict[str, dict]:
+    """채워진 조사표 → {client_id: {client_type, has_employees, note}}.
+
+    client_id 는 파이프라인의 고객 폴더명과 같아야 하므로 safe_name 을 쓴다(마스터와 같은 규칙).
+    issues 를 주면 알아듣지 못한 표기를 (행 번호, 칸, 값) 으로 담는다 — 조용히 버리지 않는다.
+    """
+    from kafa.fetch.plan import safe_name
+
     out: dict[str, dict] = {}
-    for i, row in enumerate(ws.iter_rows(values_only=True)):
+    for i, row in enumerate(_template_rows(path)):
         if i == 0:
             continue                       # 헤더
         name = _norm(row[0] if len(row) > 0 else "")
         if not name:
             continue
-        ctype = _norm(row[1] if len(row) > 1 else "").lower()
-        emp = _norm(row[2] if len(row) > 2 else "").lower()
+        ctype_raw = _norm(row[1] if len(row) > 1 else "")
+        emp_raw = _norm(row[2] if len(row) > 2 else "")
+        ctype, emp = ctype_raw.lower(), emp_raw.lower()
         업종 = _norm(row[3] if len(row) > 3 else "")
         비고 = _norm(row[4] if len(row) > 4 else "")
+        # 비고 오른쪽 빈 칸에 적은 메모(예: '법인전환')도 버리지 않는다
+        더 = [_norm(v) for v in row[5:] if _norm(v)]
 
         prof: dict = {}
         if ctype in _INDIVIDUAL:
             prof["client_type"] = "individual"
         elif ctype in _CORPORATE:
             prof["client_type"] = "corporate"
+        elif ctype and issues is not None:
+            issues.append((i + 1, "개인/법인", ctype_raw))
         if emp in _YES:
             prof["has_employees"] = True
         elif emp in _NO:
             prof["has_employees"] = False
-        note = " / ".join(x for x in (업종, 비고) if x)
+        elif emp and issues is not None:
+            issues.append((i + 1, "직원 있나요?", emp_raw))
+        note = " / ".join(x for x in (업종, 비고, *더) if x)
         if note:
             prof["note"] = note
-        out[name] = prof
+        out[safe_name(name)] = prof
     return out
 
 
@@ -368,7 +397,7 @@ def merge_profiles(existing: dict, new: dict) -> dict:
 
 
 def to_yaml(profiles: dict[str, dict], *, defaults: dict | None = None) -> str:
-    """조사표 결과 → clients.yaml 텍스트."""
+    """조사표 결과 → clients.yaml 텍스트(수임처 실명이 들어간다 — 레포 밖에 둔다)."""
     import yaml
 
     doc = {
@@ -376,7 +405,7 @@ def to_yaml(profiles: dict[str, dict], *, defaults: dict | None = None) -> str:
         "clients": profiles,
     }
     header = (
-        "# config/clients.yaml — 수임처 속성 (kafa-clients 로 생성)\n"
+        "# 수임처 속성 (kafa-clients 로 생성) — 수임처 실명이 들어 있다. git 에 넣지 않는다.\n"
         "# 담당자만 아는 사실이라 조사표(엑셀)로 받아 변환한다.\n"
         "# 배경·근거: docs/domain_notes.md\n\n"
     )

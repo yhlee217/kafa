@@ -56,16 +56,34 @@ def load_account_codes(config_dir: str | None = None) -> dict[str, int]:
     return mapping
 
 
+def local_clients_path() -> Path:
+    """수임처 속성의 실제 저장소 — 레포 **밖**(기본 ~/.kafa/clients.yaml, 환경변수 KAFA_CLIENTS).
+
+    수임처 실명이 들어가므로 git 이 추적하는 config/ 에 두지 않는다. 명령을 어느 폴더에서
+    실행하든 같은 파일을 쓰고 읽는다.
+    """
+    import os
+    return Path(os.environ.get("KAFA_CLIENTS") or "~/.kafa/clients.yaml").expanduser()
+
+
 @lru_cache(maxsize=None)
 def load_clients(config_dir: str | None = None) -> dict[str, Any]:
-    """config/clients.yaml — 수임처 속성(개인/법인·직원 유무). 파일 없으면 기본값만."""
+    """수임처 속성(개인/법인·직원 유무). 파일 없으면 기본값만.
+
+    config_dir 를 주지 않으면 레포의 config/clients.yaml(기본값·예전에 적힌 값) 위에
+    로컬 저장소(local_clients_path)를 덮어 읽는다. config_dir 를 주면 그 폴더만 본다(테스트).
+    """
     base = Path(config_dir) if config_dir else _DEFAULT_CONFIG_DIR
-    path = base / "clients.yaml"
-    if not path.exists():
-        return {"defaults": {}, "clients": {}}
-    data = _load_yaml(path)
-    return {"defaults": data.get("defaults") or {},
-            "clients": data.get("clients") or {}}
+    paths = [base / "clients.yaml"] + ([] if config_dir else [local_clients_path()])
+    out: dict[str, Any] = {"defaults": {}, "clients": {}}
+    for path in paths:
+        if not path.exists():
+            continue
+        data = _load_yaml(path)
+        out["defaults"].update(data.get("defaults") or {})
+        for cid, prof in (data.get("clients") or {}).items():
+            out["clients"].setdefault(cid, {}).update(prof or {})
+    return out
 
 
 def client_profile(client_id: str | None, config_dir: str | None = None) -> dict:

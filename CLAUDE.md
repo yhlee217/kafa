@@ -55,7 +55,7 @@ kafa/
     vat_summary.py    부가세 신고 보조 집계(과세공제/불공제/면세/의제/검토 합산)
   agent/              세무대리인 보조(신고전점검·사업자번호검증·원천징수·자료수취·대사)
   fetch/              감독형 수집(RPA) — 사람이 로그인, 반복 클릭만 자동화(plan/session/wehago) + CLI(kafa-fetch)
-  clients.py          수임처 속성 조사표(엑셀) ↔ config/clients.yaml + CLI(kafa-clients)
+  clients.py          수임처 속성 조사표(엑셀 .xlsx/.xls) ↔ ~/.kafa/clients.yaml(레포 밖, 실명) + CLI(kafa-clients)
   run_cli.py          kafa-run — 수집→속성→처리를 한 명령으로(설정은 ~/.kafa/run.json)
   lookup/             대행사 건 원본 결제내역 되찾기(의뢰서·이용내역 파싱·로컬 대조·수임처 자료요청서)
                       + CLI(kafa-lookup) — 프롬프트는 docs/cowork_lookup.md
@@ -77,7 +77,7 @@ config/
   loops/example.yaml  루프 스펙 예시(비-PII 근거 문장 다듬기)
   lookup/statements.yaml  카드사 이용내역 헤더 문구 별칭(카드사마다 다름)
   lookup/pg_sites.yaml    대행사별 되찾기 경로·관문(PG API 불가 — 소비자 조회 페이지)
-  clients.yaml        수임처 속성(개인/법인·직원 유무) — 사람이 채움(kafa-clients)
+  clients.yaml        수임처 속성 기본값만 — 실제 수임처별 값은 레포 밖 ~/.kafa/clients.yaml(kafa-clients)
   fetch/wehago.yaml   감독형 수집 화면 selector(실화면 보고 보정 필요 — 추측 금지)
 tests/                단위·통합 테스트(합성 데이터만) — 룰·추천·입출력·파이프라인·대사
 ```
