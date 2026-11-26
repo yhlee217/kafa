@@ -28,7 +28,7 @@ class TypeCheck:
 
 
 def check_type_policy(records, *, config_dir: str | None = None) -> TypeCheck:
-    """records: [(client_id, 차변계정코드, 세액, 유형코드)] — VoucherStore.father_type_rows."""
+    """records: [(client_id, 차변계정코드, 세액, 담당자 유형 이름)] — VoucherStore.father_type_rows."""
     from kafa.config_loader import client_profile, load_rules
     from kafa.recommend.host_picks import account_names
     from kafa.rules.type_policy import decide_type, has_vat, policy
@@ -39,7 +39,7 @@ def check_type_policy(records, *, config_dir: str | None = None) -> TypeCheck:
     out = TypeCheck()
     seen = set()
     profiles: dict[str, dict] = {}
-    for client, code, tax, type_code in records:
+    for client, code, tax, father in records:
         out.rows += 1
         seen.add(client)
         prof = profiles.setdefault(client, client_profile(client, config_dir))
@@ -49,7 +49,8 @@ def check_type_policy(records, *, config_dir: str | None = None) -> TypeCheck:
             out.undecided[name] += 1
             continue
         out.decided += 1
-        father = labels.get(type_code, str(type_code))
+        if isinstance(father, int):                 # 예전 모양(유형코드)도 받는다
+            father = labels.get(father, str(father))
         if d.label == father:
             out.agree += 1
         else:

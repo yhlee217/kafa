@@ -59,7 +59,8 @@ CREATE TABLE IF NOT EXISTS vouchers (
     source_file   TEXT,
     ingested_at   TEXT,
     전표상태      TEXT,
-    확정출처      TEXT
+    확정출처      TEXT,
+    원유형        TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_vouchers_client_period ON vouchers(client_id, period);
 CREATE TABLE IF NOT EXISTS runs (
@@ -77,7 +78,7 @@ _COLUMNS = [
     "client_id", "period", "거래일자", "거래처", "사업자번호", "품명", "업태", "종목",
     "공급가액", "세액", "비과세", "합계", "유형코드", "차변계정코드", "대변계정코드",
     "공제여부", "판정유형", "신뢰도", "추천근거", "skipped", "skip_reason", "source_file",
-    "전표상태", "확정출처",
+    "전표상태", "확정출처", "원유형",
 ]
 
 # 확정출처 — 담당자 판단으로 치는 것과 아닌 것
@@ -158,6 +159,7 @@ def _to_row(client_id: str, period: str, c: ClassifiedRow, source_file: str) -> 
         source_file,
         (s.전표상태 or "").strip() if s else "",
         confirm_source(c),
+        (s.유형 or "").strip() if s else "",     # 원본 유형 칸 — 유형코드는 kafa 판정 결과다
     )
 
 
@@ -175,7 +177,7 @@ class VoucherStore:
     def _migrate(self) -> None:
         """기존 DB에 없는 컬럼을 추가(구버전 파일 호환)."""
         have = {r[1] for r in self._conn.execute("PRAGMA table_info(vouchers)")}
-        for col in ("업태", "종목", "전표상태", "확정출처"):
+        for col in ("업태", "종목", "전표상태", "확정출처", "원유형"):
             if col not in have:
                 self._conn.execute(f"ALTER TABLE vouchers ADD COLUMN {col} TEXT")
         # 확정출처가 생기기 전 행: 계정이 채워져 들어온 처리 행은 위하고 자동 분류로 본다
@@ -258,8 +260,11 @@ class VoucherStore:
         from kafa.config_loader import load_rules
         labels = {int(v): str(k) for k, v in
                   (load_rules(config_dir).get("vat_type_codes") or {}).items()}
-        sql = ("SELECT 거래처, 사업자번호, 유형코드 FROM vouchers "
-               "WHERE 유형코드 IS NOT NULL AND skipped=0 AND 확정출처 IN (?,?)")
+        # 원본 유형 칸(원유형)이 담당자 판단이다. 유형코드는 적재 당시 kafa 판정이라 예전 기준
+        # (국세청 칸)으로 들어간 행은 다르다(2026-11-26 실측). 원유형이 없는 행만 유형코드로.
+        sql = ("SELECT 거래처, 사업자번호, 유형코드, 원유형 FROM vouchers "
+               "WHERE (유형코드 IS NOT NULL OR COALESCE(원유형,'') <> '') AND skipped=0 "
+               "AND 확정출처 IN (?,?)")
         params: list = list(FATHER_SOURCES)
         if client_id is not None:
             sql += " AND client_id=?"
@@ -267,7 +272,8 @@ class VoucherStore:
         if exclude_source:
             sql += " AND COALESCE(source_file,'') <> ?"
             params.append(exclude_source)
-        return [(r[0] or "", r[1] or "", labels.get(int(r[2]), ""))
+        return [(r[0] or "", r[1] or "",
+                 (r[3] or "").strip() or (labels.get(int(r[2]), "") if r[2] is not None else ""))
                 for r in self._conn.execute(sql, params)]
 
     def account_records(self, *, config_dir: str | None = None,
@@ -358,11 +364,12 @@ class VoucherStore:
                 if r[6] in FATHER_SOURCES or (r[5], r[1] or r[0]) not in father]
 
     def backfill_status(self, client_id: str, rows: list) -> int:
-        """원본 행(InputRow, 파일 순서 그대로)의 전표상태를 이미 쌓인 행에 채운다.
+        """원본 행(InputRow, 파일 순서 그대로)의 전표상태·원본 유형을 이미 쌓인 행에 채운다.
 
-        확정출처가 생기기 전에 쌓인 행은 위하고가 확정한 것('전표확정')인지 알 수 없다.
-        적재 때와 같은 키(같은 순번 규칙)로 찾아 전표상태를 넣고, 담당자가 확정한 상태면
-        확정출처를 전표확정으로 바꾼다. 담당자 답지로 정한 행은 건드리지 않는다. 바꾼 행 수.
+        확정출처·원유형이 생기기 전에 쌓인 행은 위하고가 확정한 것('전표확정')인지, 원본 유형 칸이
+        무엇이었는지 DB 만으로는 알 수 없다(유형코드는 적재 당시 kafa 판정). 적재 때와 같은 키(같은
+        순번 규칙)로 찾아 넣고, 담당자가 확정한 상태면 확정출처를 전표확정으로 바꾼다. 담당자 답지로
+        정한 행의 확정출처는 건드리지 않는다. 바꾼 행 수.
         """
         confirmed, _ = status_settings()
         seen: dict[str, int] = {}
@@ -374,23 +381,34 @@ class VoucherStore:
             seen[base] = occurrence + 1
             key = _voucher_key(client_id, c, occurrence)
             status = (r.전표상태 or "").strip()
+            vat = (r.유형 or "").strip()
             cur = self._conn.execute(
-                "UPDATE vouchers SET 전표상태=?, 확정출처=CASE "
+                "UPDATE vouchers SET 전표상태=?, 원유형=?, 확정출처=CASE "
                 "WHEN ? AND 차변계정코드 IS NOT NULL AND skipped=0 "
                 "AND COALESCE(확정출처,'') <> ? THEN ? ELSE 확정출처 END "
-                "WHERE voucher_key=? AND COALESCE(전표상태,'') <> ?",
-                (status, 1 if status in confirmed else 0, SOURCE_DESK, SOURCE_CONFIRMED,
-                 key, status))
+                "WHERE voucher_key=? AND (COALESCE(전표상태,'') <> ? OR COALESCE(원유형,'') <> ?)",
+                (status, vat, 1 if status in confirmed else 0, SOURCE_DESK, SOURCE_CONFIRMED,
+                 key, status, vat))
             changed += cur.rowcount
         self._conn.commit()
         return changed
 
-    def father_type_rows(self) -> list[tuple]:
-        """담당자가 정한 행 [(client_id, 차변계정코드, 세액, 유형코드)] — 유형 기준표 맞춰 보기용(PII 없음)."""
-        sql = ("SELECT client_id, 차변계정코드, 세액, 유형코드 FROM vouchers WHERE skipped=0 "
-               "AND 차변계정코드 IS NOT NULL AND 유형코드 IS NOT NULL AND 확정출처 IN (?,?)")
-        return [(r[0], int(r[1]), r[2], int(r[3]))
-                for r in self._conn.execute(sql, list(FATHER_SOURCES))]
+    def father_type_rows(self, *, config_dir: str | None = None) -> list[tuple]:
+        """담당자가 정한 행 [(client_id, 차변계정코드, 세액, 유형 이름)] — 유형 기준표 맞춰 보기용(PII 없음).
+
+        유형은 원본 유형 칸(원유형) — 담당자가 고른 것. 없으면(예전 행) 유형코드의 이름.
+        """
+        from kafa.config_loader import load_rules
+        labels = {int(v): str(k) for k, v in
+                  (load_rules(config_dir).get("vat_type_codes") or {}).items()}
+        sql = ("SELECT client_id, 차변계정코드, 세액, 유형코드, 원유형 FROM vouchers WHERE skipped=0 "
+               "AND 차변계정코드 IS NOT NULL AND 확정출처 IN (?,?)")
+        out = []
+        for r in self._conn.execute(sql, list(FATHER_SOURCES)):
+            label = (r[4] or "").strip() or (labels.get(int(r[3]), "") if r[3] is not None else "")
+            if label:
+                out.append((r[0], int(r[1]), r[2], label))
+        return out
 
     def source_counts(self) -> dict[str, int]:
         """확정출처별 건수(계정이 있는 행) — 담당자 판단이 얼마나 쌓였는지."""

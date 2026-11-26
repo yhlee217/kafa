@@ -170,10 +170,12 @@ def test_old_db_is_migrated_and_backfilled_from_originals(tmp_path):
     src = [_src_row(), _src_row(일자="03-16", 전표상태="전표확정", 유형="카과")]
     with VoucherStore(path) as db:
         db.upsert_vouchers("c1", "2026-03", classify_rows(src, client_type="corporate")[0])
-    con = sqlite3.connect(path)                     # 예전 DB 흉내: 두 칸을 비운다
-    con.execute("UPDATE vouchers SET 전표상태=NULL, 확정출처=NULL")
+    con = sqlite3.connect(path)                     # 예전 DB 흉내: 칸을 비우고 지운다
+    # 예전엔 국세청 칸으로 판정해 담당자가 카과로 고친 행도 유형코드가 일반(3)으로 들어갔다
+    con.execute("UPDATE vouchers SET 전표상태=NULL, 확정출처=NULL, 유형코드=3")
     con.commit()
     con.execute("ALTER TABLE vouchers DROP COLUMN 확정출처")
+    con.execute("ALTER TABLE vouchers DROP COLUMN 원유형")
     con.commit()
     con.close()
     with VoucherStore(path) as db:
@@ -182,7 +184,9 @@ def test_old_db_is_migrated_and_backfilled_from_originals(tmp_path):
         assert db.backfill_status("c1", src) == 2
         assert db.backfill_status("c1", src) == 0          # 다시 해도 그대로
         assert db.source_counts() == {"위하고": 1, "전표확정": 1}
+        # 담당자 유형은 원본 유형 칸에서 — 예전 판정(유형코드 3)이 아니라 카과
         assert db.type_records("c1") == [("행복상사", "111-11-11119", "카과")]
+        assert [r[3] for r in db.father_type_rows()] == ["카과"]
 
 
 def test_backfill_command_reads_the_archive(tmp_path, capsys):
