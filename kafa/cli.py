@@ -29,6 +29,31 @@ def _needs_welfare_review(profile: dict | None, code, config_dir) -> bool:
     return int(code) in set(cfg.get("welfare_account_codes", []) or [])
 
 
+RULE_CLIENT_MEAL = "CLIENT-MEAL"
+
+
+def _client_meal_account(profile: dict | None, row, code, config_dir) -> int | None:
+    """이 수임처가 식대를 따로 처리하면(meal_account) 그 계정 코드, 아니면 None.
+
+    추천 계정이 복리후생비이고 그 행이 식대(음식점 업종)일 때만. 기준은 config
+    client_profile_checks.meal_override, 배경은 docs/domain_notes.md.
+    """
+    if not profile or profile.get("meal_account") in (None, "") or code is None:
+        return None
+    from kafa.config_loader import load_rules
+    cfg = ((load_rules(config_dir).get("client_profile_checks") or {})
+           .get("meal_override") or {})
+    if int(code) not in {int(x) for x in (cfg.get("from_account_codes") or [])}:
+        return None
+    text = (row.종목 or "").strip() or (row.업태 or "").strip()
+    if not any(k in text for k in (cfg.get("meal_keywords") or [])):
+        return None
+    try:
+        return int(profile["meal_account"])
+    except (TypeError, ValueError):
+        return None
+
+
 def _settle_agent_review(c, confidence, config_dir) -> None:
     """대행사 건이라도 그 수임처의 과거 처리가 일관되면 검토 플래그를 뗀다.
 
@@ -118,12 +143,19 @@ def classify_rows(rows: list[InputRow], *,
         if c.판정유형 == Verdict.UNRESOLVED and c.차변계정코드 is None:
             rec = recommender.recommend_for(row)
             if rec.resolved:
-                c.차변계정코드 = rec.account_code
+                code, basis = rec.account_code, rec.basis
+                # 수임처가 식대를 따로 처리하면(담당자 지정) 추천된 복리후생비를 그 계정으로
+                meal = _client_meal_account(profile, row, code, config_dir)
+                if meal is not None:
+                    code, basis = meal, f"{basis} · 수임처 식대 계정(담당자 지정)"
+                c.차변계정코드 = code
                 c.판정유형 = Verdict.RECOMMENDED
                 c.신뢰도 = rec.confidence
-                c.추천근거 = rec.basis
+                c.추천근거 = basis
                 c.add_rule("RECO-001")
-                if _needs_welfare_review(profile, rec.account_code, config_dir):
+                if meal is not None:
+                    c.add_rule(RULE_CLIENT_MEAL)
+                if _needs_welfare_review(profile, code, config_dir):
                     c.needs_review = True
                     c.review_reasons.append(
                         "직원이 없는 수임처인데 복리후생비로 추천됨 → 확인 필요"

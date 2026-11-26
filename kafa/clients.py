@@ -410,3 +410,45 @@ def to_yaml(profiles: dict[str, dict], *, defaults: dict | None = None) -> str:
         "# 배경·근거: docs/domain_notes.md\n\n"
     )
     return header + yaml.safe_dump(doc, allow_unicode=True, sort_keys=False)
+
+
+def resolve_account_text(text, config_dir: str | None = None) -> tuple[int | None, str]:
+    """'접대비'·'813'·'(판)접대비(기업업무추진비)' → (코드, 계정 이름) 또는 (None, 이유).
+
+    이름 일부만 주면 판매관리비 (판) 쪽을 고른다(해외접대비 같은 갈래는 뺀다). 대변 쪽 계정은
+    받지 않는다. 계정 코드표에 없는 계정(수임처가 따로 만든 것)은 아직 받지 않는다.
+    """
+    from kafa.config_loader import load_account_codes, load_credit_side_codes
+
+    credit = load_credit_side_codes(config_dir)
+    every = load_account_codes(config_dir)
+    mapping = {n: c for n, c in every.items() if c not in credit}
+    by_code: dict[int, str] = {}
+    for n, c in mapping.items():
+        by_code.setdefault(c, n)
+    t = str(text or "").strip()
+    if not t:
+        return None, "계정을 적어 주세요(예: 접대비, 813)"
+    if t.isdigit():
+        code = int(t)
+        if code in by_code:
+            return code, by_code[code]
+        if code in credit:
+            return None, f"{code} 는 대변 쪽 계정이라 식대 계정으로 쓸 수 없습니다"
+        return None, f"계정 코드표에 없는 코드입니다: {code}"
+
+    def norm(x: str) -> str:
+        return re.sub(r"\s+", "", x)
+
+    for n, c in mapping.items():
+        if norm(n) == norm(t):
+            return c, n
+    cands = [(n, c) for n, c in mapping.items() if norm(t) in norm(n) and "해외" not in n]
+    pan = [x for x in cands if x[0].startswith("(판)")]
+    pick = pan if len(pan) == 1 else (cands if len(cands) == 1 else [])
+    if pick:
+        return pick[0][1], pick[0][0]
+    if not cands:
+        return None, f"계정 코드표에 '{t}' 이(가) 없습니다(수임처가 따로 만든 계정이면 아직 지정할 수 없습니다)"
+    return None, ("여러 계정이 맞습니다: " + ", ".join(n for n, _ in cands[:6])
+                  + " — 정확한 이름이나 코드로 주세요")

@@ -44,8 +44,20 @@ def main(argv: list[str] | None = None) -> int:
                    help="처리 이력 DB — 조사표 이름이 처리한 수임처와 맞는지 센다"
                         "(기본: kafa-run 결과 폴더의 kafa.db)")
 
+    ml = sub.add_parser("meal", help="수임처의 식대 계정 지정(예: 접대비) — 추천된 복리후생비 식대를 그 계정으로")
+    ml.add_argument("account", nargs="?", default="",
+                    help="계정 이름 또는 코드(예: 접대비, 813). --clear 면 생략")
+    who = ml.add_mutually_exclusive_group(required=True)
+    who.add_argument("--client", help="수임처 이름")
+    who.add_argument("--where-note", help="조사표 메모에 이 문구가 있는 수임처(이름을 치지 않아도 됨)")
+    ml.add_argument("--clear", action="store_true", help="지정을 푼다")
+    ml.add_argument("--out", default=None, help="저장 경로(기본 ~/.kafa/clients.yaml)")
+
     args = ap.parse_args(argv)
     from kafa.clients import merge_profiles, parse_template, write_template
+
+    if args.cmd == "meal":
+        return _cmd_meal(args)
 
     if args.cmd == "from-master":
         from kafa.clients import profiles_from_master
@@ -201,6 +213,45 @@ def _report_uncovered(done: set) -> None:
         print(f"  '(주)' 같은 표기만 다른 이름의 값을 이어 쓴 곳: {linked}곳")
     if missing:
         print(f"  [확인] 처리 이력에 있는데 직원 유무가 없는 곳: {missing}곳 — 기본값(직원 있음)으로 처리됩니다")
+
+
+def _cmd_meal(args) -> int:
+    """수임처 한 곳의 식대 계정을 지정/해제. 출력에 수임처 이름은 가려서 쓴다."""
+    from kafa.clients import resolve_account_text
+    from kafa.config_loader import same_client_by_name
+    from kafa.fetch.plan import safe_name
+    from kafa.security import mask_name
+
+    out = _out_path(args.out)
+    defaults, clients = _existing(out)
+    if args.where_note:
+        targets = [k for k, v in clients.items() if args.where_note in ((v or {}).get("note") or "")]
+    else:
+        cid = safe_name(args.client)
+        alias = cid if cid in clients else same_client_by_name(cid, clients)
+        targets = [alias] if alias else []
+    if len(targets) != 1:
+        print(f"[중단] 맞는 수임처가 {len(targets)}곳입니다 — 한 곳만 맞도록 다시 주세요"
+              + ("(메모 문구를 더 길게)" if args.where_note else ""), file=sys.stderr)
+        return 2
+    cid = targets[0]
+    prof = clients.setdefault(cid, {}) or {}
+    clients[cid] = prof
+    if args.clear:
+        prof.pop("meal_account", None)
+        msg = "식대 계정 지정을 풀었습니다"
+    else:
+        code, name = resolve_account_text(args.account)
+        if code is None:
+            print(f"[중단] {name}", file=sys.stderr)
+            return 2
+        prof["meal_account"] = code
+        msg = f"식대 계정 → {name} [{code}]"
+    _save(out, clients, defaults)
+    print(f"{mask_name(cid, keep=1)}: {msg}")
+    print("  프로그램이 복리후생비로 추천한 식대(음식점 업종)만 바뀝니다."
+          " 위하고·담당자가 이미 채운 행은 그대로입니다.")
+    return 0
 
 
 def _out_path(arg) -> Path:
