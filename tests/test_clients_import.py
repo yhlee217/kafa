@@ -98,7 +98,8 @@ def test_loader_reads_local_store_over_repo_defaults(tmp_path):
     load_clients.cache_clear()
     prof = client_profile("다라식당")
     assert prof["has_employees"] is False
-    assert prof["client_type"] == "corporate"        # 레포 기본값은 그대로
+    # 개인/법인이 안 적혀 있으면 이름으로 — 법인 표기가 없으니 개인(레포 기본값 client_type_from_name)
+    assert prof["client_type"] == "individual" and prof["client_type_by"] == "name"
 
 
 def test_from_master_writes_local_store_by_default(tmp_path):
@@ -129,23 +130,51 @@ def test_import_counts_names_that_match_processed_clients(tmp_path, capsys):
 
 # ── '(주)' 표기만 다른 이름 ──
 
-def _cfg(tmp_path, clients):
+def _cfg(tmp_path, clients, defaults=None):
     d = tmp_path / "cfg"
     d.mkdir(exist_ok=True)
-    (d / "clients.yaml").write_text(yaml.safe_dump({"clients": clients}, allow_unicode=True),
-                                    encoding="utf-8")
+    data = {"clients": clients, **({"defaults": defaults} if defaults else {})}
+    (d / "clients.yaml").write_text(yaml.safe_dump(data, allow_unicode=True), encoding="utf-8")
     load_clients.cache_clear()
     return str(d)
 
 
-def test_folder_without_corp_mark_uses_the_marked_profile(tmp_path):
-    """처리 이력에 '(주)' 없이도 남은 폴더 — 마스터·조사표 어디에도 없으면 표기만 다른 이름을 쓴다."""
-    d = _cfg(tmp_path, {"(주)가나상사": {"client_type": "corporate", "has_employees": False,
-                                     "note": "폐업"}})
+def test_corp_mark_style_variants_share_a_profile(tmp_path):
+    """'(주)가나상사' ↔ '주식회사 가나상사' ↔ '가나상사(주)' — 법인 표기 모양만 다르면 같은 곳."""
+    d = _cfg(tmp_path, {"(주)가나상사": {"client_type": "corporate", "has_employees": False}})
+    for name in ("주식회사 가나상사", "가나상사(주)", "㈜ 가나상사"):
+        prof = client_profile(name, d)
+        assert prof["has_employees"] is False and prof["matched_by"] == "name_variant"
+
+
+def test_folder_without_corp_mark_is_a_different_business(tmp_path):
+    """법인 표기가 한쪽에만 있으면 다른 사업자 — 개인을 법인으로 전환했거나 둘 다 살아 있는 곳.
+
+    (담당자 확인 2026-11-26) 법인 속성을 개인 폴더에 붙이지 않는다. 개인/법인은 이름으로 정한다.
+    """
+    d = _cfg(tmp_path, {"(주)가나상사": {"client_type": "corporate", "has_employees": False}},
+             defaults={"client_type": "corporate", "client_type_from_name": True})
     prof = client_profile("가나상사", d)
-    assert prof["client_type"] == "corporate" and prof["has_employees"] is False
-    assert prof["matched_by"] == "name_variant"
-    assert client_profile("주식회사 가나상사", d)["has_employees"] is False
+    assert "matched_by" not in prof
+    assert prof["has_employees"] is True                     # 기본값 — 법인 쪽 값을 쓰지 않는다
+    assert prof["client_type"] == "individual" and prof["client_type_by"] == "name"
+
+
+def test_client_type_from_name_only_when_not_written(tmp_path):
+    d = _cfg(tmp_path, {"라마농원": {"client_type": "corporate"},     # 표기 없는 법인 — 적힌 값이 이긴다
+                        "바사상회": {"has_employees": False}},
+             defaults={"client_type": "corporate", "client_type_from_name": True})
+    assert client_profile("라마농원", d)["client_type"] == "corporate"
+    assert "client_type_by" not in client_profile("라마농원", d)
+    assert client_profile("바사상회", d)["client_type"] == "individual"
+    assert client_profile("(주)처음보는곳", d)["client_type"] == "corporate"
+    assert client_profile("처음보는곳", d)["client_type"] == "individual"
+    assert "client_type_from_name" not in client_profile("처음보는곳", d)
+
+
+def test_client_type_from_name_is_off_without_the_flag(tmp_path):
+    d = _cfg(tmp_path, {})
+    assert client_profile("처음보는곳", d)["client_type"] == "corporate"
 
 
 def test_individual_profile_never_goes_to_a_corporation_folder(tmp_path):
@@ -174,7 +203,7 @@ def test_import_reports_linked_and_uncovered_counts(tmp_path, capsys):
     from kafa.store.db import VoucherStore
     db = tmp_path / "kafa.db"
     store = VoucherStore(db)
-    for cid in ("(주)가나상사", "가나상사", "다라식당", "차카상회"):
+    for cid in ("(주)가나상사", "주식회사 가나상사", "다라식당", "차카상회"):
         store.upsert_client(cid)
     store.close()
     rows = [["(주)가나상사", "법", "유", "", "폐업"], ["다라식당", "개인", "무", "", ""]]

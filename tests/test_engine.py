@@ -148,3 +148,26 @@ def test_negative_unrecommended_no_swap_without_recommendation():
     assert c.reversal_applied is False  # 차변 미정이라 swap 보류
     assert c.차변계정코드 is None
     assert c.판정유형 == Verdict.UNRESOLVED
+
+
+def test_corporate_check_card_keeps_ordinary_deposit_from_download():
+    """[확정 2026-11-26 담당자 통화] 법인 체크카드는 대변 보통예금(103). 위하고에 카드를 등록할 때
+    체크카드는 상대계정을 보통예금으로 잡아 두므로, 다운로드본 대변 칸이 보통예금이면 지킨다."""
+    c = classify_row(_row(대변계정="보통예금"), client_type="corporate")
+    assert c.대변계정코드 == 103
+    assert "CP-004" in c.판정근거
+    assert classify_row(_row(대변계정="미지급비용"), client_type="corporate").대변계정코드 == 262
+    assert classify_row(_row(대변계정=""), client_type="corporate").대변계정코드 == 262
+
+
+def test_individual_counterparty_stays_drawings_even_if_download_says_deposit():
+    """개인은 보통예금·현금으로 섞여 있어도 인출금 하나로 바꾼다(2026-11-23 통화)."""
+    c = classify_row(_row(대변계정="보통예금"), client_type="individual")
+    assert c.대변계정코드 == 338
+
+
+def test_negative_check_card_row_swaps_with_ordinary_deposit():
+    """환불(음수)은 차대변을 뒤집는다 — 체크카드면 보통예금이 차변으로 간다."""
+    c = classify_row(_row(대변계정="보통예금", 공급가액=Decimal("-10000"), 세액=Decimal("-1000"),
+                          합계=Decimal("-11000")), client_type="corporate")
+    assert 103 in (c.차변계정코드, c.대변계정코드)

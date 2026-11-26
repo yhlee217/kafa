@@ -218,7 +218,7 @@ def _report_uncovered(done: set) -> None:
 def _cmd_meal(args) -> int:
     """수임처 한 곳의 식대 계정을 지정/해제. 출력에 수임처 이름은 가려서 쓴다."""
     from kafa.clients import resolve_account_text
-    from kafa.config_loader import same_client_by_name
+    from kafa.config_loader import client_name_core, same_client_by_name
     from kafa.fetch.plan import safe_name
     from kafa.security import mask_name
 
@@ -229,6 +229,12 @@ def _cmd_meal(args) -> int:
     else:
         cid = safe_name(args.client)
         alias = cid if cid in clients else same_client_by_name(cid, clients)
+        if alias is None:
+            # 사람이 친 이름이라 '(주)' 를 빼먹을 수 있다 — 표기만 다른 후보가 딱 하나일 때만 받는다.
+            # (처리 때의 속성 찾기는 법인 표기가 한쪽에만 있으면 다른 사업자로 본다)
+            core = client_name_core(cid)
+            loose = [k for k in clients if core and client_name_core(k) == core]
+            alias = loose[0] if len(loose) == 1 else None
         targets = [alias] if alias else []
     if len(targets) != 1:
         print(f"[중단] 맞는 수임처가 {len(targets)}곳입니다 — 한 곳만 맞도록 다시 주세요"
