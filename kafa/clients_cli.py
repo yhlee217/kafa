@@ -1,9 +1,12 @@
 """kafa-clients — 수임처 속성 조사표 만들기/불러오기.
 
   kafa-clients template 수임처조사표.xlsx [--from-db out/kafa.db]
-  kafa-clients import   수임처조사표.xlsx [--out config/clients.yaml]
+  kafa-clients import   수임처조사표.xlsx(.xls 도 됨) [--out ~/.kafa/clients.yaml]
 
-담당자가 엑셀을 채워 오면 config/clients.yaml 로 변환한다. 배경: docs/domain_notes.md
+담당자가 엑셀을 채워 오면 수임처 속성 파일로 합친다. 기본 저장 위치는 레포 **밖**
+~/.kafa/clients.yaml(수임처 실명이 들어가므로 git 이 추적하는 config/ 에 두지 않는다).
+처음 저장할 때는 예전에 config/clients.yaml 에 적힌 값을 가져와 이어 쓴다.
+배경: docs/domain_notes.md
 """
 from __future__ import annotations
 
@@ -30,20 +33,22 @@ def main(argv: list[str] | None = None) -> int:
     m = sub.add_parser("from-master",
                        help="수임처 마스터 엑셀의 '구분'(개인/법인)으로 clients.yaml 채우기")
     m.add_argument("path", help="수임처 마스터 엑셀(.xlsx)")
-    m.add_argument("--out", default="config/clients.yaml", help="저장 경로")
+    m.add_argument("--out", default=None, help="저장 경로(기본 ~/.kafa/clients.yaml)")
     m.add_argument("--replace", action="store_true",
                    help="기존 내용을 지우고 새로 쓴다(기본은 사람이 적은 값 보존)")
 
     i = sub.add_parser("import", help="채워진 조사표 → clients.yaml")
-    i.add_argument("path", help="채워진 조사표(.xlsx)")
-    i.add_argument("--out", default="config/clients.yaml", help="저장 경로")
+    i.add_argument("path", help="채워진 조사표(.xlsx 또는 엑셀에서 다시 저장한 .xls)")
+    i.add_argument("--out", default=None, help="저장 경로(기본 ~/.kafa/clients.yaml)")
+    i.add_argument("--db", default=None,
+                   help="처리 이력 DB — 조사표 이름이 처리한 수임처와 맞는지 센다"
+                        "(기본: kafa-run 결과 폴더의 kafa.db)")
 
     args = ap.parse_args(argv)
-    from kafa.clients import parse_template, to_yaml, write_template
+    from kafa.clients import merge_profiles, parse_template, write_template
 
     if args.cmd == "from-master":
-        from kafa.clients import (load_yaml_profiles, merge_profiles,
-                                  profiles_from_master)
+        from kafa.clients import profiles_from_master
         src = Path(args.path)
         if not src.exists():
             print(f"[중단] 파일이 없습니다: {src}", file=sys.stderr)
@@ -53,13 +58,11 @@ def main(argv: list[str] | None = None) -> int:
             print("[중단] 수임처를 읽지 못했습니다(회사명 칸을 찾을 수 없음).",
                   file=sys.stderr)
             return 2
-        defaults, existing = load_yaml_profiles(args.out)
+        out = _out_path(args.out)
+        defaults, existing = _existing(out)
         merged = (new_profiles if args.replace
                   else merge_profiles(existing, new_profiles))
-        out = Path(args.out)
-        out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_text(to_yaml(merged, defaults=defaults or None),
-                       encoding="utf-8")
+        _save(out, merged, defaults)
 
         def _count(kind):
             return sum(1 for v in merged.values() if v.get("client_type") == kind)
@@ -77,8 +80,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.cmd == "template":
-        from kafa.clients import (names_from_inbox, names_from_text,
-                                  profiles_from_excel)
+        from kafa.clients import names_from_inbox, names_from_text, profiles_from_excel
         # 이미 있는 조사표는 담당자가 채운 것일 수 있다 — 아무 말 없이 덮어쓰지 않는다.
         target = Path(args.path).expanduser()
         if target.exists() and not args.force:
@@ -134,17 +136,80 @@ def main(argv: list[str] | None = None) -> int:
         print("담당자에게 전달해 '수임처' 시트의 나머지 칸을 채워 달라고 하세요.")
         return 0
 
-    profiles = parse_template(args.path)
+    src = Path(args.path).expanduser()
+    if not src.exists():
+        print(f"[중단] 파일이 없습니다: {src}", file=sys.stderr)
+        return 2
+    issues: list = []
+    profiles = parse_template(src, issues=issues)
     if not profiles:
         print("조사표에서 읽은 수임처가 없습니다(이름 칸이 비어 있는지 확인).",
               file=sys.stderr)
         return 1
-    dest = Path(args.out)
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    dest.write_text(to_yaml(profiles), encoding="utf-8")
-    filled = sum(1 for p in profiles.values() if p)
-    print(f"수임처 {len(profiles)}곳 → {dest}  (속성 채워진 곳 {filled})")
+    dest = _out_path(args.out)
+    defaults, existing = _existing(dest)
+    _save(dest, merge_profiles(existing, profiles), defaults)
+
+    # 출력에는 수임처 이름을 쓰지 않는다(대화에 붙여넣어도 되게) — 건수만.
+    def _n(key, val):
+        return sum(1 for p in profiles.values() if p.get(key) == val)
+
+    print(f"조사표 수임처 {len(profiles)}곳 → {dest}")
+    print(f"  개인 {_n('client_type', 'individual')} / 법인 {_n('client_type', 'corporate')}"
+          f" / 빈칸 {sum(1 for p in profiles.values() if 'client_type' not in p)}")
+    print(f"  직원 있음 {_n('has_employees', True)} / 없음 {_n('has_employees', False)}"
+          f" / 빈칸 {sum(1 for p in profiles.values() if 'has_employees' not in p)}")
+    print(f"  메모 {sum(1 for p in profiles.values() if p.get('note'))}곳")
+    if issues:
+        print(f"  [확인] 알아듣지 못한 표기 {len(issues)}건 — 그 칸은 비운 것으로 봤습니다:")
+        for row, col, val in issues[:10]:
+            print(f"    {row}행 {col}: '{val}'")
+    db = _db_path(args.db)
+    if db is not None:
+        from kafa.store.db import VoucherStore
+        store = VoucherStore(db)
+        try:
+            done = set(store.clients())
+        finally:
+            store.close()
+        hit = sum(1 for cid in profiles if cid in done)
+        if done:
+            print(f"  처리 이력의 수임처와 이름이 맞는 곳: {hit}/{len(profiles)}"
+                  f" (처리 이력 {len(done)}곳)")
+        if done and hit < len(profiles):
+            print("    맞지 않는 곳은 폐업 등으로 자료가 없거나, 조사표 이름이 폴더 이름과 다른 곳입니다.")
     return 0
+
+
+def _out_path(arg) -> Path:
+    from kafa.config_loader import local_clients_path
+    return Path(arg).expanduser() if arg else local_clients_path()
+
+
+def _existing(out: Path) -> tuple[dict, dict]:
+    """저장할 파일의 기존 값. 아직 없으면 예전 위치(레포 config/clients.yaml)에서 이어받는다."""
+    from kafa.clients import load_yaml_profiles
+    from kafa.config_loader import _DEFAULT_CONFIG_DIR
+    if out.exists():
+        return load_yaml_profiles(out)
+    return load_yaml_profiles(_DEFAULT_CONFIG_DIR / "clients.yaml")
+
+
+def _save(out: Path, profiles: dict, defaults: dict) -> None:
+    from kafa.clients import to_yaml
+    from kafa.config_loader import load_clients
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(to_yaml(profiles, defaults=defaults or None), encoding="utf-8")
+    load_clients.cache_clear()
+
+
+def _db_path(arg):
+    if arg:
+        p = Path(arg).expanduser()
+        return p if p.exists() else None
+    from kafa.run_cli import DEFAULT_OUT, load_settings
+    p = Path(load_settings().get("out") or DEFAULT_OUT).expanduser() / "kafa.db"
+    return p if p.exists() else None
 
 
 if __name__ == "__main__":
