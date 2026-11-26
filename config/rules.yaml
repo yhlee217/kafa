@@ -96,7 +96,8 @@ restaurant_deemed_credit:
   emit: flag_only                  # 율/세액 계산 안 함. 부가세 신고 단계로 이관.
 
 # 1.8 [확정] 중복전표 스킵
-skip_status: ["중복전표"]
+# '담당자제외' = 아버님 답지에서 '올리지 않음' 을 고른 행(kafa-desk) — 업로드본에서 빠지고 스킵으로 집계
+skip_status: ["중복전표", "담당자제외"]
 
 # Phase 2 대상
 recommend_target_status: ["미추천"]

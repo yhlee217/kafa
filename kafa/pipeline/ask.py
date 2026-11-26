@@ -24,7 +24,8 @@ class PrepareResult:
 
 
 def prepare_questions(inbox, output_dir, *, client_type: str | None = None,
-                      config_dir: str | None = None) -> PrepareResult:
+                      config_dir: str | None = None, on_file=None) -> PrepareResult:
+    """on_file(파일 상대경로, FileContext, 분류 결과) — 같은 분류로 다른 것(아버님 답지)도 만들 때."""
     from kafa.cli import classify_rows
     from kafa.pipeline.runner import file_context, list_inbox, load_office_prior
     from kafa.recommend.host_picks import (
@@ -56,6 +57,8 @@ def prepare_questions(inbox, output_dir, *, client_type: str | None = None,
                     recommender=ctx.recommender, dup=ctx.dup, profile=ctx.profile,
                     type_index=ctx.type_index, config_dir=config_dir)
                 qs.add(classified, picks, config_dir=config_dir)
+                if on_file is not None:
+                    on_file(f.relative_to(inbox).as_posix(), ctx, classified)
             except Exception as e:  # noqa: BLE001 — 파일별 격리(처리 단계에서 다시 걸린다)
                 res.failures[str(f.relative_to(inbox))] = f"{type(e).__name__}: {e}"
         usage = db.account_usage()

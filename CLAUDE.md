@@ -54,9 +54,12 @@ kafa/
     review.py         요약·부가율 이상·미등록 의심·추천내역 + 중간산출물 CSV(근거 포함)
     vat_summary.py    부가세 신고 보조 집계(과세공제/불공제/면세/의제/검토 합산)
   agent/              세무대리인 보조(신고전점검·사업자번호검증·원천징수·자료수취·대사)
-  fetch/              감독형 수집(RPA) — 사람이 로그인, 반복 클릭만 자동화(plan/session/wehago) + CLI(kafa-fetch)
+  fetch/              감독형 수집(RPA) — **운영에서 뺌(2026-11-26: 위하고 이메일 인증 도입, 자동 접속 안 함)**.
+                      코드만 남김. 자료는 담당자가 직접 받아 넣는다(kafa-desk)
   clients.py          수임처 속성 조사표(엑셀 .xlsx/.xls) ↔ ~/.kafa/clients.yaml(레포 밖, 실명) + CLI(kafa-clients)
   run_cli.py          kafa-run — 수집→속성→처리를 한 명령으로(설정은 ~/.kafa/run.json)
+  desk.py, desk_cli.py  아버님 PC(Windows)용 kafa-desk — 처리하기(엑셀 답지·클로드 질문 파일) /
+                      업로드본 만들기(답지 → 업로드본, 답은 처리 이력으로 학습). 쓰는 법 docs/desk.md
   lookup/             대행사 건 원본 결제내역 되찾기(의뢰서·이용내역 파싱·로컬 대조·수임처 자료요청서)
                       + CLI(kafa-lookup) — 프롬프트는 docs/cowork_lookup.md
   learn/              처리 이력 → 보류 규칙 추정(infer, 자동적용 금지·근거 제시) + CLI(kafa-learn)
@@ -107,6 +110,8 @@ kafa-run                              # 그다음부터는 이것만(사람은 �
 kafa-run --skip-fetch                 # 답을 받은 뒤 이어서(--no-ask 면 묻지 않고 진행)
 kafa-ask exam && kafa-ask score       # 처리 이력으로 Claude 정답률부터(정답은 로컬에만)
 kafa-ask prior                        # 사무실 전체 이력 추천 정답률(한 수임처씩 빼고) — 켤지 판단
+kafa-desk setup --import-db kafa.db --import-clients clients.yaml   # 아버님 PC 에 한 번
+#   그다음은 처리하기.bat → (클로드) → 답지.xlsx → 업로드본_만들기.bat  (docs/desk.md)
 ```
 Claude Desktop: `claude_desktop_config.json` 에 `{"mcpServers":{"kafa":{"command":"kafa-mcp"}}}`.
 도구 `convert`/`preview` 는 raw PII 없이 **마스킹 요약만** 반환(데이터 변환은 결정론적 코드).

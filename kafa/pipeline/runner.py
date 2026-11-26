@@ -109,6 +109,7 @@ class FileContext:
 
 def file_context(f: Path, inbox: Path, out_dir: Path, db, picks: dict, *,
                  prior=None, client_type: Optional[str] = None,
+                 row_hook=None,
                  config_dir: Optional[str] = None) -> FileContext:
     from kafa.config_loader import client_profile
     from kafa.dup_guard import DupGuard
@@ -121,6 +122,10 @@ def file_context(f: Path, inbox: Path, out_dir: Path, db, picks: dict, *,
 
     client = resolve_client(inbox, f)
     rows = read_download_xlsx(f)
+    if row_hook is not None:
+        # 담당자 답지(kafa-desk)의 답을 분류 전에 행에 넣는다 — 위하고가 채운 계정과 똑같이 다룬다.
+        # rows 를 제자리에서 고쳐야 파일이 밝힌 총계(대사용)가 따라간다.
+        row_hook(f.relative_to(inbox).as_posix(), rows)
     dup = DupGuard(out_dir / client / "_state" / "dup.json")
     # 자가 시딩: 이번 파일 + **이 고객의 누적 이력(DB)**.
     # 지난 달에 처리한 가맹점이 이번 달에도 나오면 그대로 해소된다.
@@ -152,7 +157,7 @@ def load_office_prior(db, *, config_dir: Optional[str] = None):
 
 def run_pipeline(inbox, output_dir, *, client_type: Optional[str] = None,
                  config_dir: Optional[str] = None,
-                 run_id: str = "run") -> PipelineResult:
+                 run_id: str = "run", row_hook=None) -> PipelineResult:
     """inbox 의 .xlsx 들을 고객별로 일괄 처리 → DB 누적 + 업로드 산출물."""
     from kafa.agent.recon import VendorBaseline
     from kafa.cli import process_rows
@@ -182,7 +187,8 @@ def run_pipeline(inbox, output_dir, *, client_type: Optional[str] = None,
             client = resolve_client(inbox, f)
             try:
                 ctx = file_context(f, inbox, out_dir, db, picks, prior=prior,
-                                   client_type=client_type, config_dir=config_dir)
+                                   client_type=client_type, row_hook=row_hook,
+                                   config_dir=config_dir)
                 rows, period, dup = ctx.rows, ctx.period, ctx.dup
                 recon = VendorBaseline(out_dir / client / "_state" / "recon.json")
 
