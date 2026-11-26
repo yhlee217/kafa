@@ -125,3 +125,63 @@ def test_import_counts_names_that_match_processed_clients(tmp_path, capsys):
                          "--db", str(db)]) == 0
     said = capsys.readouterr().out
     assert "처리 이력의 수임처와 이름이 맞는 곳: 2/4 (처리 이력 2곳)" in said
+
+
+# ── '(주)' 표기만 다른 이름 ──
+
+def _cfg(tmp_path, clients):
+    d = tmp_path / "cfg"
+    d.mkdir(exist_ok=True)
+    (d / "clients.yaml").write_text(yaml.safe_dump({"clients": clients}, allow_unicode=True),
+                                    encoding="utf-8")
+    load_clients.cache_clear()
+    return str(d)
+
+
+def test_folder_without_corp_mark_uses_the_marked_profile(tmp_path):
+    """처리 이력에 '(주)' 없이도 남은 폴더 — 마스터·조사표 어디에도 없으면 표기만 다른 이름을 쓴다."""
+    d = _cfg(tmp_path, {"(주)가나상사": {"client_type": "corporate", "has_employees": False,
+                                     "note": "폐업"}})
+    prof = client_profile("가나상사", d)
+    assert prof["client_type"] == "corporate" and prof["has_employees"] is False
+    assert prof["matched_by"] == "name_variant"
+    assert client_profile("주식회사 가나상사", d)["has_employees"] is False
+
+
+def test_individual_profile_never_goes_to_a_corporation_folder(tmp_path):
+    """개인사업자와 같은 이름으로 법인을 따로 세운 곳 — 개인 속성을 법인 폴더에 붙이지 않는다."""
+    d = _cfg(tmp_path, {"다라개발": {"client_type": "individual", "has_employees": False}})
+    prof = client_profile("(주)다라개발", d)
+    assert prof["client_type"] == "corporate" and prof["has_employees"] is True   # 기본값
+    assert "matched_by" not in prof
+
+
+def test_own_entry_wins_over_a_variant(tmp_path):
+    d = _cfg(tmp_path, {"마바": {"client_type": "individual"},
+                        "(주)마바": {"client_type": "corporate", "has_employees": False}})
+    prof = client_profile("마바", d)
+    assert prof["client_type"] == "individual" and prof["has_employees"] is True
+    assert "matched_by" not in prof
+
+
+def test_two_variants_are_not_guessed(tmp_path):
+    d = _cfg(tmp_path, {"(주)사아": {"has_employees": False},
+                        "주식회사 사아": {"has_employees": True}})
+    assert "matched_by" not in client_profile("사아", d)
+
+
+def test_import_reports_linked_and_uncovered_counts(tmp_path, capsys):
+    from kafa.store.db import VoucherStore
+    db = tmp_path / "kafa.db"
+    store = VoucherStore(db)
+    for cid in ("(주)가나상사", "가나상사", "다라식당", "차카상회"):
+        store.upsert_client(cid)
+    store.close()
+    rows = [["(주)가나상사", "법", "유", "", "폐업"], ["다라식당", "개인", "무", "", ""]]
+    assert clients_main(["import", str(_xls(tmp_path / "조사표.xls", rows)),
+                         "--db", str(db)]) == 0
+    said = capsys.readouterr().out
+    assert "처리 이력의 수임처와 이름이 맞는 곳: 2/2 (처리 이력 4곳)" in said
+    assert "표기만 다른 이름의 값을 이어 쓴 곳: 1곳" in said
+    assert "직원 유무가 없는 곳: 1곳" in said                # 차카상회
+    assert "가나상사" not in said and "차카상회" not in said
