@@ -19,9 +19,10 @@ def _row(거래처="행복상사", 유형="일반", 국세청="불공제", 차�
                     업태="도매", 종목="문구")
 
 
-def _done(유형="카과", 거래처="행복상사", bizno="111-11-11119"):
-    """담당자가 처리한 행 — 차변계정이 채워져 있다."""
-    return _row(거래처=거래처, 유형=유형, 국세청="불공제", 차변계정="(판)소모품비", bizno=bizno)
+def _done(유형="카과", 거래처="행복상사", bizno="111-11-11119", 전표상태="전표확정"):
+    """담당자가 확정한 행 — 차변계정이 채워져 있고 위하고 전표상태가 '전표확정'."""
+    return _row(거래처=거래처, 유형=유형, 국세청="불공제", 차변계정="(판)소모품비", bizno=bizno,
+                전표상태=전표상태)
 
 
 # ── 이력에서 고르기 ──
@@ -114,7 +115,8 @@ def test_last_months_processing_guides_this_months_unprocessed_row(tmp_path):
 
     inbox, out = tmp_path / "inbox", tmp_path / "out"
     _xlsx(inbox / "고객001" / "2월.xlsx",
-          [_row(유형="카과", 차변계정="(판)소모품비", 일자=f"02-0{d}") for d in (2, 3)])
+          [_row(유형="카과", 차변계정="(판)소모품비", 일자=f"02-0{d}", 전표상태="전표확정")
+           for d in (2, 3)])
     assert run_pipeline(inbox, out).ok
     _xlsx(inbox / "고객001" / "3월.xlsx", [_row(일자="03-15")])         # 처리 전, 유형 일반
     assert run_pipeline(inbox, out).ok
@@ -132,3 +134,16 @@ def test_store_returns_only_processed_history(tmp_path):
     with VoucherStore(tmp_path / "k.db") as db:
         db.upsert_vouchers("c1", "2026-03", rows)
         assert db.type_records("c1") == [("행복상사", "111-11-11119", "카과")]
+
+
+def test_wehago_prefilled_types_are_not_learned(tmp_path):
+    """위하고가 채워 둔 '확정가능' 행의 유형은 기본값(≈ 국세청) — 배우지 않는다(2026-11-26 실측)."""
+    from kafa.store.db import VoucherStore
+
+    wehago = _done(전표상태="확정가능")
+    assert build_type_index_from_inputrows([wehago, wehago]).empty
+    rows = classify_rows([wehago], client_type="corporate")[0]
+    with VoucherStore(tmp_path / "k.db") as db:
+        db.upsert_vouchers("c1", "2026-03", rows)
+        assert db.type_records("c1") == []
+        assert db.source_counts() == {"위하고": 1}

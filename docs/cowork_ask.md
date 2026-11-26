@@ -41,6 +41,8 @@ kafa-run --skip-fetch        ← 답지를 합치고(picks.json) 분류 — Clau
 
 ```bash
 kafa-ask exam            # ~/kafa-out/_ai/exam_questions.json (기본 150문제)
+#   주의: 처리 이력의 '처리된 행'은 대부분 위하고 자동 분류다(2026-11-26 실측). 담당자 정답으로만
+#   재려면 kafa-ask exam --father-only (답지·전표확정 행 — 쌓인 만큼만 나온다)
 #   → Claude 에게 아래 프롬프트의 '시험' 판을 붙여넣는다 → exam_answers.json
 kafa-ask score           # 정답률 · (제)/(판)만 다름 · 갈리는 업종 · 확신 구간별 정답률 · 틀린 예
 ```

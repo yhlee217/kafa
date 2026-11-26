@@ -31,6 +31,7 @@ kafa/
     models.py         InputRow / ClassifiedRow / Verdict / Deduct
     vat_type.py       1.1 유형 라벨↔코드, 도출
     deductibility.py  1.3 불공제 — 계정(접대비→불공제) > 담당자가 정한 유형(카과/일반) > 국세청 / 자동 / 검토
+    type_policy.py    유형 기준표(계정 × 수임처 속성 × 세액) — 담당자 확인 전이라 config 에서 꺼 둠
     accounts.py       1.7 계정명→코드 ((제)/(판) 접두 정규화)
     counterparty.py   1.2 대변(법인 미지급비용 262 / 개인 인출금 338 — 2026-11 확정)
     deemed_credit.py  1.6 의제 플래그만(율/한도 계산 안 함)
@@ -63,7 +64,10 @@ kafa/
   lookup/             대행사 건 원본 결제내역 되찾기(의뢰서·이용내역 파싱·로컬 대조·수임처 자료요청서)
                       + CLI(kafa-lookup) — 프롬프트는 docs/cowork_lookup.md
   learn/              처리 이력 → 보류 규칙 추정(infer, 자동적용 금지·근거 제시) + CLI(kafa-learn)
-  store/              베이스 데이터 SQLite 누적(VoucherStore, 멱등 upsert) — 로컬 단일 원본
+                      type_check.py: 유형 기준표를 담당자가 정한 행과 맞춰 보기(건수만)
+  store/              베이스 데이터 SQLite 누적(VoucherStore, 멱등 upsert) — 로컬 단일 원본.
+                      행마다 확정출처(담당자 답지/전표확정/위하고 자동/추천) — 받은 자료는 대부분 위하고 자동 분류.
+                      backfill.py: 보관함 원본으로 기존 행의 전표상태·확정출처 되살리기
   pipeline/           inbox 일괄 처리(runner)·폴더 감시(watch)·알림(notify)·진행 보드(summary) + CLI(kafa-pipeline/kafa-watch/kafa-board)
                       ask.py: 처리 전 '물을 것' 정리(처리와 같은 준비로 분류만) → 질문지
   ask_cli.py          kafa-ask — prepare/apply/show/exam/score (프롬프트는 docs/cowork_ask.md)
@@ -110,6 +114,9 @@ kafa-run                              # 그다음부터는 이것만(사람은 �
 kafa-run --skip-fetch                 # 답을 받은 뒤 이어서(--no-ask 면 묻지 않고 진행)
 kafa-ask exam && kafa-ask score       # 처리 이력으로 Claude 정답률부터(정답은 로컬에만)
 kafa-ask prior                        # 사무실 전체 이력 추천 정답률(한 수임처씩 빼고) — 켤지 판단
+kafa-ask exam --father-only           # 담당자가 정한 행(답지·전표확정)만 정답으로 — 기본은 위하고 자동 분류 일치율
+python -m kafa.store.backfill         # 보관함 원본으로 처리 이력의 '전표확정' 되살리기(한 번)
+python -m kafa.learn.type_check       # 유형 기준표(꺼 둠)가 담당자 판단과 맞는 비율
 kafa-desk setup --import-db kafa.db --import-clients clients.yaml   # 아버님 PC 에 한 번
 #   그다음은 처리하기.bat → (클로드) → 답지.xlsx → 업로드본_만들기.bat  (docs/desk.md)
 ```

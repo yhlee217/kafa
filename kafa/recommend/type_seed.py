@@ -75,8 +75,15 @@ class TypeIndex:
 
 
 def _processed(row) -> bool:
-    """처리된 행 — 차변계정이 채워졌고 중복전표가 아니다."""
-    return bool((row.차변계정 or "").strip()) and (row.전표상태 or "").strip() != "중복전표"
+    """담당자가 정한 행 — 차변계정이 채워졌고, 전표상태가 담당자 확정(위하고 '전표확정' 또는
+    kafa-desk 답지)이다. 위하고가 채워 둔 '확정가능' 행의 유형은 기본값(≈ 국세청)이라 배우지 않는다
+    (2026-11-26 실측, docs/domain_notes.md)."""
+    from kafa.store.db import status_settings
+    if not (row.차변계정 or "").strip():
+        return False
+    confirmed, desk = status_settings()
+    status = (row.전표상태 or "").strip()
+    return status in confirmed or status == desk
 
 
 def build_type_index_from_inputrows(rows: Iterable) -> TypeIndex:

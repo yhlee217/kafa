@@ -100,3 +100,14 @@ def test_meal_command_by_client_name_accepts_corp_mark_variant():
     p = _store({"(주)가나식당": {"client_type": "corporate"}})
     assert clients_main(["meal", "813", "--client", "가나식당"]) == 0
     assert yaml.safe_load(p.read_text(encoding="utf-8"))["clients"]["(주)가나식당"]["meal_account"] == 813
+
+
+def test_flag_command_sets_and_clears_cargo_and_restaurant(capsys):
+    p = _store({"가나운수": {"note": "화물 유통"}, "다라식당": {}})
+    assert clients_main(["flag", "화물차", "--where-note", "화물"]) == 0
+    assert clients_main(["flag", "음식점", "--client", "다라식당"]) == 0
+    got = yaml.safe_load(p.read_text(encoding="utf-8"))["clients"]
+    assert got["가나운수"]["cargo_vehicle"] is True and got["다라식당"]["restaurant"] is True
+    assert clients_main(["flag", "화물차", "--client", "가나운수", "--clear"]) == 0
+    assert "cargo_vehicle" not in yaml.safe_load(p.read_text(encoding="utf-8"))["clients"]["가나운수"]
+    assert "가나운수" not in capsys.readouterr().out

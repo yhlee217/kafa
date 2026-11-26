@@ -79,7 +79,7 @@ def test_prepare_writes_sheet_and_claude_files(base):
     wb, ws, _, rows = _sheet(base)
     assert {r["거래처"] for r in rows} == {"가나다인쇄소", "라마바약국"}     # 처리된 행은 안 나온다
     assert all(r["수임처"] == "고객A" and r["파일"] == "고객A/3월.xlsx" for r in rows)
-    assert ws.column_dimensions["O"].hidden and ws.column_dimensions["P"].hidden
+    assert ws.column_dimensions["P"].hidden and ws.column_dimensions["Q"].hidden
     assert "계정목록" in wb.sheetnames and ws.data_validations.dataValidation
     # 클로드 파일: 질문지(이름·사업자번호·금액 없음)와 붙여넣을 말
     q = (base / CLAUDE / QUESTION_FILE).read_text(encoding="utf-8")
@@ -215,3 +215,34 @@ def test_cli_prepare_and_finish(base, capsys):
     assert main(["finish", "--base", str(base)]) == 0
     assert "업로드본" in capsys.readouterr().out
     assert desk.find_sheet(Paths(base)) is None
+
+
+def test_fathers_type_goes_up_and_is_learned_next_month(tmp_path):
+    """확정 유형 — 아버님이 고른 유형으로 올라가고, 처리 이력에 '담당자'로 남아 다음 달 같은 가맹점에 쓰인다."""
+    b = tmp_path / "kafa"
+    Paths(b).ensure()
+    _xlsx(b / "1_받은자료" / "고객A" / "3월.xlsx",
+          [_todo(일자="03-15"), _todo(일자="03-16")])          # 위하고 기본값은 카과(국세청 공제)
+    prepare(b)
+    _, _, _, rows = _sheet(b)
+    assert {r["추천 유형"] for r in rows} == {"카과"} and {r["확정 유형"] for r in rows} == {"카과"}
+    _set(b, "가나다인쇄소", **{"확정 계정": "(판)도서인쇄비", "확정 유형": "일반"})
+    assert finish(b).result.ok
+
+    con = sqlite3.connect(b / "_내부" / "kafa.db")
+    got = con.execute("SELECT 유형코드, 공제여부, 전표상태, 확정출처 FROM vouchers").fetchall()
+    con.close()
+    assert set(got) == {(3, "불공제", "담당자확정", "담당자")}
+
+    _xlsx(b / "1_받은자료" / "고객A" / "4월.xlsx", [_todo(일자="04-02")])
+    prepare(b)
+    _, _, _, rows = _sheet(b)
+    assert rows[0]["추천 유형"] == "일반" and rows[0]["확정 계정"] == "(판)도서인쇄비"
+
+
+def test_type_cell_is_checked_and_ignored_without_an_account(base):
+    prepare(base)
+    _set(base, "가나다인쇄소", **{"확정 계정": "(판)도서인쇄비", "확정 유형": "공제"})
+    with pytest.raises(DeskError) as e:
+        finish(base)
+    assert "확정 유형" in str(e.value) and "카과" in str(e.value)

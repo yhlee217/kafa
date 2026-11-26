@@ -103,6 +103,13 @@ restaurant_deemed_credit:
 # '담당자제외' = 아버님 답지에서 '올리지 않음' 을 고른 행(kafa-desk) — 업로드본에서 빠지고 스킵으로 집계
 skip_status: ["중복전표", "담당자제외"]
 
+# 처리 이력의 '누가 정했나'(확정출처, kafa/store/db.py). 2026-11-26 실측: 받은 자료 7,943행 중
+# 담당자가 확정한 '전표확정'은 95행뿐이고 나머지는 위하고 자동 분류('확정가능')였다 — 신고가 끝난
+# 2025년 자료도 같았다. 유형 추천은 담당자 쪽만 배운다(docs/domain_notes.md).
+confirm_source:
+  confirmed_status: ["전표확정"]   # 위하고 전표상태 — 담당자가 확정·전송한 행
+  desk_status: 담당자확정           # kafa-desk 답지로 정한 행(업로드본 만들기가 붙인다, 스킵 아님)
+
 # Phase 2 대상
 recommend_target_status: ["미추천"]
 
@@ -330,6 +337,32 @@ integrity:
 # 유형 추천 (kafa/recommend/type_seed.py) — 아직 처리 전인 전표(차변계정 빈 행)의 유형을
 # 이 수임처가 **같은 가맹점**을 어떻게 처리해 왔는지로 채운다. 공제 여부는 유형이 가르므로
 # (담당자 확인 2026-11-23) 유형을 채우면 공제 여부도 따라 바뀐다. 업종 단위로는 넓히지 않는다.
+# 유형(카과/일반/카면) 기준표 — 담당자 통화(2026-11-23·26)에서 들은 기준(계정 성격 × 수임처 속성 ×
+# 세액 유무). 받은 자료의 유형은 위하고 기본값(≈ 국세청)이고, 담당자가 확정한 행은 93% 카과였다
+# (docs/domain_notes.md). [보류] 담당자 확인 전 — 기준표 문서로 확인받고 켠다.
+# 확인 전 맞는 비율: python -m kafa.learn.type_check  (담당자가 정한 행과 비교, 건수만)
+# 담당자가 정한 유형(전표확정·답지·같은 가맹점 담당자 이력)과 봉사료·의심 업종은 건드리지 않는다.
+type_policy:
+  enabled: false
+  no_vat_type: 일반              # 세액 0 → 공제할 것이 없다(간이·면세 가맹점, 통행료 등)
+  no_vat_exempt:                 # 세액 0 중 음식점의 면세 재료 → 카면(의제매입 후보)
+    accounts: [재료비, 원재료, 부재료]
+    when: restaurant             # 수임처 속성 — kafa-clients flag 음식점 --client <이름>
+    type: 카면
+  rules:                         # 위에서부터 처음 맞는 줄(계정 이름에 이 말이 들어 있으면)
+    - accounts: [접대비]
+      type: 일반                 # 법으로 불공제(DED-007 과 같다)
+    - accounts: [재료비, 원재료, 부재료, 소모품, 통신비]
+      type: 카과
+    - accounts: [복리후생비]
+      when: has_employees        # 조사표 직원 유무
+      type: 카과
+      otherwise: 일반
+    - accounts: [차량유지비]
+      when: cargo_vehicle        # 수임처 속성 — kafa-clients flag 화물차 --client <이름>
+      type: 카과
+      otherwise: 일반
+
 type_recommend:
   enabled: true
   min_support: 2        # 같은 가맹점 처리 이력이 이 건수 이상

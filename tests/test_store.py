@@ -114,3 +114,102 @@ def test_the_first_row_keeps_the_old_key_shape(tmp_path):
     c = _row()
     assert _voucher_key("c1", c) == _voucher_key("c1", c, 0)
     assert _voucher_key("c1", c, 1) != _voucher_key("c1", c, 0)
+
+
+# ── 확정출처(누가 정했나) ──
+
+def _src_row(vendor="행복상사", bizno="111-11-11119", 일자="03-15", 차변계정="(판)소모품비",
+             전표상태="확정가능", 유형="일반"):
+    from decimal import Decimal
+
+    from kafa.rules.models import InputRow
+    return InputRow(연도="2026", 일자=일자, 거래처=vendor, 공급가액=Decimal(10000),
+                    세액=Decimal(1000), 합계=Decimal(11000), 국세청="불공제", 유형=유형,
+                    차변계정=차변계정, 전표상태=전표상태, 사업자등록번호=bizno, 업태="도매", 종목="문구")
+
+
+def test_confirm_source_is_recorded(tmp_path):
+    from kafa.cli import classify_rows
+    from kafa.store.db import VoucherStore
+    rows = classify_rows([_src_row(), _src_row(일자="03-16", 전표상태="전표확정"),
+                          _src_row(일자="03-17", 전표상태="담당자확정"),
+                          _src_row(일자="03-18", 차변계정="", 전표상태="미추천")],
+                         client_type="corporate")[0]
+    with VoucherStore(tmp_path / "k.db") as db:
+        db.upsert_vouchers("c1", "2026-03", rows)
+        assert db.source_counts() == {"위하고": 1, "전표확정": 1, "담당자": 1}
+        got = dict(db._conn.execute("SELECT 거래일자, 전표상태 FROM vouchers").fetchall())
+    assert got["2026-03-18"] == "미추천"
+
+
+def test_seed_prefers_fathers_answer_for_the_same_vendor(tmp_path):
+    """같은 가맹점에 위하고 자동 분류와 담당자 답이 다르면 담당자 답만 이력으로 쓴다."""
+    from kafa.cli import classify_rows
+    from kafa.store.db import VoucherStore
+    rows = classify_rows([_src_row(차변계정="(판)소모품비"),
+                          _src_row(일자="03-16", 차변계정="(판)소모품비"),
+                          _src_row(일자="03-17", 차변계정="(판)도서인쇄비", 전표상태="담당자확정"),
+                          _src_row(vendor="다른상사", bizno="999-99-99999", 일자="03-18")],
+                         client_type="corporate")[0]
+    with VoucherStore(tmp_path / "k.db") as db:
+        db.upsert_vouchers("c1", "2026-03", rows)
+        seed = db.seed_records("c1")
+    by_vendor = {}
+    for vendor, _bizno, code, *_ in seed:
+        by_vendor.setdefault(vendor, []).append(code)
+    assert by_vendor == {"행복상사": [826], "다른상사": [830]}
+
+
+def test_old_db_is_migrated_and_backfilled_from_originals(tmp_path):
+    """확정출처가 없던 DB — 처리 행은 위하고로 채우고, 원본의 전표확정은 되살린다."""
+    import sqlite3
+
+    from kafa.cli import classify_rows
+    from kafa.store.db import VoucherStore
+    path = tmp_path / "old.db"
+    src = [_src_row(), _src_row(일자="03-16", 전표상태="전표확정", 유형="카과")]
+    with VoucherStore(path) as db:
+        db.upsert_vouchers("c1", "2026-03", classify_rows(src, client_type="corporate")[0])
+    con = sqlite3.connect(path)                     # 예전 DB 흉내: 두 칸을 비운다
+    con.execute("UPDATE vouchers SET 전표상태=NULL, 확정출처=NULL")
+    con.commit()
+    con.execute("ALTER TABLE vouchers DROP COLUMN 확정출처")
+    con.commit()
+    con.close()
+    with VoucherStore(path) as db:
+        assert db.source_counts() == {"위하고": 2}
+        assert db.type_records("c1") == []
+        assert db.backfill_status("c1", src) == 2
+        assert db.backfill_status("c1", src) == 0          # 다시 해도 그대로
+        assert db.source_counts() == {"위하고": 1, "전표확정": 1}
+        assert db.type_records("c1") == [("행복상사", "111-11-11119", "카과")]
+
+
+def test_backfill_command_reads_the_archive(tmp_path, capsys):
+    import openpyxl
+
+    from kafa.cli import classify_rows
+    from kafa.io_wehago.schema import INPUT_COLUMNS
+    from kafa.store.backfill import main
+    from kafa.store.db import VoucherStore
+    src = [_src_row(), _src_row(일자="03-16", 전표상태="전표확정", 유형="카과")]
+    db = tmp_path / "kafa.db"
+    with VoucherStore(db) as s:
+        s.upsert_vouchers("고객A", "2026-03", classify_rows(src, client_type="corporate")[0])
+        s._conn.execute("UPDATE vouchers SET 전표상태=NULL, 확정출처='위하고'")
+        s._conn.commit()
+    f = tmp_path / "_archive" / "고객A" / "3월.xlsx"
+    f.parent.mkdir(parents=True)
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.append(INPUT_COLUMNS)
+    for r in src:
+        m = {"연도": r.연도, "일자": r.일자, "거래처": r.거래처, "공급가액": 10000, "세액": 1000,
+             "비과세": 0, "합계": 11000, "국세청": r.국세청, "업태": r.업태, "종목": r.종목,
+             "유형": r.유형, "차변계정": r.차변계정, "전표상태": r.전표상태,
+             "사업자등록번호": r.사업자등록번호}
+        ws.append([m.get(c, "") for c in INPUT_COLUMNS])
+    wb.save(f)
+    assert main(["--archive", str(tmp_path / "_archive"), "--db", str(db)]) == 0
+    said = capsys.readouterr().out
+    assert "전표상태를 채운 행 2건" in said and "전표확정 1" in said and "고객A" not in said
