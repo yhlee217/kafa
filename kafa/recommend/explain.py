@@ -26,6 +26,7 @@ _RULES = {
     "NEG-001": lambda r: "음수(환불/취소) → 차·대변 방향 반전",
     "SKIP-001": lambda r: f"전표상태 '{r.skip_reason}' → 스킵",
     "RECO-001": lambda r: None,   # 추천근거로 대체
+    "CLIENT-MEAL": lambda r: "이 수임처는 식대를 따로 처리(담당자 지정) → 복리후생비 대신 그 계정",
 }
 
 
