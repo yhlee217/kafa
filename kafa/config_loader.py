@@ -90,11 +90,15 @@ def client_profile(client_id: str | None, config_dir: str | None = None) -> dict
     """수임처 속성 조회(기본값 위에 개별 설정을 덮어씀).
 
     자료로는 알 수 없는 사실(직원 유무 등)이라 사람이 clients.yaml 에 적어야 한다.
-    미등록 수임처는 기본값을 쓴다.
+    미등록 수임처는 기본값을 쓴다. 기본값에 `client_type_from_name` 이 켜져 있으면
+    개인/법인만은 이름으로 정한다 — 법인 표기('(주)'·'주식회사' 등)가 있으면 법인, 없으면 개인
+    (docs/domain_notes.md). 조사표·마스터에 적힌 값이 있으면 그것이 이긴다.
     """
     cfg = load_clients(config_dir)
+    defaults = dict(cfg.get("defaults") or {})
+    from_name = bool(defaults.pop("client_type_from_name", False))
     prof = {"client_type": "corporate", "has_employees": True}
-    prof.update(cfg.get("defaults") or {})
+    prof.update(defaults)
     if client_id:
         clients = cfg.get("clients") or {}
         own = clients.get(client_id)
@@ -102,6 +106,9 @@ def client_profile(client_id: str | None, config_dir: str | None = None) -> dict
             alias = same_client_by_name(client_id, clients)
             if alias is not None:
                 own = {**(clients[alias] or {}), "matched_by": "name_variant"}
+        if from_name and "client_type" not in (own or {}):
+            prof["client_type"] = "corporate" if _has_corp_mark(client_id) else "individual"
+            prof["client_type_by"] = "name"
         prof.update(own or {})
     return prof
 
@@ -123,25 +130,24 @@ def client_name_core(name: str) -> str:
 
 
 def same_client_by_name(client_id: str, clients: dict) -> str | None:
-    """client_id 와 법인 표기만 다른 수임처 이름(딱 하나일 때만). 없거나 애매하면 None.
+    """client_id 와 법인 표기 모양만 다른 수임처 이름(딱 하나일 때만). 없거나 애매하면 None.
 
-    조심할 점: 이 사무실에는 개인사업자와 **같은 이름으로 법인을 따로 세운** 곳이 있다
-    (docs/domain_notes.md). 그래서
+    '(주)가나' ↔ '주식회사 가나' ↔ '가나(주)' 처럼 **둘 다 법인 표기가 있거나 둘 다 없을 때만**
+    잇는다. 법인 표기가 한쪽에만 있으면 다른 사업자다 — 이 사무실에는 개인사업자를 법인으로
+    전환한 곳(개인은 폐업)과, 같은 이름으로 개인·법인이 둘 다 살아 있는 곳이 있다
+    (담당자 확인 2026-11-26, docs/domain_notes.md). 그 밖에
     - 그 이름의 속성이 아예 없을 때만 부른다(마스터·조사표 어디에도 없는 폴더 — 표기 흔들림)
     - 후보가 둘 이상이면 고르지 않는다
-    - '(주)' 가 붙은 폴더에 개인 속성은 붙이지 않는다
     """
     core = client_name_core(client_id)
     if not core:
         return None
-    cands = [k for k in clients if k != client_id and client_name_core(k) == core]
+    marked = _has_corp_mark(client_id)
+    cands = [k for k in clients if k != client_id and client_name_core(k) == core
+             and _has_corp_mark(k) == marked]
     if len(cands) != 1:
         return None
-    alias = cands[0]
-    if (_has_corp_mark(client_id)
-            and (clients.get(alias) or {}).get("client_type") == "individual"):
-        return None
-    return alias
+    return cands[0]
 
 
 @lru_cache(maxsize=None)

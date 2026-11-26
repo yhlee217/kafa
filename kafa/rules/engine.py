@@ -126,7 +126,8 @@ def classify_row(
                 agent_note(group, label, config_dir=config_dir))
 
     # 1.2 대변(상대계정) — 기장 클라이언트 기준
-    cp = resolve_counterparty(client_type, config_dir=config_dir)
+    cp = resolve_counterparty(client_type, download_account=row.대변계정 or "",
+                              config_dir=config_dir)
     code, vendor = cp.value
     out.대변계정코드 = code
     out.대변거래처 = vendor
