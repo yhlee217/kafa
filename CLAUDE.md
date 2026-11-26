@@ -54,7 +54,8 @@ kafa/
     review.py         요약·부가율 이상·미등록 의심·추천내역 + 중간산출물 CSV(근거 포함)
     vat_summary.py    부가세 신고 보조 집계(과세공제/불공제/면세/의제/검토 합산)
   agent/              세무대리인 보조(신고전점검·사업자번호검증·원천징수·자료수취·대사)
-  fetch/              감독형 수집(RPA) — 사람이 로그인, 반복 클릭만 자동화(plan/session/wehago) + CLI(kafa-fetch)
+  fetch/              감독형 수집(RPA) — **운영에서 뺌(2026-11-26: 위하고 이메일 인증 도입, 자동 접속 안 함)**.
+                      코드만 남김. 자료는 담당자가 직접 받아 넣는다(kafa-desk)
   clients.py          수임처 속성 조사표(엑셀 .xlsx/.xls) ↔ ~/.kafa/clients.yaml(레포 밖, 실명) + CLI(kafa-clients)
   run_cli.py          kafa-run — 수집→속성→처리를 한 명령으로(설정은 ~/.kafa/run.json)
   desk.py, desk_cli.py  아버님 PC(Windows)용 kafa-desk — 처리하기(엑셀 답지·클로드 질문 파일) /
