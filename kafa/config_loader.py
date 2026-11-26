@@ -96,8 +96,52 @@ def client_profile(client_id: str | None, config_dir: str | None = None) -> dict
     prof = {"client_type": "corporate", "has_employees": True}
     prof.update(cfg.get("defaults") or {})
     if client_id:
-        prof.update((cfg.get("clients") or {}).get(client_id) or {})
+        clients = cfg.get("clients") or {}
+        own = clients.get(client_id)
+        if own is None:                    # '(주)' 표기만 다른 이름에 적혀 있을 수 있다
+            alias = same_client_by_name(client_id, clients)
+            if alias is not None:
+                own = {**(clients[alias] or {}), "matched_by": "name_variant"}
+        prof.update(own or {})
     return prof
+
+
+_CORP_MARKS = ("(주)", "㈜", "주식회사", "(유)", "유한회사", "(사)", "사단법인")
+
+
+def _has_corp_mark(name: str) -> bool:
+    return any(m in (name or "") for m in _CORP_MARKS)
+
+
+def client_name_core(name: str) -> str:
+    """'(주)'·'주식회사' 같은 법인 표기와 공백·기호를 뗀 이름 — 표기만 다른 같은 수임처 찾기용."""
+    import re
+    s = name or ""
+    for m in _CORP_MARKS:
+        s = s.replace(m, "")
+    return re.sub(r"[\s_()\[\]·.,-]+", "", s).lower()
+
+
+def same_client_by_name(client_id: str, clients: dict) -> str | None:
+    """client_id 와 법인 표기만 다른 수임처 이름(딱 하나일 때만). 없거나 애매하면 None.
+
+    조심할 점: 이 사무실에는 개인사업자와 **같은 이름으로 법인을 따로 세운** 곳이 있다
+    (docs/domain_notes.md). 그래서
+    - 그 이름의 속성이 아예 없을 때만 부른다(마스터·조사표 어디에도 없는 폴더 — 표기 흔들림)
+    - 후보가 둘 이상이면 고르지 않는다
+    - '(주)' 가 붙은 폴더에 개인 속성은 붙이지 않는다
+    """
+    core = client_name_core(client_id)
+    if not core:
+        return None
+    cands = [k for k in clients if k != client_id and client_name_core(k) == core]
+    if len(cands) != 1:
+        return None
+    alias = cands[0]
+    if (_has_corp_mark(client_id)
+            and (clients.get(alias) or {}).get("client_type") == "individual"):
+        return None
+    return alias
 
 
 @lru_cache(maxsize=None)

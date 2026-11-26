@@ -178,7 +178,29 @@ def main(argv: list[str] | None = None) -> int:
                   f" (처리 이력 {len(done)}곳)")
         if done and hit < len(profiles):
             print("    맞지 않는 곳은 폐업 등으로 자료가 없거나, 조사표 이름이 폴더 이름과 다른 곳입니다.")
+        if done:
+            _report_uncovered(done)
     return 0
+
+
+def _report_uncovered(done: set) -> None:
+    """처리 이력에 있는데 직원 유무가 없는 수임처 — 건수만. '(주)' 표기만 다르면 이어 붙인다."""
+    from kafa.config_loader import client_profile, load_clients
+    load_clients.cache_clear()
+    clients = load_clients()["clients"]
+    linked = missing = 0
+    for cid in done:
+        if "has_employees" in (clients.get(cid) or {}):
+            continue
+        prof = client_profile(cid)
+        if prof.get("matched_by") == "name_variant" and "has_employees" in prof:
+            linked += 1
+        else:
+            missing += 1
+    if linked:
+        print(f"  '(주)' 같은 표기만 다른 이름의 값을 이어 쓴 곳: {linked}곳")
+    if missing:
+        print(f"  [확인] 처리 이력에 있는데 직원 유무가 없는 곳: {missing}곳 — 기본값(직원 있음)으로 처리됩니다")
 
 
 def _out_path(arg) -> Path:
