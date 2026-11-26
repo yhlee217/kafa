@@ -43,8 +43,11 @@ PROMPT_FILE = "클로드에게_붙여넣을_말.txt"
 SHEET = "답지"
 ACCOUNT_SHEET = "계정목록"
 HOWTO_SHEET = "작성방법"
-COLUMNS = ["수임처", "거래일자", "거래처", "합계", "업태", "종목", "품명", "유형",
-           "추천 계정", "근거", "확신", "확정 계정", "올리지 않음", "메모", "파일", "행"]
+COLUMNS = ["수임처", "거래일자", "거래처", "합계", "업태", "종목", "품명",
+           "추천 계정", "근거", "확신", "확정 계정", "추천 유형", "확정 유형", "올리지 않음", "메모",
+           "파일", "행"]
+MINE = ("확정 계정", "확정 유형", "올리지 않음", "메모")   # 아버님이 고치는 칸
+TYPE_CHOICES = ("카과", "일반", "카면")                     # 답지 목록(그 밖의 유형 이름도 받는다)
 EXCLUDE_MARK = "예"
 _EXCLUDE_WORDS = {"예", "y", "yes", "o", "○", "v", "✓", "1", "true", "제외", "뺌"}
 EXCLUDED_STATUS = "담당자제외"      # config skip_status 에 같은 말이 있어야 한다
@@ -55,10 +58,12 @@ _HOWTO = [
     "1. '확정 계정' 칸에 들어 있는 계정이 그대로 업로드본에 들어갑니다.",
     "   프로그램이나 클로드가 추천한 계정이 미리 채워져 있습니다. 틀리면 목록에서 고르세요.",
     "2. 비어 있는 칸은 추천이 없는 건입니다. 계정을 고르거나, 비워 두면 계정 없이(미해소) 올라갑니다.",
-    "3. 업로드하지 않을 건(업무무관 등)은 '올리지 않음' 칸에 '예'를 고르세요.",
-    "4. 다 했으면 저장하고 엑셀을 닫은 뒤 '업로드본_만들기'를 누르세요.",
+    "3. '확정 유형'은 카과(공제)·일반(불공제)·카면(면세)입니다. 틀리면 목록에서 고르세요.",
+    "   계정을 정한 행(확정 계정이 있는 행)에만 반영됩니다.",
+    "4. 업로드하지 않을 건(업무무관 등)은 '올리지 않음' 칸에 '예'를 고르세요.",
+    "5. 다 했으면 저장하고 엑셀을 닫은 뒤 '업로드본_만들기'를 누르세요.",
     "",
-    "여기서 고른 계정은 다음 달부터 같은 가맹점에 자동으로 쓰입니다.",
+    "여기서 고른 계정과 유형은 다음 달부터 같은 가맹점에 자동으로 쓰입니다.",
     "정렬·필터는 마음대로 하셔도 됩니다(숨긴 '파일'·'행' 칸으로 원래 행을 찾습니다).",
     "이 파일에는 거래처 이름이 있으니 클로드에게 올리지 마세요. 클로드에게는 2_클로드 폴더의 파일만 올립니다.",
 ]
@@ -205,7 +210,7 @@ class SheetRow:
     업태: str
     종목: str
     품명: str
-    유형: str
+    유형: str            # 추천 유형(프로그램이 정한 것)
     suggested: str
     basis: str
     conf: str
@@ -214,6 +219,7 @@ class SheetRow:
     memo: str
     file: str
     row: int
+    type_chosen: str = ""   # 확정 유형 — 처음엔 추천 유형과 같다
 
     @property
     def key(self) -> tuple[str, int]:
@@ -240,11 +246,19 @@ def sheet_row(client: str, file_rel: str, c, names: dict[int, str]) -> SheetRow 
     if not parts and c.판정유형 == Verdict.UNRESOLVED:
         parts.append("추천 없음")
     conf = f"{c.신뢰도:.0%}" if c.신뢰도 is not None and c.판정유형 == Verdict.RECOMMENDED else ""
+    vat = _type_labels().get(c.유형코드, r.유형 or "") if c.유형코드 is not None else (r.유형 or "")
     return SheetRow(
         client=client, date=f"{r.연도}-{r.일자}".strip("-"), vendor=r.거래처 or "",
         total=str(r.합계), 업태=r.업태 or "", 종목=r.종목 or "", 품명=r.품명 or "",
-        유형=r.유형 or "", suggested=suggested, basis=" / ".join(parts), conf=conf,
-        chosen=suggested, exclude="", memo="", file=file_rel, row=int(r.raw_index))
+        유형=vat, suggested=suggested, basis=" / ".join(parts), conf=conf,
+        chosen=suggested, exclude="", memo="", file=file_rel, row=int(r.raw_index),
+        type_chosen=vat)
+
+
+def _type_labels(config_dir=None) -> dict[int, str]:
+    """유형 코드 → 이름(카과·일반 …) — config vat_type_codes."""
+    from kafa.config_loader import load_rules
+    return {int(v): str(k) for k, v in (load_rules(config_dir).get("vat_type_codes") or {}).items()}
 
 
 def find_sheet(paths: Paths) -> Path | None:
@@ -300,7 +314,9 @@ def read_sheet(path: Path) -> list[dict]:
         out.append({"sheet_row": n, "file": f, "row": ri, "client": get(row, "수임처"),
                     "total": get(row, "합계"), "suggested": get(row, "추천 계정"),
                     "chosen": get(row, "확정 계정"), "exclude": get(row, "올리지 않음"),
-                    "memo": get(row, "메모")})
+                    "memo": get(row, "메모"),
+                    # 예전 답지에는 이 두 칸이 없다 — 비어 있으면 유형은 손대지 않는다
+                    "type_suggested": get(row, "추천 유형"), "type_chosen": get(row, "확정 유형")})
     return out
 
 
@@ -325,6 +341,9 @@ def _keep_father_edits(new: list[SheetRow], existing: list[dict]) -> int:
         if e["chosen"] != e["suggested"]:          # 아버님이 바꿨거나 지웠다
             r.chosen = e["chosen"]
             changed = True
+        if e.get("type_chosen") and e["type_chosen"] != e.get("type_suggested"):
+            r.type_chosen = e["type_chosen"]
+            changed = True
         if e["exclude"] or e["memo"]:
             r.exclude, r.memo = e["exclude"], e["memo"]
             changed = True
@@ -346,7 +365,7 @@ def write_sheet(path: Path, rows: list[SheetRow], accounts: list[str]) -> Path:
     for c in range(1, len(COLUMNS) + 1):
         cell = ws.cell(row=1, column=c)
         cell.font = Font(bold=True)
-        cell.fill = mine if COLUMNS[c - 1] in ("확정 계정", "올리지 않음", "메모") else head
+        cell.fill = mine if COLUMNS[c - 1] in MINE else head
         cell.alignment = Alignment(horizontal="center")
     for r in rows:
         try:
@@ -354,13 +373,14 @@ def write_sheet(path: Path, rows: list[SheetRow], accounts: list[str]) -> Path:
                 else float(r.total)
         except (InvalidOperation, ValueError):
             total = r.total
-        ws.append([r.client, r.date, r.vendor, total, r.업태, r.종목, r.품명, r.유형,
-                   r.suggested, r.basis, r.conf, r.chosen, r.exclude, r.memo, r.file, r.row])
+        ws.append([r.client, r.date, r.vendor, total, r.업태, r.종목, r.품명,
+                   r.suggested, r.basis, r.conf, r.chosen, r.유형, r.type_chosen or r.유형,
+                   r.exclude, r.memo, r.file, r.row])
     last = max(len(rows) + 1, 2)
     col = {name: openpyxl.utils.get_column_letter(i + 1) for i, name in enumerate(COLUMNS)}
     for row in ws.iter_rows(min_row=2, max_row=last):
         row[COLUMNS.index("합계")].number_format = "#,##0"
-        for name in ("확정 계정", "올리지 않음", "메모"):
+        for name in MINE:
             row[COLUMNS.index(name)].fill = mine
 
     lists = wb.create_sheet(ACCOUNT_SHEET)
@@ -372,13 +392,17 @@ def write_sheet(path: Path, rows: list[SheetRow], accounts: list[str]) -> Path:
                         allow_blank=True, showErrorMessage=True,
                         errorTitle="계정", error="목록에 있는 계정을 고르세요.")
     ex = DataValidation(type="list", formula1=f'"{EXCLUDE_MARK}"', allow_blank=True)
+    tv = DataValidation(type="list", formula1='"' + ",".join(TYPE_CHOICES) + '"', allow_blank=True)
     ws.add_data_validation(dv)
     ws.add_data_validation(ex)
+    ws.add_data_validation(tv)
     dv.add(f"{col['확정 계정']}2:{col['확정 계정']}{last}")
     ex.add(f"{col['올리지 않음']}2:{col['올리지 않음']}{last}")
+    tv.add(f"{col['확정 유형']}2:{col['확정 유형']}{last}")
 
     widths = {"수임처": 18, "거래일자": 11, "거래처": 24, "합계": 11, "업태": 14, "종목": 16,
-              "품명": 14, "유형": 6, "추천 계정": 22, "근거": 40, "확신": 6, "확정 계정": 26,
+              "품명": 14, "추천 계정": 22, "근거": 40, "확신": 6, "확정 계정": 26,
+              "추천 유형": 8, "확정 유형": 8,
               "올리지 않음": 11, "메모": 20, "파일": 10, "행": 6}
     for name, w in widths.items():
         ws.column_dimensions[col[name]].width = w
@@ -476,6 +500,7 @@ class FinishReport:
 def _answers_from_sheet(rows: list[dict], config_dir) -> dict:
     from kafa.clients import resolve_account_text
     answers, errors = {}, []
+    labels = set(_type_labels(config_dir).values())
     for r in rows:
         exclude = r["exclude"].lower() in _EXCLUDE_WORDS
         name = ""
@@ -485,9 +510,14 @@ def _answers_from_sheet(rows: list[dict], config_dir) -> dict:
                 errors.append(f"{r['sheet_row']}행 확정 계정 '{r['chosen']}': {got}")
                 continue
             name = got
+        vat = (r.get("type_chosen") or "").strip()
+        if vat and vat not in labels:
+            errors.append(f"{r['sheet_row']}행 확정 유형 '{vat}': "
+                          f"{'·'.join(TYPE_CHOICES)} 중에서 고르세요")
+            continue
         if exclude or name:
             answers[(r["file"], r["row"])] = {"name": name, "exclude": exclude,
-                                              "total": r["total"]}
+                                              "total": r["total"], "type": vat}
     if errors:
         raise DeskError("답지에서 고칠 곳이 있습니다(업로드본을 만들지 않았습니다):\n  "
                         + "\n  ".join(errors[:15])
@@ -513,6 +543,9 @@ def finish(base=None, *, config_dir: str | None = None) -> FinishReport:
     rep = FinishReport(answered=sum(1 for a in answers.values() if a["name"]),
                        excluded=sum(1 for a in answers.values() if a["exclude"]))
 
+    from kafa.store.db import status_settings
+    _, desk_status = status_settings(config_dir)
+
     def hook(file_rel, rows):
         for i, row in enumerate(rows):
             a = answers.get((file_rel, row.raw_index))
@@ -524,7 +557,10 @@ def finish(base=None, *, config_dir: str | None = None) -> FinishReport:
             if a["exclude"]:
                 rows[i] = replace(row, 전표상태=EXCLUDED_STATUS)
             else:
-                rows[i] = replace(row, 차변계정=a["name"], 전표상태="")
+                # 담당자가 정한 행 표시(전표상태) — 처리 이력의 확정출처 '담당자'가 되어 다음 달
+                # 같은 가맹점의 계정·유형을 정하는 데 쓰인다. 확정 유형이 있으면 그 유형으로.
+                rows[i] = replace(row, 차변계정=a["name"], 전표상태=desk_status,
+                                  유형=a.get("type") or row.유형)
 
     rep.result = run_pipeline(paths.inbox, paths.internal, row_hook=hook, config_dir=config_dir)
     for o in rep.result.outcomes:

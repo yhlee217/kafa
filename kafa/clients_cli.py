@@ -53,11 +53,21 @@ def main(argv: list[str] | None = None) -> int:
     ml.add_argument("--clear", action="store_true", help="지정을 푼다")
     ml.add_argument("--out", default=None, help="저장 경로(기본 ~/.kafa/clients.yaml)")
 
+    fl = sub.add_parser("flag", help="수임처 속성 표시(화물차·음식점) — 유형 기준표(type_policy)에 쓴다")
+    fl.add_argument("what", choices=sorted(FLAGS), help="화물차: 주유·수리 공제 / 음식점: 면세 재료 카면")
+    who = fl.add_mutually_exclusive_group(required=True)
+    who.add_argument("--client", help="수임처 이름")
+    who.add_argument("--where-note", help="조사표 메모에 이 문구가 있는 수임처")
+    fl.add_argument("--clear", action="store_true", help="표시를 푼다")
+    fl.add_argument("--out", default=None, help="저장 경로(기본 ~/.kafa/clients.yaml)")
+
     args = ap.parse_args(argv)
     from kafa.clients import merge_profiles, parse_template, write_template
 
     if args.cmd == "meal":
         return _cmd_meal(args)
+    if args.cmd == "flag":
+        return _cmd_flag(args)
 
     if args.cmd == "from-master":
         from kafa.clients import profiles_from_master
@@ -215,15 +225,34 @@ def _report_uncovered(done: set) -> None:
         print(f"  [확인] 처리 이력에 있는데 직원 유무가 없는 곳: {missing}곳 — 기본값(직원 있음)으로 처리됩니다")
 
 
-def _cmd_meal(args) -> int:
-    """수임처 한 곳의 식대 계정을 지정/해제. 출력에 수임처 이름은 가려서 쓴다."""
-    from kafa.clients import resolve_account_text
-    from kafa.config_loader import client_name_core, same_client_by_name
-    from kafa.fetch.plan import safe_name
-    from kafa.security import mask_name
+# kafa-clients flag 의 말 → 수임처 속성 이름(config type_policy 의 when 과 같아야 한다)
+FLAGS = {"화물차": "cargo_vehicle", "음식점": "restaurant"}
 
+
+def _cmd_flag(args) -> int:
+    """수임처 한 곳에 화물차·음식점 표시를 붙이거나 뗀다. 출력에 수임처 이름은 가린다."""
+    from kafa.security import mask_name
     out = _out_path(args.out)
     defaults, clients = _existing(out)
+    cid = _find_target(args, clients)
+    if cid is None:
+        return 2
+    prof = clients.setdefault(cid, {}) or {}
+    clients[cid] = prof
+    key = FLAGS[args.what]
+    if args.clear:
+        prof.pop(key, None)
+    else:
+        prof[key] = True
+    _save(out, clients, defaults)
+    print(f"{mask_name(cid, keep=1)}: {args.what} " + ("표시를 뗐습니다" if args.clear else "표시"))
+    return 0
+
+
+def _find_target(args, clients: dict) -> str | None:
+    """--client(이름) 또는 --where-note(메모 문구)로 수임처 하나를 고른다. 못 고르면 알리고 None."""
+    from kafa.config_loader import client_name_core, same_client_by_name
+    from kafa.fetch.plan import safe_name
     if args.where_note:
         targets = [k for k, v in clients.items() if args.where_note in ((v or {}).get("note") or "")]
     else:
@@ -239,8 +268,20 @@ def _cmd_meal(args) -> int:
     if len(targets) != 1:
         print(f"[중단] 맞는 수임처가 {len(targets)}곳입니다 — 한 곳만 맞도록 다시 주세요"
               + ("(메모 문구를 더 길게)" if args.where_note else ""), file=sys.stderr)
+        return None
+    return targets[0]
+
+
+def _cmd_meal(args) -> int:
+    """수임처 한 곳의 식대 계정을 지정/해제. 출력에 수임처 이름은 가려서 쓴다."""
+    from kafa.clients import resolve_account_text
+    from kafa.security import mask_name
+
+    out = _out_path(args.out)
+    defaults, clients = _existing(out)
+    cid = _find_target(args, clients)
+    if cid is None:
         return 2
-    cid = targets[0]
     prof = clients.setdefault(cid, {}) or {}
     clients[cid] = prof
     if args.clear:

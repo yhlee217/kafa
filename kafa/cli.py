@@ -18,6 +18,7 @@ from kafa.recommend.recommender import Recommender, SeedRecommender
 from kafa.recommend.seed import SeedIndex, build_seed_from_inputrows
 from kafa.rules.engine import classify_row, finalize_reversal
 from kafa.rules.models import InputRow, Verdict
+from kafa.rules.type_policy import apply_type_policy
 
 
 def _needs_welfare_review(profile: dict | None, code, config_dir) -> bool:
@@ -163,6 +164,8 @@ def classify_rows(rows: list[InputRow], *,
                 _settle_agent_review(c, rec.confidence, config_dir)
             elif rec.basis.startswith(HINT_PREFIX):
                 c.추천근거 = rec.basis          # Claude 가 모름·낮은 확신 — 담당자 참고용
+        # 유형 기준표(담당자 기준, 켜져 있을 때만) — 위하고 기본 유형 대신 계정·수임처·세액으로.
+        apply_type_policy(c, profile, config_dir=config_dir)
         # 추천으로 계정이 정해졌으면 계정 규칙(접대비 → 불공제)을 건다 — 환불 swap 전에.
         apply_account_rule(c, config_dir=config_dir)
         if type_hint:

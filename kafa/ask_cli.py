@@ -100,7 +100,7 @@ def cmd_exam(args) -> int:
         return 1
     db = VoucherStore(db_path)
     try:
-        records = db.account_records(config_dir=args.config_dir)
+        records = db.account_records(config_dir=args.config_dir, father_only=args.father_only)
         usage = db.account_usage()
     finally:
         db.close()
@@ -108,7 +108,9 @@ def cmd_exam(args) -> int:
     old = ai_dir(out) / EXAM_ANSWERS
     if old.exists():
         old.unlink()                     # 지난 시험 답이 새 시험지에 섞이지 않게
-    print(f"처리된 행 {len(records)}건에서 시험 문제 {n}가지를 만들었습니다.")
+    kind = ("담당자가 정한 행(답지·전표확정)" if args.father_only
+            else "처리된 행(대부분 위하고 자동 분류 — 담당자 정답은 --father-only)")
+    print(f"{kind} {len(records)}건에서 시험 문제 {n}가지를 만들었습니다.")
     print(f"시험지: {ai_dir(out) / 'exam_questions.json'}")
     print(f"정답:   {exam_key_path(out)} (_ai 밖 — Claude 에게 _ai 폴더만 연결하면 안 보인다)")
     print("Claude 에게 docs/cowork_ask.md 의 '시험' 프롬프트를 붙여넣고, 끝나면 kafa-ask score")
@@ -162,6 +164,8 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("show", parents=[common], help="모인 답 요약")
     ex = sub.add_parser("exam", parents=[common], help="처리 이력으로 시험지 만들기")
     ex.add_argument("--n", type=int, default=150, help="문제 수(기본 150)")
+    ex.add_argument("--father-only", action="store_true",
+                    help="담당자가 정한 행(답지·전표확정)만 정답으로 — 그 밖은 위하고 자동 분류다")
     sub.add_parser("score", parents=[common], help="시험 채점")
     sub.add_parser("prior", parents=[common],
                    help="사무실 전체 이력 추천 정답률(한 수임처씩 빼고 맞혀 보기)")
