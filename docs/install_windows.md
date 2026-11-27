@@ -2,6 +2,7 @@
 
 아버님 PC 에 kafa 를 설치할 때 **Claude Code(데스크톱 앱 Code 탭 또는 터미널)** 에 그대로 붙여넣는 프롬프트다.
 쓰는 법(매달 할 일)은 `docs/desk.md`, 결정 배경은 `docs/decisions.md` 2026-11-27.
+아드님 개발용 Windows PC 설치는 `docs/dev_windows.md`.
 
 ## 무엇을 어떻게 옮기나 — USB 없이
 
