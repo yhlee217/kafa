@@ -1,0 +1,588 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>답지 · kafa</title>
+<style>
+/* 시안(세무 업무 프로그램 화면 시안 · 3 답지)을 따른다. 아버님 PC 에서 최대화해 쓰는 화면이라
+   글자를 크게, 눈이 편한 회녹색 바탕, 남은 일만 주황으로 강조한다. 바깥 글꼴·파일을 쓰지 않는다(오프라인). */
+:root {
+  --bg: #eef1ef; --panel: #fafbfa; --white: #ffffff; --head: #f4f6f5; --nav: #e6ebe8;
+  --fg: #1f2a26; --fg2: #33403b; --fg3: #55625d; --line: #d5dcd8; --line2: #e3e8e5; --input: #b9c4bf;
+  --accent: #0e6a62; --accent-dk: #0b4d47; --accent-bg: #e1efec; --sel: #d3e7e3;
+  --ok: #1d6b40; --ok-bg: #e6f2ea; --ok-line: #9fcdb0;
+  --warn: #8a4b06; --warn-bg: #fbf0dc; --warn-line: #e6bf80;
+  --bad: #a5281c; --bad-bg: #fbe9e6; --bad-line: #e7a49b;
+  --ai: #4b4597; --ai-bg: #edecf8; --ai-line: #b8b3e6;
+  --mute: #4a5752; --mute-bg: #eef1ef; --mute-line: #cfd7d3;
+  --sans: "Malgun Gothic", "맑은 고딕", "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
+  --mono: Consolas, "D2Coding", ui-monospace, "Malgun Gothic", monospace;
+  --fs: 16px;
+  color-scheme: light;
+}
+:root.big { --fs: 18px; }
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--sans); font-size: var(--fs); line-height: 1.55; }
+button, input, select, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+.num { font-family: var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.app { min-height: 100%; display: flex; flex-direction: column; }
+
+/* 머리 */
+.top { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px;
+  padding: 16px 28px; background: var(--head); border-bottom: 1px solid var(--line); }
+.brand { display: flex; align-items: center; gap: 14px; }
+.logo { width: 40px; height: 40px; border-radius: 10px; background: var(--accent); color: var(--white);
+  display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 1.1em; }
+h1 { margin: 0; font-size: 1.6em; line-height: 1.25; }
+.sub { margin: 2px 0 0; color: var(--fg3); font-size: .95em; }
+.steps { margin: 0; padding: 0; list-style: none; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.steps li { display: flex; align-items: center; gap: 8px; font-size: .95em; color: var(--fg3); }
+.steps .bar { width: 28px; height: 2px; background: var(--mute-line); }
+.dot { width: 28px; height: 28px; border-radius: 999px; display: inline-flex; align-items: center; justify-content: center;
+  font-weight: 700; font-size: .85em; border: 2px solid var(--input); background: var(--panel); color: var(--fg3); }
+.steps .done { color: var(--ok); } .steps .done .dot { background: var(--ok-bg); border-color: var(--ok); color: var(--ok); }
+.steps .now { color: var(--accent-dk); font-weight: 700; } .steps .now .dot { background: var(--accent); border-color: var(--accent); color: var(--white); }
+.tools { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-left: auto; }
+
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 10px 20px; border-radius: 10px;
+  font-size: 1em; font-weight: 700; border: 1px solid transparent; min-height: 48px; }
+.btn-pri { background: var(--accent); color: var(--white); }
+.btn-pri:hover { background: #0b5750; }
+.btn-sec { background: #f9faf9; color: var(--fg); border-color: var(--input); }
+.btn-sec:hover { background: var(--white); }
+.btn[disabled] { opacity: .55; cursor: default; }
+.btn-sm { min-height: 40px; padding: 6px 14px; font-size: .9em; }
+.save { font-size: .9em; color: var(--fg3); min-width: 9em; text-align: right; }
+.save.err { color: var(--bad); font-weight: 700; }
+
+/* 진행 · 거르기 */
+.strip { display: flex; flex-wrap: wrap; align-items: center; gap: 14px 24px; padding: 16px 28px 4px; }
+.prog { flex: 1 1 320px; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.prog strong { font-size: 1.45em; }
+.left { color: var(--warn); font-weight: 700; margin-left: 10px; }
+.track { height: 10px; border-radius: 999px; background: var(--line); overflow: hidden; }
+.fill { height: 100%; background: var(--accent); width: 0; transition: width .3s; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip { display: inline-flex; align-items: center; gap: 8px; padding: 7px 14px; border-radius: 999px; border: 1px solid var(--mute-line);
+  background: #f9faf9; font-size: .93em; color: var(--fg2); }
+.chip[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--white); font-weight: 700; }
+
+/* 본문 세 칸 */
+.main { flex: 1; display: flex; gap: 18px; align-items: flex-start; padding: 14px 28px 28px; min-height: 0; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; }
+.clients { flex: 0 0 240px; padding: 12px; display: flex; flex-direction: column; gap: 4px; max-height: calc(100vh - 230px); overflow: auto; }
+.clients label { font-size: .8em; color: var(--fg3); padding: 0 4px; }
+.clients input { padding: 8px 10px; border: 1px solid var(--input); border-radius: 8px; background: var(--white); margin-bottom: 6px; }
+.cl { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 9px 12px; border-radius: 10px;
+  border: 0; background: transparent; text-align: left; color: var(--fg2); font-size: .95em; width: 100%; }
+.cl:hover { background: #eef2f0; }
+.cl[aria-pressed="true"] { background: var(--sel); color: var(--accent-dk); font-weight: 700; }
+.cl .n { font-family: var(--mono); font-weight: 700; color: var(--warn); font-size: .9em; }
+.cl .ok { color: var(--ok); font-weight: 700; }
+
+.grid { flex: 1 1 auto; min-width: 0; overflow: hidden; display: flex; flex-direction: column; max-height: calc(100vh - 230px); }
+.grid-h { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--line2); }
+.grid-h strong { font-size: 1.1em; }
+.only-small { display: none; align-items: center; gap: 8px; }
+.only-small select { padding: 6px 10px; border: 1px solid var(--input); border-radius: 8px; background: var(--white); }
+.scroll { overflow: auto; }
+table { width: 100%; border-collapse: collapse; font-size: .94em; }
+th { position: sticky; top: 0; z-index: 1; background: #eef2f0; color: #3d4a45; font-size: .82em; font-weight: 600; text-align: left;
+  padding: 9px 8px; border-bottom: 1px solid var(--mute-line); white-space: nowrap; }
+td { padding: 7px 8px; border-bottom: 1px solid var(--line2); vertical-align: middle; }
+tbody tr { cursor: pointer; }
+tbody tr:hover td { background: #f1f5f3; }
+tbody tr.sel td { background: var(--accent-bg); }
+tbody tr.bad td { background: var(--bad-bg); }
+td.r { text-align: right; }
+td.c { text-align: center; }
+.vend { font-weight: 600; }
+.ind { color: var(--mute); font-size: .92em; }
+.state-done { color: var(--ok); font-weight: 700; }
+.state-todo { display: inline-block; width: 10px; height: 10px; border-radius: 999px; border: 2px solid var(--warn); }
+.badge { display: inline-flex; align-items: center; gap: 6px; padding: 1px 9px; border-radius: 999px; font-size: .8em; font-weight: 600; border: 1px solid; white-space: nowrap; }
+.b-ok { color: var(--ok); background: var(--ok-bg); border-color: var(--ok-line); }
+.b-warn { color: var(--warn); background: var(--warn-bg); border-color: var(--warn-line); }
+.b-ai { color: var(--ai); background: var(--ai-bg); border-color: var(--ai-line); }
+.b-hist { color: var(--accent-dk); background: var(--accent-bg); border-color: #9fcbc4; }
+.b-mute { color: var(--mute); background: var(--mute-bg); border-color: var(--mute-line); }
+.reco { display: flex; align-items: center; gap: 8px; white-space: nowrap; }
+.acct { width: 100%; min-width: 170px; padding: 6px 9px; border: 1px solid var(--input); border-radius: 8px; background: var(--white); }
+.acct.empty { border: 2px dashed var(--accent); background: #f2f8f6; }
+.acct.err { border: 2px solid var(--bad); }
+.ty { padding: 6px 6px; border: 1px solid var(--input); border-radius: 8px; background: var(--white); }
+.ty.chg { border: 2px solid var(--accent); font-weight: 700; }
+input[type="checkbox"] { width: 20px; height: 20px; accent-color: var(--accent); }
+
+.detail { flex: 0 0 340px; padding: 20px; display: flex; flex-direction: column; gap: 14px; max-height: calc(100vh - 230px); overflow: auto; }
+.detail .v { font-size: 1.25em; font-weight: 700; }
+.detail .meta { font-size: .95em; color: var(--fg2); }
+.detail .why { margin: 0; padding: 11px 13px; border-radius: 10px; background: #f2f5f3; border: 1px solid var(--line2); font-size: .93em; color: var(--fg2); }
+.detail .why.warn { background: var(--warn-bg); border-color: var(--warn-line); color: #5c3404; }
+.field { display: flex; flex-direction: column; gap: 6px; }
+.field > span, .field > label, legend { font-size: .85em; color: var(--fg3); font-weight: 600; padding: 0; }
+fieldset { border: 0; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.big-in { padding: 10px 12px; border: 2px solid var(--accent); border-radius: 10px; background: var(--white); font-size: 1.05em; }
+.seg { display: flex; border: 1px solid var(--input); border-radius: 10px; overflow: hidden; }
+.seg button { flex: 1; padding: 10px 6px; border: 0; border-right: 1px solid var(--input); background: var(--white); font-size: .95em; white-space: nowrap; }
+.hint { font-size: .8em; color: var(--fg3); }
+.seg button:last-child { border-right: 0; }
+.seg button[aria-pressed="true"] { background: var(--accent); color: var(--white); font-weight: 700; }
+textarea { padding: 8px 10px; border: 1px solid var(--input); border-radius: 8px; background: var(--white); resize: vertical; }
+.keys { margin: 0; font-size: .8em; color: var(--fg3); display: flex; flex-wrap: wrap; gap: 6px 12px; }
+.kbd { font-family: var(--mono); font-size: .9em; padding: 0 6px; border: 1px solid var(--input); border-bottom-width: 2px; border-radius: 6px; background: var(--white); }
+
+/* 알림 · 확인 창 */
+.banner { margin: 0 28px; padding: 12px 16px; border-radius: 10px; border: 1px solid var(--bad-line); background: var(--bad-bg); color: #6b1a12; }
+.banner.info { border-color: var(--ok-line); background: var(--ok-bg); color: #134a2c; }
+.banner ul { margin: 6px 0 0; padding-left: 1.2em; }
+.veil { position: fixed; inset: 0; background: rgba(31, 42, 38, .38); display: flex; align-items: center; justify-content: center; padding: 24px; z-index: 10; }
+.box { background: var(--panel); border-radius: 16px; border: 1px solid var(--line); max-width: 640px; width: 100%; padding: 26px; display: flex; flex-direction: column; gap: 14px; max-height: 90vh; overflow: auto; }
+.box h2 { margin: 0; font-size: 1.3em; }
+.box p { margin: 0; }
+.box .row { display: flex; gap: 10px; justify-content: flex-end; flex-wrap: wrap; }
+.box table td { font-size: .95em; }
+.empty-state { margin: 40px auto; max-width: 640px; text-align: center; display: flex; flex-direction: column; gap: 14px; align-items: center; padding: 34px; }
+.empty-state h2 { margin: 0; }
+@media (max-width: 1600px) {
+  .clients { display: none; }
+  .only-small { display: flex; }
+  .col-ind { display: none; }
+  .detail { flex-basis: 300px; }
+}
+@media (prefers-reduced-motion: reduce) { .fill { transition: none; } }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="top">
+    <div class="brand">
+      <div class="logo" aria-hidden="true">K</div>
+      <div>
+        <h1>답지</h1>
+        <p class="sub" id="sub">계정과 유형을 확인하고 틀린 것만 고르세요</p>
+      </div>
+    </div>
+    <ol class="steps" aria-label="이번 달 단계">
+      <li class="done"><span class="dot">✓</span>자료 받기</li>
+      <li class="bar" aria-hidden="true"></li>
+      <li class="done" id="st-prep"><span class="dot">✓</span>처리하기</li>
+      <li class="bar" aria-hidden="true"></li>
+      <li class="now" id="st-dapji"><span class="dot">3</span>답지 확인</li>
+      <li class="bar" aria-hidden="true"></li>
+      <li id="st-up"><span class="dot">4</span>업로드본 만들기</li>
+    </ol>
+    <div class="tools">
+      <span class="save" id="save" aria-live="polite"></span>
+      <button class="btn btn-sec btn-sm" id="font" type="button">글자 크기</button>
+      <button class="btn btn-sec" id="prep" type="button">처리하기</button>
+      <button class="btn btn-pri" id="finish" type="button">업로드본 만들기</button>
+    </div>
+  </header>
+
+  <div id="banner-wrap"></div>
+
+  <div id="body"></div>
+</div>
+
+<datalist id="acctlist"></datalist>
+
+<script>
+"use strict";
+const S = { rows: [], accounts: [], types: [], clients: [], sheet: null, hasType: false, legacy: false,
+  client: "", chip: "left", q: "", sel: null, dirty: new Map(), errs: new Map(), reviewed: new Set(),
+  saving: false, saveTimer: null, busy: false };
+
+const $ = (id) => document.getElementById(id);
+function el(tag, attrs, ...kids) {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (v === false || v === null || v === undefined) continue;
+    if (k === "class") e.className = v;
+    else if (k === "text") e.textContent = v;
+    else if (k.startsWith("on")) e.addEventListener(k.slice(2), v);
+    else e.setAttribute(k, v === true ? "" : v);
+  }
+  for (const c of kids.flat()) if (c !== null && c !== undefined) e.append(c.nodeType ? c : document.createTextNode(String(c)));
+  return e;
+}
+const store = {
+  get(k, d) { try { const v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); } catch (e) { return d; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* 저장 못 해도 화면은 그대로 */ } },
+};
+function won(v) { const n = Number(String(v).replace(/,/g, "")); return isFinite(n) ? n.toLocaleString("ko-KR") : v; }
+function confNum(c) { const n = parseInt(String(c), 10); return isFinite(n) ? n : null; }
+
+async function api(path, body) {
+  const opt = body === undefined ? {} : { method: "POST", headers: { "Content-Type": "application/json", "X-Kafa": "1" }, body: JSON.stringify(body) };
+  const res = await fetch(path, opt);
+  let data = {};
+  try { data = await res.json(); } catch (e) { data = { error: "응답을 읽지 못했습니다." }; }
+  if (!res.ok && !data.errors) throw new Error(data.error || "문제가 생겼습니다.");
+  return data;
+}
+
+function banner(kind, title, items) {
+  const wrap = $("banner-wrap");
+  wrap.replaceChildren();
+  if (!title) return;
+  const b = el("div", { class: "banner" + (kind === "info" ? " info" : ""), role: kind === "info" ? "status" : "alert" }, el("strong", { text: title }));
+  if (items && items.length) b.append(el("ul", {}, items.map((t) => el("li", { text: t }))));
+  wrap.append(b);
+}
+
+// ── 불러오기 ──
+async function load() {
+  const d = await api("/api/state");
+  Object.assign(S, { rows: d.rows, accounts: d.accounts, types: d.types, clients: d.clients, sheet: d.sheet, hasType: d.has_type, legacy: d.legacy });
+  S.reviewed = new Set(store.get(reviewKey(), []));
+  if (S.client && !S.clients.some((c) => c.name === S.client)) S.client = "";
+  const dl = $("acctlist");
+  dl.replaceChildren(...S.accounts.map((a) => el("option", { value: a })));
+  render();
+}
+function reviewKey() { return "kafa-reviewed:" + (S.rows.length ? S.rows[0].key + "|" + S.rows.length : "none"); }
+function saveReviewed() { store.set(reviewKey(), [...S.reviewed]); }
+
+// ── 거르기 ──
+const CHIPS = [
+  ["all", "전체", () => true],
+  ["left", "남음", (r) => !S.reviewed.has(r.key)],
+  ["blank", "계정 빈 칸", (r) => !r.chosen && !r.exclude],
+  ["none", "추천 없음", (r) => r.source === "없음"],
+  ["low", "확신 낮음", (r) => { const n = confNum(r.conf); return n !== null && n < 70; }],
+  ["check", "확인 표시", (r) => r.basis.includes("확인:")],
+  ["excl", "올리지 않음", (r) => r.exclude],
+];
+function inClient(r) { return !S.client || r.client === S.client; }
+function visible() {
+  const f = CHIPS.find((c) => c[0] === S.chip)[2];
+  return S.rows.filter((r) => inClient(r) && f(r));
+}
+function period() {
+  const m = {};
+  for (const r of S.rows) { const k = (r.date || "").slice(0, 7); if (k) m[k] = (m[k] || 0) + 1; }
+  const top = Object.entries(m).sort((a, b) => b[1] - a[1])[0];
+  return top ? `${top[0].slice(0, 4)}년 ${Number(top[0].slice(5, 7))}월분` : "";
+}
+
+// ── 그리기 ──
+function render() {
+  const body = $("body");
+  if (!S.sheet) {
+    $("finish").disabled = true;
+    $("sub").textContent = "답지가 아직 없습니다";
+    body.replaceChildren(el("div", { class: "card empty-state" },
+      el("h2", { text: "답지가 아직 없습니다" }),
+      el("p", { text: "1_받은자료 폴더의 수임처 폴더에 위하고 신용카드 파일을 넣고 '처리하기'를 누르세요." }),
+      el("button", { class: "btn btn-pri", type: "button", onclick: doPrepare, text: "처리하기" })));
+    return;
+  }
+  $("finish").disabled = false;
+  $("sub").textContent = (period() ? period() + " · " : "") + "계정과 유형을 확인하고 틀린 것만 고르세요";
+  const shown = S.rows.filter(inClient);
+  const done = shown.filter((r) => S.reviewed.has(r.key)).length;
+  const pct = shown.length ? Math.round((done / shown.length) * 1000) / 10 : 0;
+
+  const strip = el("div", { class: "strip" },
+    el("div", { class: "prog" },
+      el("div", {}, el("strong", { class: "num", text: `${done} / ${shown.length}건 확인` }),
+        el("span", { class: "left", text: `${shown.length - done}건 남음` })),
+      el("div", { class: "track", role: "img", "aria-label": `${shown.length}건 중 ${done}건 확인` }, el("div", { class: "fill", style: `width:${pct}%` }))),
+    el("div", { class: "chips", role: "group", "aria-label": "보기" },
+      CHIPS.map(([id, name, f]) => el("button", { class: "chip", type: "button", "aria-pressed": String(S.chip === id),
+        onclick: () => { S.chip = id; render(); } }, name, el("span", { class: "num", text: shown.filter(f).length })))));
+
+  const main = el("div", { class: "main" }, clientPane(), gridPane(), detailPane());
+  body.replaceChildren(strip, main);
+  const selRow = document.querySelector("tbody tr.sel");
+  if (selRow) selRow.scrollIntoView({ block: "nearest" });
+}
+
+function clientPane() {
+  const list = el("div", {});
+  const q = S.q.trim();
+  const all = el("button", { class: "cl", type: "button", "aria-pressed": String(!S.client), onclick: () => pickClient("") },
+    el("span", { text: "모든 수임처" }), el("span", { class: "n", text: S.rows.filter((r) => !S.reviewed.has(r.key)).length }));
+  list.append(all);
+  for (const c of S.clients) {
+    if (q && !c.name.includes(q)) continue;
+    const left = S.rows.filter((r) => r.client === c.name && !S.reviewed.has(r.key)).length;
+    list.append(el("button", { class: "cl", type: "button", "aria-pressed": String(S.client === c.name), onclick: () => pickClient(c.name) },
+      el("span", { text: c.name }), left ? el("span", { class: "n", text: left }) : el("span", { class: "ok", text: "✓" })));
+  }
+  const search = el("input", { id: "q", type: "search", placeholder: "이름", value: S.q,
+    oninput: (e) => { S.q = e.target.value; const p = document.querySelector(".clients"); p.replaceWith(clientPane()); $("q").focus(); } });
+  return el("aside", { class: "clients card", "aria-label": "수임처" }, el("label", { for: "q", text: "수임처 찾기" }), search, list);
+}
+function pickClient(name) { S.client = name; S.sel = null; render(); }
+
+function gridPane() {
+  const rows = visible();
+  const c = S.clients.find((x) => x.name === S.client);
+  const sm = el("div", { class: "only-small" }, el("label", { for: "cs", text: "수임처" }),
+    el("select", { id: "cs", onchange: (e) => pickClient(e.target.value) },
+      el("option", { value: "", text: "모든 수임처", selected: !S.client }),
+      S.clients.map((x) => el("option", { value: x.name, text: x.name, selected: S.client === x.name }))));
+  const head = el("div", { class: "grid-h" },
+    el("div", { style: "display:flex;align-items:center;gap:10px;flex-wrap:wrap" }, sm,
+      el("strong", { text: S.client || "모든 수임처" }), c ? el("span", { class: "badge b-mute", text: c.profile }) : null),
+    el("span", { style: "font-size:.9em;color:var(--fg3)", text: `${rows.length}건 보임` }));
+  const thead = el("thead", {}, el("tr", {},
+    el("th", { scope: "col", style: "width:30px" }, el("span", { style: "position:absolute;left:-9999px", text: "상태" })),
+    el("th", { scope: "col", text: "날짜" }), S.client ? null : el("th", { scope: "col", text: "수임처" }),
+    el("th", { scope: "col", text: "거래처" }), el("th", { scope: "col", style: "text-align:right", text: "합계" }),
+    el("th", { scope: "col", class: "col-ind", text: "업종" }), el("th", { scope: "col", text: "추천" }),
+    el("th", { scope: "col", text: "확신" }), el("th", { scope: "col", style: "min-width:190px", text: "확정 계정" }),
+    S.hasType ? el("th", { scope: "col", text: "확정 유형" }) : null,
+    el("th", { scope: "col", style: "text-align:center", text: "올리지 않음" })));
+  const tbody = el("tbody", {});
+  if (!rows.length) tbody.append(el("tr", {}, el("td", { colspan: 11, style: "padding:28px;text-align:center;color:var(--fg3)", text: "이 보기에는 건이 없습니다." })));
+  for (const r of rows) tbody.append(rowEl(r));
+  return el("section", { class: "grid card", "aria-label": "답지 표" }, head, el("div", { class: "scroll" }, el("table", {}, thead, tbody)));
+}
+
+const SRC = { "클로드": "badge b-ai", "이력": "badge b-hist", "없음": "badge b-warn" };
+const TYCLS = { "카과": "badge b-ok", "일반": "badge b-mute", "카면": "badge b-hist" };
+function rowEl(r) {
+  const err = S.errs.get(r.key);
+  const tr = el("tr", { class: (S.sel === r.key ? "sel" : "") + (err ? " bad" : ""), "data-key": r.key,
+    onclick: (e) => { if (e.target.closest("input,select")) return; select(r.key); } });
+  const acct = el("input", { class: "acct" + (!r.chosen && !r.exclude ? " empty" : "") + (err && err.field === "chosen" ? " err" : ""),
+    list: "acctlist", value: r.exclude ? "" : r.chosen, placeholder: r.exclude ? "올리지 않음" : "계정 고르기", disabled: r.exclude,
+    "aria-label": `${r.vendor} 확정 계정`, title: err ? err.message : "",
+    onfocus: () => select(r.key, true),
+    onchange: (e) => setField(r, "chosen", e.target.value.trim()) });
+  const typeSel = S.hasType ? el("select", { class: "ty" + (r.type_chosen && r.type_chosen !== r.type_suggested ? " chg" : ""),
+    "aria-label": `${r.vendor} 확정 유형`, onfocus: () => select(r.key, true),
+    onchange: (e) => setField(r, "type_chosen", e.target.value) },
+    el("option", { value: "", text: "—" }), S.types.map((t) => el("option", { value: t, text: t, selected: r.type_chosen === t }))) : null;
+  const ex = el("input", { type: "checkbox", "aria-label": `${r.vendor} 올리지 않음`, checked: r.exclude,
+    onchange: (e) => setField(r, "exclude", e.target.checked) });
+  tr.append(
+    el("td", { class: "c" }, S.reviewed.has(r.key) ? el("span", { class: "state-done", title: "확인함", text: "✓" }) : el("span", { class: "state-todo", title: "남음" })),
+    el("td", { class: "num", style: "color:var(--fg2)", text: (r.date || "").slice(5) }),
+    S.client ? null : el("td", { style: "font-size:.9em;color:var(--fg2)", text: r.client }),
+    el("td", { class: "vend", text: r.vendor }),
+    el("td", { class: "num r", text: won(r.total) }),
+    el("td", { class: "ind col-ind", text: [r["업태"], r["종목"]].filter(Boolean).join(" · ") }),
+    el("td", {}, el("div", { class: "reco" }, el("span", { class: SRC[r.source] || "badge b-mute", text: r.source }), el("span", { style: "font-size:.92em", text: r.suggested || "—" }))),
+    el("td", {}, r.conf ? el("span", { class: confNum(r.conf) < 70 ? "badge b-warn" : "badge b-mute", text: r.conf }) : ""),
+    el("td", {}, acct), typeSel ? el("td", {}, typeSel) : null, el("td", { class: "c" }, ex));
+  return tr;
+}
+
+function detailPane() {
+  const r = S.rows.find((x) => x.key === S.sel);
+  const box = el("aside", { class: "detail card", "aria-label": "고른 건" });
+  if (!r) {
+    box.append(el("p", { style: "margin:0;color:var(--fg3)", text: "표에서 한 건을 누르면 여기서 자세히 보고 확정할 수 있습니다." }),
+      keys());
+    return box;
+  }
+  const same = S.rows.filter((x) => x.client === r.client && x.vendor === r.vendor && x.key !== r.key);
+  const tag = r.source === "없음" ? el("span", { class: "badge b-warn", text: "추천 없음" })
+    : el("span", { class: SRC[r.source], text: r.source === "클로드" ? "클로드 추천" : "이력 추천" });
+  const acct = el("input", { id: "d-acct", class: "big-in", list: "acctlist", value: r.exclude ? "" : r.chosen, placeholder: "계정 고르기", disabled: r.exclude });
+  let ty = r.type_chosen;
+  const seg = S.hasType ? el("div", { class: "seg", role: "group", "aria-label": "확정 유형" },
+    S.types.map((t, i) => el("button", { type: "button", "aria-pressed": String(ty === t), "data-t": t,
+      onclick: (e) => { ty = t; for (const b of seg.querySelectorAll("button")) b.setAttribute("aria-pressed", String(b.dataset.t === t)); } },
+      t))) : null;
+  const all = same.length ? el("input", { id: "d-all", type: "checkbox", checked: true }) : null;
+  const memo = el("textarea", { id: "d-memo", rows: 2 }, r.memo);
+  const ex = el("input", { id: "d-ex", type: "checkbox", checked: r.exclude, onchange: (e) => { acct.disabled = e.target.checked; } });
+  const confirmBtn = el("button", { class: "btn btn-pri", type: "button", style: "font-size:1.05em", text: "확정하고 다음 건",
+    onclick: () => confirmRow(r, { chosen: acct.value.trim(), type: ty, memo: memo.value, exclude: ex.checked, all: all && all.checked }) });
+  box.append(
+    el("div", { style: "display:flex;flex-direction:column;gap:4px" }, el("span", { style: "align-self:flex-start" }, tag),
+      el("span", { class: "v", text: r.vendor }),
+      el("span", { class: "meta", text: `${r.date} · ${won(r.total)}원` }),
+      el("span", { class: "meta", text: "업종: " + ([r["업태"], r["종목"]].filter(Boolean).join(" · ") || "없음") + (r["품명"] ? ` / 품명: ${r["품명"]}` : "") }),
+      S.client ? null : el("span", { class: "meta", text: "수임처: " + r.client })),
+    r.basis && r.basis !== "추천 없음" ? el("p", { class: "why" + (r.basis.includes("확인:") ? " warn" : ""), text: r.basis })
+      : r.source === "없음" ? el("p", { class: "why warn", text: "이력도 클로드 답도 없는 건입니다. 직접 골라 주세요." }) : null,
+    el("div", { class: "field" }, el("label", { for: "d-acct", text: "확정 계정" }), acct,
+      all ? el("label", { style: "display:flex;align-items:center;gap:8px;font-size:.93em;font-weight:400;color:var(--fg2)" }, all, `같은 거래처 이번 달 ${same.length + 1}건 모두 적용`) : null),
+    seg ? el("fieldset", {}, el("legend", { text: "확정 유형" }), seg,
+      el("span", { class: "hint", text: "카과 = 공제 · 일반 = 불공제 · 카면 = 면세" + (r.type_suggested ? ` · 추천 ${r.type_suggested}` : "") })) : null,
+    el("label", { style: "display:flex;align-items:center;gap:8px;font-size:.95em" }, ex, "올리지 않음 (업무무관 등)"),
+    el("div", { class: "field" }, el("label", { for: "d-memo", text: "메모" }), memo),
+    confirmBtn, keys());
+  return box;
+}
+function keys() {
+  return el("p", { class: "keys" },
+    el("span", {}, el("span", { class: "kbd", text: "↑" }), " ", el("span", { class: "kbd", text: "↓" }), " 이동"),
+    el("span", {}, el("span", { class: "kbd", text: "Enter" }), " 확정"),
+    S.hasType ? el("span", {}, el("span", { class: "kbd", text: "1" }), " ", el("span", { class: "kbd", text: "2" }), " ", el("span", { class: "kbd", text: "3" }), " 유형") : null);
+}
+
+// ── 고르기·고치기 ──
+function select(key, keepFocus) {
+  if (S.sel === key) return;
+  S.sel = key;
+  if (keepFocus) {           // 표 안의 칸을 고치는 중 — 표를 다시 그리지 않고 오른쪽만 바꾼다
+    for (const tr of document.querySelectorAll("tbody tr")) tr.classList.toggle("sel", tr.dataset.key === key);
+    document.querySelector(".detail").replaceWith(detailPane());
+    return;
+  }
+  render();
+}
+function setField(r, field, value) {
+  r[field] = value;
+  const d = S.dirty.get(r.key) || { file: r.file, row: r.row };
+  d[field] = value;
+  S.dirty.set(r.key, d);
+  S.errs.delete(r.key);
+  scheduleSave();
+}
+function confirmRow(r, v) {
+  const targets = [r].concat(v.all ? S.rows.filter((x) => x.client === r.client && x.vendor === r.vendor && x.key !== r.key) : []);
+  for (const t of targets) {
+    if (v.exclude !== t.exclude) setField(t, "exclude", v.exclude);
+    if (!v.exclude && v.chosen !== t.chosen) setField(t, "chosen", v.chosen);
+    if (S.hasType && v.type && v.type !== t.type_chosen) setField(t, "type_chosen", v.type);
+    S.reviewed.add(t.key);
+  }
+  if (v.memo !== r.memo) setField(r, "memo", v.memo);
+  saveReviewed();
+  const list = visible();
+  const next = list.find((x) => !S.reviewed.has(x.key) && x.key !== r.key) || null;
+  S.sel = next ? next.key : null;
+  render();
+  if (next) { const a = $("d-acct"); if (a && !a.disabled) a.focus(); }
+}
+
+// ── 저장 ──
+function scheduleSave() {
+  setSave("고친 곳이 있습니다…");
+  clearTimeout(S.saveTimer);
+  S.saveTimer = setTimeout(saveNow, 700);
+}
+function setSave(text, err) { const s = $("save"); s.textContent = text; s.classList.toggle("err", !!err); }
+async function saveNow() {
+  clearTimeout(S.saveTimer);
+  if (!S.dirty.size || S.saving) return !S.dirty.size;
+  S.saving = true;
+  const sending = new Map(S.dirty);
+  S.dirty.clear();
+  setSave("저장하는 중…");
+  try {
+    const res = await api("/api/save", { changes: [...sending.values()] });
+    if (res.errors && res.errors.length) {
+      for (const [k, v] of sending) if (!S.dirty.has(k)) S.dirty.set(k, v);
+      for (const e of res.errors) S.errs.set(e.key, e);
+      setSave("저장 못 함", true);
+      banner("bad", "목록에 없는 값이 있어 저장하지 않았습니다. 빨간 칸을 목록에서 다시 골라 주세요.", res.errors.map((e) => e.message));
+      render();
+      return false;
+    }
+    banner();
+    const t = new Date();
+    setSave(`저장됨 · ${String(t.getHours()).padStart(2, "0")}:${String(t.getMinutes()).padStart(2, "0")}`);
+    return true;
+  } catch (e) {
+    for (const [k, v] of sending) if (!S.dirty.has(k)) S.dirty.set(k, v);
+    setSave("저장 못 함", true);
+    banner("bad", e.message);
+    return false;
+  } finally {
+    S.saving = false;
+    if (S.dirty.size && !S.errs.size) scheduleSave();
+  }
+}
+
+// ── 처리하기 · 업로드본 만들기 ──
+function veil(...kids) { const v = el("div", { class: "veil", role: "dialog", "aria-modal": "true" }, el("div", { class: "box" }, ...kids)); document.body.append(v); return v; }
+async function busy(btn, label, fn) {
+  if (S.busy) return;
+  S.busy = true;
+  const old = btn.textContent;
+  btn.disabled = true; btn.textContent = label;
+  try { await fn(); } finally { S.busy = false; btn.disabled = false; btn.textContent = old; }
+}
+async function doPrepare() {
+  await busy($("prep"), "처리하는 중…", async () => {
+    if (!(await saveNow())) return;
+    try {
+      const r = await api("/api/prepare", {});
+      await load();
+      const items = [`확인할 건 ${r.rows}건 · 계정이 빈 건 ${r.unresolved}건`];
+      if (r.ai_filled) items.push(`클로드 답으로 채운 건 ${r.ai_filled}건`);
+      if (r.kept) items.push(`이미 고치신 칸 ${r.kept}건은 그대로 두었습니다`);
+      for (const n of r.claude_notes || []) items.push("클로드 답 반영: " + n);
+      if (r.questions) items.push(`클로드에게 물을 것 ${r.questions}가지 — 2_클로드 폴더의 질문 파일을 클로드에 올리고, 받은 답을 그 폴더에 넣은 뒤 '처리하기'를 다시 누르세요`);
+      for (const f of r.failures || []) items.push(`읽지 못함: ${f.file} — ${f.why}`);
+      banner(r.failures && r.failures.length ? "bad" : "info", `받은 자료 ${r.files}개를 처리했습니다.`, items);
+    } catch (e) { banner("bad", e.message); }
+  });
+}
+async function doFinish() {
+  if (!(await saveNow())) return;
+  const blank = S.rows.filter((r) => !r.chosen && !r.exclude).length;
+  const excl = S.rows.filter((r) => r.exclude).length;
+  const v = veil(el("h2", { text: "업로드본을 만들까요?" }),
+    el("p", { text: `답지 ${S.rows.length}건을 반영합니다. 올리지 않는 건 ${excl}건.` }),
+    blank ? el("p", { style: "color:var(--warn);font-weight:700", text: `계정이 빈 ${blank}건은 계정 없이(미해소) 올라갑니다.` }) : null,
+    el("p", { style: "color:var(--fg3);font-size:.93em", text: "고른 계정과 유형은 다음 달부터 같은 거래처에 자동으로 쓰입니다." }),
+    el("div", { class: "row" },
+      el("button", { class: "btn btn-sec", type: "button", text: "취소", onclick: () => v.remove() }),
+      el("button", { class: "btn btn-pri", type: "button", text: "만들기", onclick: async (e) => {
+        v.remove();
+        await busy($("finish"), "만드는 중…", async () => {
+          try { showFinish(await api("/api/finish", {})); await load(); } catch (err) { banner("bad", err.message); }
+        });
+      } })));
+  v.querySelector(".btn-pri").focus();
+}
+function showFinish(r) {
+  const rows = r.outcomes.map((o) => el("tr", {}, el("td", { text: o.client }), el("td", { class: "num", text: o.period }),
+    el("td", { class: "num r", text: o.written }), el("td", { class: "num r", text: o.skipped }), el("td", { text: o.integrity })));
+  const v = veil(el("h2", { text: r.ok ? "업로드본을 만들었습니다" : "일부 파일을 만들지 못했습니다" }),
+    el("p", { text: `답지에서 계정 ${r.answered}건, 올리지 않음 ${r.excluded}건을 반영했습니다.` }),
+    rows.length ? el("table", {}, el("thead", {}, el("tr", {}, ["수임처", "기간", "업로드", "스킵", "대사"].map((h) => el("th", { text: h })))), el("tbody", {}, rows)) : null,
+    (r.failures || []).length ? el("div", { class: "banner" }, el("strong", { text: "만들지 못한 파일" }), el("ul", {}, r.failures.map((f) => el("li", { text: `${f.file} — ${f.why}` })))) : null,
+    r.uploads ? el("p", { text: `4_업로드본 폴더에 ${r.uploads}개를 만들었습니다. 위하고 '신용카드 매입 엑셀 업로드'에서 올리고, 확인한 뒤 전송하세요.` }) : null,
+    el("div", { class: "row" }, el("button", { class: "btn btn-pri", type: "button", text: "닫기", onclick: () => v.remove() })));
+  if (r.ok) { $("st-dapji").className = "done"; $("st-up").className = "now"; }
+}
+
+// ── 글쇠 ──
+document.addEventListener("keydown", (e) => {
+  if (document.querySelector(".veil")) { if (e.key === "Escape") document.querySelector(".veil").remove(); return; }
+  const typing = e.target.closest("input[type=search],input:not([type]),input[list],textarea,select");
+  const list = visible();
+  const i = list.findIndex((r) => r.key === S.sel);
+  if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+    if (typing && e.target.tagName === "SELECT") return;
+    e.preventDefault();
+    const j = Math.max(0, Math.min(list.length - 1, i + (e.key === "ArrowDown" ? 1 : -1)));
+    if (list[j]) select(list[j].key);
+    return;
+  }
+  if (e.key === "Enter" && S.sel && (!typing || e.target.id === "d-acct")) {
+    e.preventDefault();
+    const btn = [...document.querySelectorAll(".detail .btn-pri")].pop();
+    if (btn) btn.click();
+    return;
+  }
+  if (!typing && S.hasType && ["1", "2", "3"].includes(e.key)) {
+    const b = document.querySelectorAll(".detail .seg button")[Number(e.key) - 1];
+    if (b) b.click();
+  }
+});
+window.addEventListener("beforeunload", (e) => { if (S.dirty.size) { saveNow(); e.preventDefault(); e.returnValue = ""; } });
+
+$("prep").addEventListener("click", doPrepare);
+$("finish").addEventListener("click", doFinish);
+$("font").addEventListener("click", () => { const on = document.documentElement.classList.toggle("big"); store.set("kafa-big", on); });
+if (store.get("kafa-big", true)) document.documentElement.classList.add("big");
+load().catch((e) => banner("bad", e.message));
+</script>
+</body>
+</html>

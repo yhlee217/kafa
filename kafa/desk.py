@@ -636,8 +636,10 @@ def setup(base=None, *, import_db=None, import_clients=None, python: str | None 
             (paths.inbox / cid).mkdir(exist_ok=True)
         notes.append(f"받은자료 폴더: 수임처 {len(clients)}곳")
     py = python or sys.executable
-    for name, cmd in (("처리하기.bat", "prepare"), ("업로드본_만들기.bat", "finish")):
+    for name, cmd in (("처리하기.bat", "prepare"), ("업로드본_만들기.bat", "finish"),
+                      ("답지_화면.bat", "screen")):
         (paths.base / name).write_text(_BAT.format(python=py, cmd=cmd), encoding="utf-8",
                                        newline="\r\n")
-    notes.append("실행 아이콘: 처리하기.bat · 업로드본_만들기.bat")
+    notes.append("실행 아이콘: 답지_화면.bat(처리하기·답지·업로드본을 한 화면에서) · "
+                 "처리하기.bat · 업로드본_만들기.bat")
     return notes

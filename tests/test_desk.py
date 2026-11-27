@@ -190,6 +190,7 @@ def test_setup_makes_folders_launchers_and_imports(tmp_path):
     assert b"\r\n" in bat and br"C:\Python312\python.exe" in bat
     assert b"kafa.desk_cli prepare" in bat and b"chcp 65001" in bat
     assert b"kafa.desk_cli finish" in (b / "업로드본_만들기.bat").read_bytes()
+    assert b"kafa.desk_cli screen" in (b / "답지_화면.bat").read_bytes()
     from kafa.config_loader import client_profile
     assert client_profile("고객A")["client_type"] == "individual"
     assert any("수임처 2곳" in n for n in notes)
