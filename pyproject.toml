@@ -38,6 +38,9 @@ kafa-desk = "kafa.desk_cli:main"
 [tool.setuptools.packages.find]
 include = ["kafa*"]
 
+[tool.setuptools.package-data]
+"kafa.screen" = ["*.html"]
+
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]

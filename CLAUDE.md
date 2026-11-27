@@ -61,6 +61,8 @@ kafa/
   run_cli.py          kafa-run — 수집→속성→처리를 한 명령으로(설정은 ~/.kafa/run.json)
   desk.py, desk_cli.py  아버님 PC(Windows)용 kafa-desk — 처리하기(엑셀 답지·클로드 질문 파일) /
                       업로드본 만들기(답지 → 업로드본, 답은 처리 이력으로 학습). 쓰는 법 docs/desk.md
+  screen/             답지 화면 — 브라우저로 여는 로컬 프로그램(표준 http.server, 127.0.0.1 전용).
+                      저장소는 답지 엑셀 그대로(kafa-desk screen / 답지_화면.bat)
   lookup/             대행사 건 원본 결제내역 되찾기(의뢰서·이용내역 파싱·로컬 대조·수임처 자료요청서)
                       + CLI(kafa-lookup) — 프롬프트는 docs/cowork_lookup.md
   learn/              처리 이력 → 보류 규칙 추정(infer, 자동적용 금지·근거 제시) + CLI(kafa-learn)
@@ -118,6 +120,7 @@ kafa-ask exam --father-only           # 담당자가 정한 행(답지·전표�
 python -m kafa.store.backfill         # 보관함 원본으로 처리 이력의 '전표확정' 되살리기(한 번)
 python -m kafa.learn.type_check       # 유형 기준표(꺼 둠)가 담당자 판단과 맞는 비율
 kafa-desk setup --import-db kafa.db --import-clients clients.yaml   # 아버님 PC 에 한 번
+kafa-desk screen                      # 답지 화면(브라우저) — 처리하기·답지·업로드본을 한 화면에서
 #   그다음은 처리하기.bat → (클로드) → 답지.xlsx → 업로드본_만들기.bat  (docs/desk.md)
 ```
 Claude Desktop: `claude_desktop_config.json` 에 `{"mcpServers":{"kafa":{"command":"kafa-mcp"}}}`.

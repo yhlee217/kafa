@@ -3,6 +3,7 @@
     kafa-desk setup   [--base 폴더] [--import-db kafa.db] [--import-clients clients.yaml]
     kafa-desk prepare [--base 폴더]   처리하기 — 답지·클로드 질문 파일 만들기(클로드 답이 있으면 먼저 반영)
     kafa-desk finish  [--base 폴더]   업로드본 만들기 — 답지의 계정으로 업로드본, 답은 이력에 쌓기
+    kafa-desk screen  [--base 폴더]   답지 화면 — 브라우저로 답지를 보고 고친다(엑셀 대신)
 
 쓰는 법: docs/desk.md
 """
@@ -53,6 +54,12 @@ def _finish(args) -> int:
     return 0 if res.ok else 1
 
 
+def _screen(args) -> int:
+    from kafa.screen.server import serve
+    serve(args.base, port=args.port, open_browser=not args.no_browser, config_dir=args.config_dir)
+    return 0
+
+
 def _setup(args) -> int:
     from kafa.desk import setup
     for line in setup(args.base, import_db=args.import_db, import_clients=args.import_clients,
@@ -75,9 +82,13 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--force", action="store_true", help="이미 있어도 덮어쓴다")
     sub.add_parser("prepare", parents=[common], help="처리하기")
     sub.add_parser("finish", parents=[common], help="업로드본 만들기")
+    sc = sub.add_parser("screen", parents=[common], help="답지 화면(브라우저)")
+    sc.add_argument("--port", type=int, default=0, help="포트(기본: 빈 포트를 고른다)")
+    sc.add_argument("--no-browser", action="store_true", help="브라우저를 열지 않는다")
     args = ap.parse_args(argv)
     try:
-        return {"setup": _setup, "prepare": _prepare, "finish": _finish}[args.cmd](args)
+        return {"setup": _setup, "prepare": _prepare, "finish": _finish,
+                "screen": _screen}[args.cmd](args)
     except DeskError as e:
         print(f"[멈춤] {e}", file=sys.stderr)
         return 2
