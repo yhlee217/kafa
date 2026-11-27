@@ -121,6 +121,7 @@ python -m kafa.store.backfill         # 보관함 원본으로 처리 이력의 
 python -m kafa.learn.type_check       # 유형 기준표(꺼 둠)가 담당자 판단과 맞는 비율
 kafa-desk setup                       # 아버님 PC 에 한 번(Claude Code 프롬프트: docs/install_windows.md)
 kafa-desk screen                      # 답지 화면(브라우저) — 처리하기·답지·업로드본을 한 화면에서
+python tools/make_demo.py <폴더>      # 개발용 가짜 자료 → kafa-desk screen --base <폴더> (docs/dev_windows.md)
 #   그다음은 처리하기.bat → (클로드) → 답지.xlsx → 업로드본_만들기.bat  (docs/desk.md)
 ```
 Claude Desktop: `claude_desktop_config.json` 에 `{"mcpServers":{"kafa":{"command":"kafa-mcp"}}}`.
