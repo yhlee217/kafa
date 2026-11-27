@@ -81,14 +81,12 @@
 
 ## 설치 (아드님이 한 번)
 
-1. Python 3.12 를 python.org 에서 설치합니다('Add python.exe to PATH' 체크).
-2. 코드를 받습니다: `git clone https://github.com/yhlee217/kafa` (또는 GitHub 에서 ZIP).
-3. 그 폴더에서 `py -m pip install -e .`
-4. 아드님 Mac 의 **처리 이력** `~/kafa-out/kafa.db` 와 **수임처 속성** `~/.kafa/clients.yaml` 을
-   USB 등으로 아버님 PC 에 옮깁니다(수임처 이름이 들어 있습니다 — 메일·클라우드에 올리지 않기).
-5. `py -m kafa.desk_cli setup --import-db <옮긴 kafa.db> --import-clients <옮긴 clients.yaml>`
-   - `kafa` 폴더, 수임처별 받은자료 폴더, `처리하기.bat` · `업로드본_만들기.bat` 이 생깁니다.
-   - 두 .bat 의 바로가기를 바탕화면에 두면 편합니다.
-6. 옮긴 뒤로는 **아버님 PC 가 원본**입니다. 아드님 Mac 에서 같은 달을 따로 처리하지 않습니다(이력이 갈라집니다).
+**Claude Code 에 붙여넣는 설치·업데이트 프롬프트: `docs/install_windows.md`.** 요약:
+- 코드는 GitHub 에서 받는다(`git clone https://github.com/yhlee217/kafa C:\kafa-app`, 공개 저장소).
+- 수임처 속성은 아버님이 채운 **조사표 엑셀**로 아버님 PC 에서 만든다(`kafa-clients import`). USB 가 필요 없다.
+- 처리 이력(`kafa.db`)은 옮기지 않는다. 첫 달부터 이력 추천을 쓰려면 그 파일 하나만 USB·사무실 공유 폴더로
+  옮겨 `setup --import-db` 로 넣는다(실명이 있으니 메일·클라우드에 올리지 않는다).
+- `setup` 이 `kafa` 폴더와 `답지_화면.bat` · `처리하기.bat` · `업로드본_만들기.bat` 을 만든다.
+- 옮긴 뒤로는 **아버님 PC 가 원본**입니다. 아드님 Mac 에서 같은 달을 따로 처리하지 않습니다(이력이 갈라집니다).
 
-업데이트는 코드 폴더에서 `git pull` 한 줄입니다(아드님).
+업데이트는 같은 문서의 업데이트 프롬프트(`git pull` → 설치 → 테스트 → `setup`)로 합니다.
