@@ -119,7 +119,7 @@ kafa-ask prior                        # 사무실 전체 이력 추천 정답률
 kafa-ask exam --father-only           # 담당자가 정한 행(답지·전표확정)만 정답으로 — 기본은 위하고 자동 분류 일치율
 python -m kafa.store.backfill         # 보관함 원본으로 처리 이력의 '전표확정' 되살리기(한 번)
 python -m kafa.learn.type_check       # 유형 기준표(꺼 둠)가 담당자 판단과 맞는 비율
-kafa-desk setup --import-db kafa.db --import-clients clients.yaml   # 아버님 PC 에 한 번
+kafa-desk setup                       # 아버님 PC 에 한 번(Claude Code 프롬프트: docs/install_windows.md)
 kafa-desk screen                      # 답지 화면(브라우저) — 처리하기·답지·업로드본을 한 화면에서
 #   그다음은 처리하기.bat → (클로드) → 답지.xlsx → 업로드본_만들기.bat  (docs/desk.md)
 ```
